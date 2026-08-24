@@ -63,7 +63,8 @@ export interface FeatureFlags {
 export interface InfoResponse {
   version: string;
   uptimeSeconds: number;
-  auth: { type: AuthType; enabled: boolean };
+  /** `user` is null for an anonymous caller when auth is enabled. */
+  auth: { type: AuthType; enabled: boolean; user?: User | null };
   features: Partial<FeatureFlags> & Record<string, boolean>;
   clusters: { id: string; name: string }[];
 }

@@ -224,12 +224,30 @@ async def eval_consumer_group(
         name = str(group.get("groupId"))
         if not isinstance(partitions, list):
             continue
-        lags = [float(p.get("lag") or 0) for p in partitions]
+        # `group_offsets` reports committed offsets only; lag needs the end offset of
+        # each partition, so resolve the high watermarks the same way the group detail
+        # endpoint does. Without this every lag measurement is 0 and lag alerts never fire.
+        lags = await _group_lags(admin, partitions)
         if metric == "lag" or metric == "consumptionDifference":
             out.append(Measurement(name, sum(lags), {"partitions": len(lags)}))
         elif metric == "lagPerPartition":
             out.append(Measurement(name, max(lags) if lags else 0.0, {"partitions": len(lags)}))
     return out
+
+
+async def _group_lags(admin: Any, partitions: list[dict[str, Any]]) -> list[float]:
+    """Lag per committed partition = max(endOffset - committedOffset, 0)."""
+    if not partitions:
+        return []
+    try:
+        marks = await admin.watermarks([(p["topic"], p["partition"]) for p in partitions])
+    except Exception:
+        return []
+    lags: list[float] = []
+    for p in partitions:
+        _low, high = marks.get((p["topic"], p["partition"]), (0, 0))
+        lags.append(float(max(high - p["offset"], 0)))
+    return lags
 
 
 # ---------------------------------------------------------------------- connector

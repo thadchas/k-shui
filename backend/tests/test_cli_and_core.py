@@ -196,3 +196,63 @@ async def test_sampler_manager_start_stop(settings: Any) -> None:
     assert manager.get("test") is not None
     assert manager.get("missing") is None
     await manager.stop()
+
+
+# ------------------------------------------------------------- SPA base path
+
+
+def test_render_index_is_untouched_at_root(tmp_path):
+    from k_shui.main import _render_index
+
+    index = tmp_path / "index.html"
+    index.write_text('<head><script src="/assets/app.js"></script></head>', encoding="utf-8")
+    assert _render_index(index, "") == index.read_text(encoding="utf-8")
+
+
+def test_render_index_prefixes_assets_and_injects_base(tmp_path):
+    """Behind an ingress sub-path the bundle's root-absolute URLs must be rewritten,
+    and the prefix published for the frontend's basePath() helper."""
+    from k_shui.main import _render_index
+
+    index = tmp_path / "index.html"
+    index.write_text(
+        '<head><link rel="icon" href="/favicon.svg">'
+        '<script type="module" src="/assets/index.js"></script></head><body></body>',
+        encoding="utf-8",
+    )
+    html = _render_index(index, "/kshui")
+
+    assert 'src="/kshui/assets/index.js"' in html
+    assert 'href="/kshui/favicon.svg"' in html
+    assert 'window.__KSHUI_BASE__="/kshui"' in html
+    # protocol-relative and absolute URLs must not be touched
+    assert "/kshui//" not in html
+
+
+def test_render_index_leaves_external_urls_alone(tmp_path):
+    from k_shui.main import _render_index
+
+    index = tmp_path / "index.html"
+    index.write_text('<head><link href="https://cdn.test/x.css"><img src="//cdn/y.png"></head>')
+    html = _render_index(index, "/kshui")
+    assert 'href="https://cdn.test/x.css"' in html
+    assert 'src="//cdn/y.png"' in html
+
+
+def test_render_css_prefixes_font_urls(tmp_path):
+    """Fonts are fetched by the CSS engine, not resolved from index.html, so the
+    stylesheet's own url(...) targets need the same prefix."""
+    from k_shui.main import _render_css
+
+    (tmp_path / "app.css").write_text(
+        "@font-face{src:url(/assets/inter.woff2)}.x{background:url(/assets/bg.png)}",
+        encoding="utf-8",
+    )
+    (tmp_path / "plain.css").write_text(".y{color:red}", encoding="utf-8")
+
+    assert _render_css(tmp_path, "") == {}
+
+    out = _render_css(tmp_path, "/kshui")
+    assert "plain.css" not in out  # nothing to rewrite
+    assert "url(/kshui/assets/inter.woff2)" in out["app.css"]
+    assert "url(/kshui/assets/bg.png)" in out["app.css"]

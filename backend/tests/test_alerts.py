@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import time
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -523,3 +525,82 @@ async def test_evaluate_endpoint_runs_a_pass(api, integration_app):
     body = (await api.post(A + "/evaluate")).json()
     assert set(body) >= {"evaluated", "fired", "resolved"}
     assert integration_app.state.alert_engine.running is True
+
+
+# --------------------------------------------------------------- `since` filter
+
+
+async def test_history_since_accepts_relative_durations(api):
+    """The UI sends `24h`/`7d`/`all`; older clients send a raw epoch. All must work."""
+    await store.create_history(
+        {
+            "id": "old",
+            "triggerId": "t1",
+            "triggerName": "A",
+            "component": "cluster",
+            "clusterId": CLUSTER,
+            "severity": "warning",
+            "status": "firing",
+            "value": 1,
+            "threshold": 0,
+            "target": "x",
+            "firedAt": datetime.fromtimestamp(time.time() - 10 * 86400, UTC).isoformat(),
+        }
+    )
+    await store.create_history(
+        {
+            "id": "recent",
+            "triggerId": "t1",
+            "triggerName": "A",
+            "component": "cluster",
+            "clusterId": CLUSTER,
+            "severity": "warning",
+            "status": "firing",
+            "value": 1,
+            "threshold": 0,
+            "target": "y",
+        }
+    )
+
+    # a 7d window hides the 10-day-old row
+    week = await api.get(A + "/history", params={"since": "7d"})
+    assert week.status_code == 200
+    assert [i["id"] for i in week.json()["items"]] == ["recent"]
+
+    # `all` and an omitted value mean "no filter"
+    for params in ({"since": "all"}, {}):
+        assert (await api.get(A + "/history", params=params)).json()["total"] == 2
+
+    # a raw epoch cutoff still works
+    epoch = await api.get(A + "/history", params={"since": time.time() - 86400})
+    assert [i["id"] for i in epoch.json()["items"]] == ["recent"]
+
+
+async def test_history_since_rejects_garbage(api):
+    resp = await api.get(A + "/history", params={"since": "last-tuesday"})
+    assert resp.status_code == 400
+    assert resp.json()["type"].endswith("bad-request")
+
+
+# ------------------------------------------------- consumer-group lag evaluation
+
+
+async def test_consumer_group_lag_uses_watermarks(ctx):
+    """Regression: `group_offsets` reports committed offsets only and carries no
+    `lag` key, so lag must be derived from the end offsets. Reading a non-existent
+    `lag` field made every measurement 0 and lag alerts could never fire."""
+    from k_shui.integrations.alerts.evaluators import eval_consumer_group
+
+    # fake cluster: group `app-consumers` committed 90 on orders-0, which ends at 100
+    measurements = await eval_consumer_group(ctx, "lag", {"name": "app-consumers"})
+    assert [(m.target, m.value) for m in measurements] == [("app-consumers", 10.0)]
+
+    per_partition = await eval_consumer_group(ctx, "lagPerPartition", {"name": "app-consumers"})
+    assert per_partition[0].value == 10.0
+
+
+async def test_consumer_group_lag_target_filter(ctx):
+    from k_shui.integrations.alerts.evaluators import eval_consumer_group
+
+    assert await eval_consumer_group(ctx, "lag", {"name": "nope"}) == []
+    assert [m.target for m in await eval_consumer_group(ctx, "lag", None)] == ["app-consumers"]

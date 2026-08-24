@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -12,7 +13,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from k_shui import __version__, metrics
 from k_shui.api import build_api_router
@@ -219,7 +220,23 @@ def _install_spa(app: FastAPI, settings: Settings) -> None:
 
     assets = STATIC_DIR / "assets"
     if assets.is_dir():
+        # Stylesheets reference the web fonts at root-absolute URLs too, and those are
+        # fetched by the CSS engine rather than resolved from index.html, so they need
+        # the same prefixing. Serve rewritten copies ahead of the static mount.
+        for name, body in _render_css(assets, _base_path(settings)).items():
+            app.add_api_route(
+                f"/assets/{name}",
+                _css_route(body),
+                methods=["GET"],
+                include_in_schema=False,
+            )
         app.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+    # The bundle is built with vite `base: "/"`, so index.html references its assets
+    # at root-absolute paths. Behind an ingress that serves the UI under a sub-path
+    # those URLs resolve outside the app and 404, so rewrite them once at startup and
+    # publish the prefix for the frontend's basePath() helper to read.
+    index_body = _render_index(index, _base_path(settings))
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa(full_path: str) -> Response:
@@ -228,7 +245,47 @@ def _install_spa(app: FastAPI, settings: Settings) -> None:
         candidate = (STATIC_DIR / full_path).resolve()
         if full_path and candidate.is_file() and STATIC_DIR.resolve() in candidate.parents:
             return FileResponse(candidate)
-        return FileResponse(index)
+        return HTMLResponse(index_body)
+
+
+_BASE_TAG_RE = re.compile(r'\b(src|href)="/(?!/)')
+_BASE_CSS_RE = re.compile(r"url\(/(?!/)")
+
+
+def _render_css(assets: Path, base: str) -> dict[str, str]:
+    """Stylesheets whose root-absolute ``url(...)`` targets need the base prefix."""
+    if not base:
+        return {}
+    out: dict[str, str] = {}
+    for css in assets.glob("*.css"):
+        body = css.read_text(encoding="utf-8")
+        rewritten = _BASE_CSS_RE.sub(f"url({base}/", body)
+        if rewritten != body:
+            out[css.name] = rewritten
+    return out
+
+
+def _css_route(body: str):
+    async def route() -> Response:
+        return Response(body, media_type="text/css")
+
+    return route
+
+
+def _render_index(index: Path, base: str) -> str:
+    """index.html with asset URLs prefixed by ``base`` and ``window.__KSHUI_BASE__`` set.
+
+    ``base`` is "" when the UI is served from the root, in which case the document is
+    returned untouched.
+    """
+    html = index.read_text(encoding="utf-8")
+    if not base:
+        return html
+    html = _BASE_TAG_RE.sub(rf'\1="{base}/', html)
+    inject = f'<script>window.__KSHUI_BASE__="{base}";</script>'
+    if "</head>" in html:
+        return html.replace("</head>", f"  {inject}\n  </head>", 1)
+    return inject + html
 
 
 def _install_otel(app: FastAPI, settings: Settings) -> None:

@@ -23,6 +23,15 @@ log = get_logger(__name__)
 
 METADATA_TTL = 5.0
 DEFAULT_TIMEOUT = 15.0
+# Watermarks are fetched one partition at a time, so an unreachable broker would
+# otherwise cost `partitions * timeout` (minutes on a large cluster). Bound both the
+# individual call and the whole sweep.
+WATERMARK_TIMEOUT = 5.0
+WATERMARK_BUDGET = 10.0
+# librdkafka clients can stay wedged after a broker outage (every request keeps failing
+# with _TRANSPORT even once the broker is back). Rebuild the client after this many
+# consecutive transport failures so a cluster recovers without restarting k-shui.
+RECYCLE_AFTER_TRANSPORT_FAILURES = 3
 RESOURCE_ALIASES = {"topic": "TOPIC", "broker": "BROKER", "cluster": "BROKER", "group": "GROUP"}
 
 
@@ -56,6 +65,8 @@ class KafkaAdmin(SecurityAdminMixin):
         self._config = client_config(ctx)
         self._admin: Any = None
         self._consumer: Any = None
+        self._transport_failures = 0
+        self._needs_recycle = False
         self._consumer_lock = asyncio.Lock()
         self._cache: TTLCache[str, Any] = TTLCache(maxsize=64, ttl=METADATA_TTL)
 
@@ -68,8 +79,25 @@ class KafkaAdmin(SecurityAdminMixin):
     def get(ctx: ClusterContext) -> KafkaAdmin:
         return ctx.client("kafka_admin", KafkaAdmin.from_context)
 
+    def _recycle_if_needed(self) -> None:
+        """Drop wedged cimpl clients so the next call builds fresh ones.
+
+        The references are released rather than closed: a worker thread may still be
+        inside a call on the old object, and closing it underneath that thread is not
+        safe. Python finalises them once the last reference goes.
+        """
+        if not self._needs_recycle:
+            return
+        self._needs_recycle = False
+        self._transport_failures = 0
+        self._admin = None
+        self._consumer = None
+        self._cache.clear()
+        log.info("kafka.admin.recycled", cluster=self.cluster_id)
+
     @property
     def admin(self) -> Any:
+        self._recycle_if_needed()
         if self._admin is None:
             from confluent_kafka.admin import AdminClient
 
@@ -84,9 +112,17 @@ class KafkaAdmin(SecurityAdminMixin):
     async def _call(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
         """Run a blocking admin call in a thread, translating errors."""
         try:
-            return await asyncio.to_thread(fn, *args, **kwargs)
+            result = await asyncio.to_thread(fn, *args, **kwargs)
         except Exception as exc:
-            raise self._translate(exc) from exc
+            translated = self._translate(exc)
+            if isinstance(translated, IntegrationUnavailable):
+                self._transport_failures += 1
+                if self._transport_failures >= RECYCLE_AFTER_TRANSPORT_FAILURES:
+                    # flagged, not rebuilt here: this call may still hold the client
+                    self._needs_recycle = True
+            raise translated from exc
+        self._transport_failures = 0
+        return result
 
     def _translate(self, exc: Exception) -> Exception:
         text = str(exc)
@@ -315,6 +351,7 @@ class KafkaAdmin(SecurityAdminMixin):
 
     # ------------------------------------------------------------------ offsets
     def _watermark_consumer(self) -> Any:
+        self._recycle_if_needed()
         if self._consumer is None:
             from confluent_kafka import Consumer
 
@@ -330,20 +367,48 @@ class KafkaAdmin(SecurityAdminMixin):
             self._consumer = Consumer(cfg)
         return self._consumer
 
-    async def watermarks(self, partitions: list[tuple[str, int]]) -> dict[tuple[str, int], tuple[int, int]]:
-        """Begin/end offsets for many partitions in a single worker-thread hop."""
+    async def watermarks(
+        self,
+        partitions: list[tuple[str, int]],
+        per_partition: float | None = None,
+        budget: float | None = None,
+    ) -> dict[tuple[str, int], tuple[int, int]]:
+        """Begin/end offsets for many partitions in a single worker-thread hop.
+
+        ``per_partition`` caps each partition lookup and ``budget`` the whole sweep; once the
+        budget is spent the remaining partitions report ``(0, 0)`` rather than letting a
+        dead broker stall the caller for ``partitions * timeout`` seconds.
+        """
         if not partitions:
             return {}
+        import time as _time
+
         from confluent_kafka import TopicPartition
 
         consumer = self._watermark_consumer()
         tps = [(t, p, TopicPartition(t, p)) for t, p in partitions]
+        per_call = per_partition if per_partition is not None else min(self.timeout, WATERMARK_TIMEOUT)
+        total = budget if budget is not None else WATERMARK_BUDGET
 
         def _run() -> dict[tuple[str, int], tuple[int, int]]:
             result: dict[tuple[str, int], tuple[int, int]] = {}
+            deadline = _time.monotonic() + total if total else None
+            expired = False
             for topic, part, tp in tps:
+                if expired:
+                    result[(topic, part)] = (0, 0)
+                    continue
+                call_timeout = per_call
+                if deadline is not None:
+                    remaining = deadline - _time.monotonic()
+                    if remaining <= 0:
+                        expired = True
+                        result[(topic, part)] = (0, 0)
+                        log.debug("kafka.watermark_budget_exhausted", cluster=self.cluster_id)
+                        continue
+                    call_timeout = min(per_call, remaining)
                 try:
-                    low, high = consumer.get_watermark_offsets(tp, timeout=self.timeout, cached=False)
+                    low, high = consumer.get_watermark_offsets(tp, timeout=call_timeout, cached=False)
                     result[(topic, part)] = (low, high)
                 except Exception as exc:
                     log.debug("kafka.watermark_failed", topic=topic, partition=part, error=str(exc))

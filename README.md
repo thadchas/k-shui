@@ -110,11 +110,16 @@ for every field.
 
 ## Screenshots
 
-> Images not yet committed — see [`docs/images/`](docs/images/) for the expected filenames as the UI stabilizes.
-
 | Cluster overview | Message browser | Stream lineage |
 |---|---|---|
 | ![Cluster overview](docs/images/overview.png) | ![Message browser](docs/images/messages.png) | ![Stream lineage](docs/images/lineage.png) |
+| Topics | Consumer group | Alerts |
+| ![Topics](docs/images/topics.png) | ![Consumer group](docs/images/consumer-group.png) | ![Alerts](docs/images/alerts.png) |
+| Schemas | Kafka Connect | Flink job |
+| ![Schemas](docs/images/schemas.png) | ![Kafka Connect](docs/images/connect.png) | ![Flink job](docs/images/flink-job.png) |
+
+Shown in dark theme; `docs/images/*-light.png` has light-theme captures of the
+clusters, overview, topics and message-browser screens.
 
 ## Connect to your existing stack
 

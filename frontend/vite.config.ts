@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import fs from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -25,9 +26,23 @@ const monacoTrimUnusedLanguageServices = {
   },
 };
 
+/**
+ * `emptyOutDir` wipes backend/k_shui/static on every build, including the tracked
+ * .gitkeep that keeps the directory present in a fresh clone (the Python package
+ * needs it to exist). Put it back once the bundle is written.
+ */
+const keepStaticDirTracked = {
+  name: 'kshui:keep-gitkeep',
+  closeBundle() {
+    const keep = path.resolve(import.meta.dirname, '../backend/k_shui/static/.gitkeep');
+    fs.mkdirSync(path.dirname(keep), { recursive: true });
+    if (!fs.existsSync(keep)) fs.writeFileSync(keep, '');
+  },
+};
+
 export default defineConfig({
   base: '/',
-  plugins: [react(), tailwindcss(), monacoTrimUnusedLanguageServices],
+  plugins: [react(), tailwindcss(), monacoTrimUnusedLanguageServices, keepStaticDirTracked],
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, './src'),
@@ -55,7 +70,11 @@ export default defineConfig({
           if (!pkg) return undefined;
           if (pkg === 'react' || pkg === 'react-dom' || pkg === 'scheduler') return 'react';
           if (pkg === 'monaco-editor' || pkg === '@monaco-editor/react') return 'monaco';
-          if (pkg === '@xyflow/react' || pkg === 'dagre' || pkg === 'graphlib') return 'flow';
+          // NOTE: every @xyflow/* package must land in the same chunk. @xyflow/system
+          // depends on d3-drag/d3-zoom/d3-selection, so leaving it in `vendor` makes
+          // `vendor` import `charts` while `charts` already imports `vendor` — a chunk
+          // cycle that throws "Cannot access 'X' before initialization" at runtime.
+          if (pkg.startsWith('@xyflow/') || pkg === 'dagre' || pkg === 'graphlib') return 'flow';
           if (pkg === 'recharts' || pkg === 'victory-vendor' || pkg.startsWith('d3-'))
             return 'charts';
           if (pkg === 'react-router' || pkg.startsWith('@tanstack/')) return 'router-query';

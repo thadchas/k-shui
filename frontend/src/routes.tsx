@@ -3,7 +3,6 @@ import { routerBasename } from '@/lib/utils';
 import { AppShell } from '@/layouts/AppShell';
 import { NotFound } from '@/layouts/NotFound';
 
-/* fully implemented */
 import { ClustersPage } from '@/pages/clusters/ClustersPage';
 import { ClusterOverviewPage } from '@/pages/overview/ClusterOverviewPage';
 import { BrokersPage } from '@/pages/brokers/BrokersPage';
@@ -20,7 +19,6 @@ import { AppSettingsPage } from '@/pages/settings/AppSettingsPage';
 import { AuditPage } from '@/pages/audit/AuditPage';
 import { LoginPage } from '@/pages/auth/LoginPage';
 
-/* placeholders — replaced by later agents (see src/pages/_placeholder) */
 import { SchemasPage } from '@/pages/schemas/SchemasPage';
 import { NewSchemaPage } from '@/pages/schemas/NewSchemaPage';
 import { SchemaDetailPage } from '@/pages/schemas/SchemaDetailPage';

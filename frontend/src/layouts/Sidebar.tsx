@@ -4,6 +4,7 @@ import type { FeatureFlags } from '@/api/types';
 import { ADMIN_NAV, NAV_GROUPS, isFeatureEnabled, navHref, type NavItem } from '@/lib/nav';
 import { cn } from '@/lib/utils';
 import { useUiStore } from '@/stores/ui';
+import { BrandMark } from '@/components/brand-mark';
 import { ClusterSwitcher } from '@/components/ClusterSwitcher';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -94,9 +95,7 @@ export function Sidebar({ clusterId, features, version }: SidebarProps) {
           className="flex items-center gap-2 focus-visible:outline-none"
           aria-label="k-shui home"
         >
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-[var(--primary)] font-mono text-sm font-bold text-[var(--primary-foreground)]">
-            k
-          </span>
+          <BrandMark />
           {!collapsed ? <span className="text-sm font-semibold tracking-tight">k-shui</span> : null}
         </NavLink>
       </div>

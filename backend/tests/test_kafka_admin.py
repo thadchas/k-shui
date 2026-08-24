@@ -126,3 +126,90 @@ def test_registry_lookup(settings: Any) -> None:
     assert registry.ids() == ["test"]
     assert registry.get("nope") is None
     assert len(registry.all()) == 1
+
+
+# ----------------------------------------------------- watermark sweep bounding
+
+
+async def test_watermarks_stops_at_budget(raw_admin: KafkaAdmin, monkeypatch) -> None:
+    """A dead broker must not cost `partitions * timeout`: once the sweep budget is
+    spent the remaining partitions report (0, 0) instead of each blocking again."""
+    calls: list[float] = []
+    clock = {"t": 0.0}
+
+    class StallingConsumer:
+        def get_watermark_offsets(self, _tp, timeout: float, cached: bool):
+            calls.append(timeout)
+            clock["t"] += timeout  # simulate the call burning its whole timeout
+            raise RuntimeError("Local: Broker transport failure (_TRANSPORT)")
+
+    monkeypatch.setattr(raw_admin, "_watermark_consumer", lambda: StallingConsumer())
+    monkeypatch.setattr("time.monotonic", lambda: clock["t"])
+
+    parts = [("t", i) for i in range(50)]
+    result = await raw_admin.watermarks(parts, per_partition=2.0, budget=6.0)
+
+    # every partition still gets an entry, but only a few calls were actually made
+    assert len(result) == 50
+    assert all(v == (0, 0) for v in result.values())
+    assert sum(calls) <= 6.0 + 2.0
+    assert len(calls) < 10
+
+
+async def test_watermarks_defaults_are_bounded(raw_admin: KafkaAdmin) -> None:
+    from k_shui.kafka.admin import WATERMARK_BUDGET, WATERMARK_TIMEOUT
+
+    assert raw_admin.timeout > WATERMARK_TIMEOUT
+    assert 50 * raw_admin.timeout > WATERMARK_BUDGET
+
+
+async def test_watermarks_empty_is_a_noop(raw_admin: KafkaAdmin) -> None:
+    assert await raw_admin.watermarks([]) == {}
+
+
+# --------------------------------------------------------- wedged-client recycle
+
+
+async def test_client_recycles_after_repeated_transport_failures(raw_admin: KafkaAdmin) -> None:
+    """A librdkafka client can stay wedged after an outage; repeated transport
+    failures must drop it so the next call builds a fresh one."""
+    from k_shui.kafka.admin import RECYCLE_AFTER_TRANSPORT_FAILURES
+
+    raw_admin._admin = object()
+    raw_admin._cache["md:*"] = "stale"
+
+    def boom() -> None:
+        raise RuntimeError("Local: Broker transport failure (_TRANSPORT)")
+
+    for _ in range(RECYCLE_AFTER_TRANSPORT_FAILURES):
+        with pytest.raises(IntegrationUnavailable):
+            await raw_admin._call(boom)
+
+    assert raw_admin._needs_recycle is True
+    raw_admin._recycle_if_needed()
+    assert raw_admin._admin is None
+    assert "md:*" not in raw_admin._cache
+    assert raw_admin._transport_failures == 0
+
+
+async def test_success_resets_the_failure_counter(raw_admin: KafkaAdmin) -> None:
+    def boom() -> None:
+        raise RuntimeError("Local: Broker transport failure (_TRANSPORT)")
+
+    with pytest.raises(IntegrationUnavailable):
+        await raw_admin._call(boom)
+    assert raw_admin._transport_failures == 1
+
+    await raw_admin._call(lambda: "ok")
+    assert raw_admin._transport_failures == 0
+    assert raw_admin._needs_recycle is False
+
+
+async def test_non_transport_errors_do_not_recycle(raw_admin: KafkaAdmin) -> None:
+    def boom() -> None:
+        raise RuntimeError("UNKNOWN_TOPIC_OR_PART")
+
+    for _ in range(5):
+        with pytest.raises(NotFound):
+            await raw_admin._call(boom)
+    assert raw_admin._needs_recycle is False

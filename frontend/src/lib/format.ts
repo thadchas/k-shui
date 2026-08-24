@@ -48,6 +48,17 @@ export function formatBytes(bytes: number | null | undefined, fractionDigits = 1
   return `${neg ? '-' : ''}${v.toFixed(digits)} ${BYTE_UNITS[i]}`;
 }
 
+/**
+ * Topic sizes are derived from the message count times an assumed average record
+ * size (the Kafka admin API exposes no per-topic log size), so they are always an
+ * approximation. Render them with a leading "~" so the number is not mistaken for
+ * an exact on-disk figure.
+ */
+export function formatBytesEstimate(bytes: number | null | undefined, fractionDigits = 1): string {
+  const formatted = formatBytes(bytes, fractionDigits);
+  return formatted === '—' ? formatted : `~${formatted}`;
+}
+
 export function formatBytesPerSec(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined || Number.isNaN(bytes)) return '—';
   return `${formatBytes(bytes)}/s`;

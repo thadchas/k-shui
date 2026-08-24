@@ -1,4 +1,4 @@
-import { Outlet, useParams } from 'react-router';
+import { Navigate, Outlet, useLocation, useParams } from 'react-router';
 import { useClusters } from '@/api/hooks/clusters';
 import { useInfo } from '@/api/hooks/system';
 import { CommandPalette } from '@/components/CommandPalette';
@@ -9,10 +9,18 @@ import { Topbar } from './Topbar';
 export function AppShell() {
   const { cluster: clusterParam } = useParams<{ cluster: string }>();
   const clusterId = clusterParam ?? null;
+  const location = useLocation();
   const { data: info } = useInfo();
   const { data: clusters } = useClusters();
 
   const cluster = clusters?.find((c) => c.id === clusterId);
+
+  // `/info` answers anonymous callers with just the auth block, so an enabled auth type
+  // with no resolved user means the session is missing or expired. Without this the
+  // shell renders an "Unauthorized" panel with no way to sign in.
+  if (info?.auth.enabled && !info.auth.user) {
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  }
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-[var(--background)]">

@@ -65,7 +65,7 @@ const LIMIT_OPTIONS = [50, 100, 250, 500, 1000].map((n) => ({
 }));
 
 function renderPreview(value: unknown): string {
-  if (value === null || value === undefined) return 'null';
+  if (value === null || value === undefined) return '—';
   if (typeof value === 'string') return value;
   try {
     return JSON.stringify(value);
@@ -164,7 +164,9 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
         cell: ({ row }) => (
           <span className="block max-w-48 truncate font-mono text-[13px]">
             {row.original.key === null || row.original.key === undefined ? (
-              <span className="text-[var(--muted)]">null</span>
+              <span className="text-[var(--muted)]" title="Record has no key">
+                —
+              </span>
             ) : (
               renderPreview(row.original.key)
             )}

@@ -111,5 +111,5 @@ async def basic_auth_client(tmp_path: Any) -> AsyncIterator[AsyncClient]:
         application.router.lifespan_context(application),
         AsyncClient(transport=transport, base_url="http://testserver") as c,
     ):
-            c.app = application  # type: ignore[attr-defined]
-            yield c
+        c.app = application  # type: ignore[attr-defined]
+        yield c

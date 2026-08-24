@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { LogIn } from 'lucide-react';
 import { useInfo, useLogin } from '@/api/hooks/system';
 import { apiUrl } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
+import { BrandMark } from '@/components/brand-mark';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { InlineError } from '@/components/ui/error-state';
@@ -13,6 +14,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // AppShell forwards the route the user was denied, so sign-in returns them there.
+  const from = (location.state as { from?: string } | null)?.from;
+  const destination = from && !from.startsWith('/login') ? from : '/clusters';
   const { data: info, isLoading } = useInfo();
   const login = useLogin();
   const token = useAuthStore((s) => s.token);
@@ -23,15 +28,15 @@ export function LoginPage() {
 
   useEffect(() => {
     if (!isLoading && (authType === 'none' || token)) {
-      void navigate('/clusters', { replace: true });
+      void navigate(destination, { replace: true });
     }
-  }, [isLoading, authType, token, navigate]);
+  }, [isLoading, authType, token, navigate, destination]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     login.mutate(
       { username, password },
-      { onSuccess: () => void navigate('/clusters', { replace: true }) },
+      { onSuccess: () => void navigate(destination, { replace: true }) },
     );
   };
 
@@ -39,9 +44,7 @@ export function LoginPage() {
     <div className="flex min-h-dvh items-center justify-center bg-[var(--background)] p-6">
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-3 text-center">
-          <span className="flex size-11 items-center justify-center rounded-[12px] bg-[var(--primary)] font-mono text-lg font-bold text-[var(--primary-foreground)]">
-            k
-          </span>
+          <BrandMark className="size-11" />
           <div>
             <h1 className="text-xl font-semibold">Sign in to k-shui</h1>
             <p className="mt-1 text-xs text-[var(--muted)]">Kafka Streaming Hub</p>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import Request
@@ -12,6 +13,12 @@ from k_shui.core.sampler import ClusterSampler, Sample
 from k_shui.kafka.admin import KafkaAdmin
 
 log = get_logger(__name__)
+
+# A cluster listing must stay responsive even when a broker is unreachable, so both the
+# reachability probe and the on-demand sampling fallback get hard deadlines instead of
+# inheriting the (much longer) Kafka client timeouts.
+SUMMARY_PROBE_DEADLINE = 5.0
+SUMMARY_SAMPLE_DEADLINE = 5.0
 
 
 def sampler_for(request: Request, cluster_id: str) -> ClusterSampler | None:
@@ -81,16 +88,20 @@ async def cluster_summary(ctx: ClusterContext, request: Request, detail: bool = 
             }
         )
     try:
-        info = await admin.describe_cluster()
+        info = await asyncio.wait_for(admin.describe_cluster(), timeout=SUMMARY_PROBE_DEADLINE)
+    except TimeoutError:
+        base["error"] = f"kafka cluster '{cfg.id}' did not respond within {SUMMARY_PROBE_DEADLINE:g}s"
+        return base
     except Exception as exc:
         base["error"] = str(exc)
         return base
 
     sample: Sample | None = sampler.latest if sampler else None
-    if sample is None or sample.error is not None:
+    if sampler is not None and (sample is None or sample.error is not None):
         try:
-            sample = await sampler.sample_once() if sampler else None
-        except Exception:
+            sample = await asyncio.wait_for(sampler.sample_once(), timeout=SUMMARY_SAMPLE_DEADLINE)
+        except Exception:  # timeout, or a broker that went away mid-sample
+            log.debug("cluster.summary_sample_unavailable", cluster=cfg.id)
             sample = None
 
     base.update(

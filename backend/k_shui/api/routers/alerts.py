@@ -20,13 +20,21 @@ from k_shui.api.schemas.alerts import (
     TriggerPatch,
     TriggerWrite,
 )
+from k_shui.core.auth import Principal, require_editor, require_viewer
 from k_shui.core.errors import BadRequest
 from k_shui.core.registry import ClusterRegistry, get_registry
 from k_shui.integrations.alerts import engine as alert_engine
 from k_shui.integrations.alerts import metrics_catalog, notifiers, store
 from k_shui.integrations.audit import audit
 
-router = APIRouter(prefix="/alerts", tags=["alerts"])
+# Alert actions store notification secrets (webhook URLs, PagerDuty routing keys, SMTP
+# credentials), so every route here requires at least a viewer; mutating routes add an
+# explicit editor dependency below.
+router = APIRouter(
+    prefix="/alerts",
+    tags=["alerts"],
+    dependencies=[Depends(require_viewer)],
+)
 
 
 async def _engine(request: Request) -> Any:
@@ -52,6 +60,7 @@ async def create_trigger(
     request: Request,
     body: TriggerWrite,
     registry: ClusterRegistry = Depends(get_registry),
+    principal: Principal = Depends(require_editor),
 ) -> Any:
     _validate(body.component, body.metric, registry, body.clusterId)
     payload = body.model_dump()
@@ -80,7 +89,10 @@ async def engine_status(request: Request) -> dict[str, Any]:
 
 
 @router.post("/evaluate")
-async def evaluate_now(request: Request) -> dict[str, Any]:
+async def evaluate_now(
+    request: Request,
+    principal: Principal = Depends(require_editor),
+) -> dict[str, Any]:
     """Force an immediate evaluation pass (useful for testing a new trigger)."""
     engine = await _engine(request)
     if engine is None:
@@ -99,6 +111,7 @@ async def update_trigger(
     trigger_id: str,
     body: TriggerPatch,
     registry: ClusterRegistry = Depends(get_registry),
+    principal: Principal = Depends(require_editor),
 ) -> Any:
     payload = body.model_dump(exclude_none=True)
     if payload.get("component") and payload.get("metric"):
@@ -109,20 +122,32 @@ async def update_trigger(
 
 
 @router.delete("/triggers/{trigger_id}", status_code=204)
-async def delete_trigger(request: Request, trigger_id: str) -> None:
+async def delete_trigger(
+    request: Request,
+    trigger_id: str,
+    principal: Principal = Depends(require_editor),
+) -> None:
     await store.delete_trigger(trigger_id)
     await audit(request, "alert.trigger.delete", f"alerts/triggers/{trigger_id}", {})
 
 
 @router.post("/triggers/{trigger_id}/enable", response_model=Trigger)
-async def enable_trigger(request: Request, trigger_id: str) -> Any:
+async def enable_trigger(
+    request: Request,
+    trigger_id: str,
+    principal: Principal = Depends(require_editor),
+) -> Any:
     trigger = await store.set_trigger_enabled(trigger_id, True)
     await audit(request, "alert.trigger.enable", f"alerts/triggers/{trigger_id}", {})
     return trigger
 
 
 @router.post("/triggers/{trigger_id}/disable", response_model=Trigger)
-async def disable_trigger(request: Request, trigger_id: str) -> Any:
+async def disable_trigger(
+    request: Request,
+    trigger_id: str,
+    principal: Principal = Depends(require_editor),
+) -> Any:
     trigger = await store.set_trigger_enabled(trigger_id, False)
     await audit(request, "alert.trigger.disable", f"alerts/triggers/{trigger_id}", {})
     return trigger
@@ -137,7 +162,11 @@ async def list_actions() -> Any:
 
 
 @router.post("/actions", response_model=Action, status_code=201)
-async def create_action(request: Request, body: ActionWrite) -> Any:
+async def create_action(
+    request: Request,
+    body: ActionWrite,
+    principal: Principal = Depends(require_editor),
+) -> Any:
     action = await store.create_action(body.model_dump())
     await audit(
         request,
@@ -154,20 +183,33 @@ async def get_action(action_id: str) -> Any:
 
 
 @router.put("/actions/{action_id}", response_model=Action)
-async def update_action(request: Request, action_id: str, body: ActionPatch) -> Any:
+async def update_action(
+    request: Request,
+    action_id: str,
+    body: ActionPatch,
+    principal: Principal = Depends(require_editor),
+) -> Any:
     action = await store.update_action(action_id, body.model_dump(exclude_none=True))
     await audit(request, "alert.action.update", f"alerts/actions/{action_id}", {})
     return action
 
 
 @router.delete("/actions/{action_id}", status_code=204)
-async def delete_action(request: Request, action_id: str) -> None:
+async def delete_action(
+    request: Request,
+    action_id: str,
+    principal: Principal = Depends(require_editor),
+) -> None:
     await store.delete_action(action_id)
     await audit(request, "alert.action.delete", f"alerts/actions/{action_id}", {})
 
 
 @router.post("/actions/{action_id}/test", response_model=TestActionResult)
-async def test_action(request: Request, action_id: str) -> Any:
+async def test_action(
+    request: Request,
+    action_id: str,
+    principal: Principal = Depends(require_editor),
+) -> Any:
     action = await store.get_action(action_id)
     settings = getattr(request.app.state, "settings", None)
     sample = {
@@ -192,6 +234,31 @@ async def test_action(request: Request, action_id: str) -> Any:
 
 # ----------------------------------------------------------------------- history
 
+_SINCE_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+
+
+def _parse_since(value: str | None) -> float | None:
+    """Resolve the `since` filter to an absolute epoch-seconds cutoff.
+
+    The UI sends relative durations (`24h`, `7d`, `30d`) and `all` for "no filter";
+    API clients may send a raw epoch. Both are accepted.
+    """
+    if value is None:
+        return None
+    raw = value.strip().lower()
+    if raw in {"", "all"}:
+        return None
+    unit = _SINCE_UNITS.get(raw[-1:])
+    if unit is not None:
+        try:
+            return time.time() - float(raw[:-1]) * unit
+        except ValueError:
+            raise BadRequest(f"invalid 'since' duration '{value}'") from None
+    try:
+        return float(raw)
+    except ValueError:
+        raise BadRequest(f"invalid 'since' value '{value}'") from None
+
 
 @router.get("/history", response_model=HistoryPage)
 async def history(
@@ -199,7 +266,7 @@ async def history(
     component: str | None = Query(None),
     clusterId: str | None = Query(None),
     triggerId: str | None = Query(None),
-    since: float | None = Query(None),
+    since: str | None = Query(None),
     page: int = Query(1, ge=1),
     perPage: int = Query(50, ge=1, le=500),
 ) -> Any:
@@ -208,14 +275,18 @@ async def history(
         component=component,
         cluster_id=clusterId,
         trigger_id=triggerId,
-        since=since,
+        since=_parse_since(since),
         page=page,
         per_page=perPage,
     )
 
 
 @router.post("/history/{history_id}/ack", response_model=HistoryEntry)
-async def ack(request: Request, history_id: str) -> Any:
+async def ack(
+    request: Request,
+    history_id: str,
+    principal: Principal = Depends(require_editor),
+) -> Any:
     user = getattr(getattr(request.state, "principal", None), "username", None)
     entry = await store.ack_history(history_id, user)
     await audit(request, "alert.history.ack", f"alerts/history/{history_id}", {})

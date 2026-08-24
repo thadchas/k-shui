@@ -182,7 +182,7 @@ async def read_only_client(tmp_path: Any) -> AsyncIterator[AsyncClient]:
         app.router.lifespan_context(app),
         AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c,
     ):
-            yield c
+        yield c
 
 
 async def test_read_only_blocks_mutations(read_only_client: AsyncClient) -> None:
@@ -202,7 +202,7 @@ async def cluster_read_only_client(tmp_path: Any) -> AsyncIterator[AsyncClient]:
         app.router.lifespan_context(app),
         AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c,
     ):
-            yield c
+        yield c
 
 
 async def test_per_cluster_read_only(cluster_read_only_client: AsyncClient) -> None:
@@ -232,5 +232,100 @@ async def test_basic_auth_rejects_password_login_when_oidc(tmp_path: Any) -> Non
         app.router.lifespan_context(app),
         AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c,
     ):
-            resp = await c.post("/api/v1/auth/login", json={"username": "a", "password": "b"})
-            assert resp.status_code == 400
+        resp = await c.post("/api/v1/auth/login", json={"username": "a", "password": "b"})
+        assert resp.status_code == 400
+
+
+# ------------------------------------------------- alerts routes are not anonymous
+
+
+ALERT_READS = [
+    "/api/v1/alerts/summary",
+    "/api/v1/alerts/triggers",
+    "/api/v1/alerts/actions",
+    "/api/v1/alerts/history",
+    "/api/v1/alerts/status",
+    "/api/v1/alerts/metrics",
+]
+
+
+@pytest.mark.parametrize("path", ALERT_READS)
+async def test_alert_reads_require_authentication(basic_auth_client: AsyncClient, path: str) -> None:
+    """Alert actions hold notification secrets (webhook URLs, PagerDuty routing keys,
+    SMTP credentials), so no alert route may be readable anonymously."""
+    assert (await basic_auth_client.get(path)).status_code == 401
+
+
+async def test_alert_writes_require_authentication(basic_auth_client: AsyncClient) -> None:
+    action = {"name": "anon", "type": "webhook", "config": {"url": "http://evil.test/x"}}
+    assert (await basic_auth_client.post("/api/v1/alerts/actions", json=action)).status_code == 401
+    assert (await basic_auth_client.post("/api/v1/alerts/evaluate")).status_code == 401
+    assert (await basic_auth_client.delete("/api/v1/alerts/actions/whatever")).status_code == 401
+
+
+async def test_viewer_reads_alerts_but_cannot_mutate(basic_auth_client: AsyncClient) -> None:
+    token = bearer(await login(basic_auth_client, "vi", "vipw"))
+
+    assert (await basic_auth_client.get("/api/v1/alerts/triggers", headers=token)).status_code == 200
+    assert (await basic_auth_client.get("/api/v1/alerts/summary", headers=token)).status_code == 200
+
+    created = await basic_auth_client.post(
+        "/api/v1/alerts/actions",
+        json={"name": "nope", "type": "webhook", "config": {"url": "http://t.test"}},
+        headers=token,
+    )
+    assert created.status_code == 403
+    assert created.json()["type"].endswith("forbidden")
+
+
+async def test_editor_can_manage_alert_actions(basic_auth_client: AsyncClient) -> None:
+    token = bearer(await login(basic_auth_client, "ed", "edpw"))
+
+    created = await basic_auth_client.post(
+        "/api/v1/alerts/actions",
+        json={"name": "ops", "type": "webhook", "config": {"url": "http://t.test"}},
+        headers=token,
+    )
+    assert created.status_code == 201
+    action_id = created.json()["id"]
+    assert (
+        await basic_auth_client.delete(f"/api/v1/alerts/actions/{action_id}", headers=token)
+    ).status_code == 204
+
+
+async def test_alerts_stay_open_when_auth_is_disabled(client: AsyncClient) -> None:
+    """auth.type=none must keep the anonymous-admin behaviour used by local runs."""
+    assert (await client.get("/api/v1/alerts/triggers")).status_code == 200
+
+
+# ------------------------------------------------------- /info is the bootstrap doc
+
+
+async def test_info_tells_anonymous_callers_how_to_sign_in(basic_auth_client: AsyncClient) -> None:
+    """A client cannot authenticate until it knows the auth type, so /info answers
+    anonymously — but must not leak the cluster inventory or feature flags."""
+    resp = await basic_auth_client.get("/api/v1/info")
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert body["auth"]["type"] == "basic"
+    assert body["auth"]["enabled"] is True
+    assert body["auth"]["user"] is None
+    assert body["clusters"] == []
+    assert body["features"] == {}
+
+
+async def test_info_is_complete_once_authenticated(basic_auth_client: AsyncClient) -> None:
+    token = bearer(await login(basic_auth_client, "vi", "vipw"))
+    body = (await basic_auth_client.get("/api/v1/info", headers=token)).json()
+
+    assert body["auth"]["user"]["username"] == "vi"
+    assert [c["id"] for c in body["clusters"]] == ["test"]
+    assert body["features"]
+
+
+async def test_info_reports_anonymous_admin_when_auth_is_off(client: AsyncClient) -> None:
+    body = (await client.get("/api/v1/info")).json()
+    assert body["auth"]["enabled"] is False
+    assert body["auth"]["user"]["role"] == "admin"
+    assert body["clusters"]

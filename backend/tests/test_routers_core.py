@@ -389,3 +389,51 @@ async def test_spa_or_json_root_never_shadows_the_api(client: AsyncClient) -> No
     resp = await client.get("/api/v1/does-not-exist")
     assert resp.status_code == 404
     assert resp.headers["content-type"].startswith(("application/problem+json", "application/json"))
+
+
+# ------------------------------------------------- cluster summary is deadlined
+
+
+async def test_cluster_list_reports_offline_fast_when_broker_hangs(
+    client: AsyncClient, admin: Any, monkeypatch: Any
+) -> None:
+    """A wedged broker used to hang `/clusters` for minutes (metadata timeout plus a
+    per-partition watermark sweep). The summary must give up quickly and say offline."""
+    import asyncio
+
+    from k_shui.api.routers import _common
+
+    monkeypatch.setattr(_common, "SUMMARY_PROBE_DEADLINE", 0.2)
+
+    async def never_answers() -> Any:
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(admin, "describe_cluster", never_answers)
+
+    async with asyncio.timeout(5):
+        items = (await client.get("/api/v1/clusters")).json()
+
+    assert items[0]["status"] == "offline"
+    assert "did not respond" in items[0]["error"]
+
+
+async def test_cluster_summary_survives_a_hanging_sampler(client: AsyncClient, monkeypatch: Any) -> None:
+    """The on-demand sampling fallback is bounded too, and a stalled sample must not
+    stop the cluster being reported online from the metadata probe."""
+    import asyncio
+
+    from k_shui.api.routers import _common
+    from k_shui.core.sampler import ClusterSampler
+
+    monkeypatch.setattr(_common, "SUMMARY_SAMPLE_DEADLINE", 0.2)
+
+    async def never_samples(self: Any) -> Any:
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(ClusterSampler, "sample_once", never_samples)
+    monkeypatch.setattr(ClusterSampler, "latest", property(lambda self: None))
+
+    async with asyncio.timeout(5):
+        items = (await client.get("/api/v1/clusters")).json()
+
+    assert items[0]["status"] == "online"

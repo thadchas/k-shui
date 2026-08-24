@@ -24,7 +24,12 @@ import {
 import type { TimeRange } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
 import { pickSeries } from '@/lib/charts';
-import { formatBytes, formatBytesPerSec, formatCompact, formatDuration } from '@/lib/format';
+import {
+  formatBytesEstimate,
+  formatBytesPerSec,
+  formatCompact,
+  formatDuration,
+} from '@/lib/format';
 import { ConfigTable } from '@/components/ConfigTable';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { LineageTopicPreview } from '@/components/LineageGraph';
@@ -210,7 +215,8 @@ export function TopicDetailPage() {
             <StatTile
               label="Total size"
               loading={detail.isLoading}
-              value={formatBytes(data?.sizeBytes)}
+              value={formatBytesEstimate(data?.sizeBytes)}
+              tooltip="Estimated from the message count; Kafka exposes no exact topic log size."
             />
             <StatTile
               label="Messages"

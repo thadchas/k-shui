@@ -22,7 +22,12 @@ import {
 import type { TopicSummary } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
 import { useDebounced } from '@/hooks/useDebounced';
-import { formatBytes, formatBytesPerSec, formatCompact, formatDuration } from '@/lib/format';
+import {
+  formatBytesEstimate,
+  formatBytesPerSec,
+  formatCompact,
+  formatDuration,
+} from '@/lib/format';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -155,7 +160,11 @@ export function TopicsPage() {
         accessorKey: 'sizeBytes',
         header: 'Size',
         meta: { numeric: true, label: 'Size' },
-        cell: ({ row }) => formatBytes(row.original.sizeBytes),
+        cell: ({ row }) => (
+          <span title="Estimated from the message count; Kafka exposes no exact topic log size.">
+            {formatBytesEstimate(row.original.sizeBytes)}
+          </span>
+        ),
       },
       {
         accessorKey: 'messageCount',
