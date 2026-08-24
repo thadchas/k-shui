@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -80,7 +81,10 @@ def test_check_succeeds_with_a_reachable_fake(tmp_path: Path, monkeypatch: pytes
 
 
 def test_serve_help_lists_every_option() -> None:
-    out = runner.invoke(cli_app, ["serve", "--help"]).stdout
+    # Wide terminal + no color so rich renders help deterministically in CI.
+    env = {"COLUMNS": "200", "TERM": "dumb", "NO_COLOR": "1"}
+    out = runner.invoke(cli_app, ["serve", "--help"], env=env).stdout
+    out = re.sub(r"\x1b\[[0-9;]*m", "", out)
     for flag in ("--config", "--host", "--port", "--bootstrap-servers", "--reload"):
         assert flag in out
 
