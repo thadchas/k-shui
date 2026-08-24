@@ -25,7 +25,6 @@ dependencies = [
   "confluent-kafka>=2.6",
   "sqlalchemy[asyncio]>=2.0",
   "aiosqlite>=0.20",
-  "apscheduler>=3.10,<4",
   "prometheus-client>=0.20",
   "structlog>=24.1",
   "python-jose[cryptography]>=3.3",
