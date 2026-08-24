@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>k-shui — Open-source Kafka Control Center</title>
+<meta name="description" content="k-shui is the open-source control center for Apache Kafka®: topics, consumer groups, messages, schemas, Kafka Connect, ksqlDB, Flink, metrics, lineage, and alerts in one Apache-2.0 app. Start with uvx k-shui serve.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="k-shui — Open-source Kafka Control Center">
+<meta property="og:description" content="One open-source UI for Apache Kafka® and its streaming ecosystem: topics, messages, schemas, Connect, ksqlDB, Flink, metrics, lineage, and alerts.">
+<meta property="og:image" content="assets/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="k-shui — Open-source Kafka Control Center">
+<meta name="twitter:description" content="One open-source UI for Apache Kafka® and its streaming ecosystem: topics, messages, schemas, Connect, ksqlDB, Flink, metrics, lineage, and alerts.">
+<meta name="twitter:image" content="assets/og-image.png">
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0B1220;
+    --surface: #111A2B;
+    --surface-2: #172238;
+    --border: #22304A;
+    --text: #E6EDF7;
+    --muted: #8B9BB4;
+    --primary: #2DD4BF;
+    --on-primary: #062A27;
+    --accent: #38BDF8;
+    --grad-a: #14B8A6;
+    --grad-b: #0D9488;
+    --radius: 12px;
+    --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+  img { max-width: 100%; height: auto; display: block; }
+  a { color: var(--primary); text-decoration: none; transition: color 150ms ease-out; }
+  a:hover { color: #5EEAD4; }
+  :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+  .container { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+  .mono { font-family: var(--font-mono); }
+
+  /* ---------- Nav ---------- */
+  .nav {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(11, 18, 32, 0.82);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-inner {
+    display: flex; align-items: center; gap: 28px;
+    height: 60px;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    color: var(--text); font-weight: 600; font-size: 17px;
+    letter-spacing: -0.01em;
+  }
+  .brand:hover { color: var(--text); }
+  .brand img { width: 28px; height: 28px; border-radius: 7px; }
+  .nav-links { display: flex; align-items: center; gap: 24px; margin-left: auto; }
+  .nav-links a { color: var(--muted); font-size: 14px; font-weight: 500; }
+  .nav-links a:hover { color: var(--text); }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 14px; font-weight: 600; line-height: 1;
+    padding: 11px 18px; border-radius: 8px;
+    border: 1px solid transparent; cursor: pointer;
+    transition: background 150ms ease-out, border-color 150ms ease-out, box-shadow 150ms ease-out, color 150ms ease-out;
+    white-space: nowrap;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--grad-a), var(--grad-b));
+    color: #FFFFFF;
+    box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.25), 0 4px 20px rgba(20, 184, 166, 0.28);
+  }
+  .btn-primary:hover { box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.5), 0 6px 28px rgba(20, 184, 166, 0.42); color: #FFFFFF; }
+  .btn-secondary {
+    background: var(--surface); color: var(--text);
+    border-color: var(--border);
+  }
+  .btn-secondary:hover { background: var(--surface-2); border-color: #2E4165; color: var(--text); }
+  .btn-sm { padding: 8px 14px; font-size: 13px; }
+  .gh-icon { width: 16px; height: 16px; flex: none; }
+
+  /* ---------- Hero ---------- */
+  .hero { position: relative; padding: 88px 0 32px; }
+  .hero-glow {
+    position: absolute; inset: -60px 0 auto 0; height: 640px;
+    background:
+      linear-gradient(180deg, rgba(11,18,32,0.15) 0%, rgba(11,18,32,0.55) 62%, var(--bg) 100%),
+      url("assets/hero-glow.png") center top / cover no-repeat,
+      radial-gradient(52% 42% at 50% 8%, rgba(20,184,166,0.20) 0%, rgba(13,148,136,0.07) 55%, transparent 100%);
+    pointer-events: none;
+  }
+  .hero-content { position: relative; text-align: center; max-width: 780px; margin: 0 auto; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 500; color: var(--primary);
+    background: rgba(45, 212, 191, 0.08);
+    border: 1px solid rgba(45, 212, 191, 0.28);
+    border-radius: 999px; padding: 6px 14px;
+    margin-bottom: 24px;
+  }
+  .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 8px rgba(45,212,191,0.8); }
+  h1 {
+    font-size: clamp(2.1rem, 5.4vw, 3.35rem);
+    font-weight: 700; letter-spacing: -0.03em; line-height: 1.12;
+    margin-bottom: 20px;
+  }
+  h1 .grad {
+    background: linear-gradient(92deg, var(--primary), var(--accent));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+  }
+  .hero-sub {
+    font-size: 17.5px; color: var(--muted); max-width: 640px;
+    margin: 0 auto 32px;
+  }
+  .hero-sub strong { color: var(--text); font-weight: 500; }
+  .hero-ctas { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin-bottom: 26px; }
+
+  .code-chip {
+    display: inline-flex; align-items: center; gap: 12px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 10px 10px 18px;
+    font-family: var(--font-mono); font-size: 14px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset;
+    max-width: 100%;
+  }
+  .code-chip .prompt { color: var(--muted); user-select: none; }
+  .code-chip code { color: var(--text); white-space: nowrap; overflow-x: auto; }
+  .copy-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--font-sans); font-size: 12px; font-weight: 600;
+    color: var(--muted); background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 7px;
+    padding: 6px 10px; cursor: pointer; flex: none;
+    transition: color 150ms ease-out, border-color 150ms ease-out, background 150ms ease-out;
+  }
+  .copy-btn:hover { color: var(--primary); border-color: rgba(45,212,191,0.45); }
+  .copy-btn.copied { color: var(--on-primary); background: var(--primary); border-color: var(--primary); }
+  .copy-btn svg { width: 13px; height: 13px; }
+
+  .hero-shot { position: relative; margin: 56px auto 0; max-width: 1020px; }
+  .hero-shot::before {
+    content: ""; position: absolute; inset: 8% 6% -2% 6%;
+    background: radial-gradient(50% 55% at 50% 60%, rgba(20,184,166,0.22), transparent 72%);
+    filter: blur(24px); pointer-events: none;
+  }
+  .browser {
+    position: relative;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(45,212,191,0.10), 0 24px 60px -18px rgba(0,0,0,0.65), 0 8px 40px rgba(13,148,136,0.14);
+  }
+  .browser-bar {
+    display: flex; align-items: center; gap: 8px;
+    height: 40px; padding: 0 16px;
+    background: var(--surface-2); border-bottom: 1px solid var(--border);
+  }
+  .browser-bar .dots { display: flex; gap: 7px; }
+  .browser-bar .dots span { width: 11px; height: 11px; border-radius: 50%; background: #2E4165; }
+  .browser-bar .url {
+    margin: 0 auto;
+    font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 14px;
+  }
+
+  /* ---------- Sections ---------- */
+  section { padding: 84px 0; }
+  .section-head { text-align: center; max-width: 640px; margin: 0 auto 52px; }
+  .kicker {
+    font-size: 13px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--primary); margin-bottom: 12px;
+  }
+  h2 { font-size: clamp(1.6rem, 3.4vw, 2.15rem); font-weight: 700; letter-spacing: -0.02em; margin-bottom: 14px; }
+  .section-head p { color: var(--muted); font-size: 16px; }
+
+  /* ---------- Stack strip ---------- */
+  .stack-strip { padding: 44px 0 12px; }
+  .stack-label {
+    text-align: center; font-size: 12.5px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+    margin-bottom: 20px;
+  }
+  .stack-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .stack-chips li {
+    list-style: none;
+    font-family: var(--font-mono); font-size: 13px; color: var(--muted);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 999px; padding: 7px 15px;
+    transition: color 150ms ease-out, border-color 150ms ease-out;
+  }
+  .stack-chips li:hover { color: var(--text); border-color: #2E4165; }
+
+  /* ---------- Features ---------- */
+  .features-grid {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;
+  }
+  .feature {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 22px;
+    transition: border-color 150ms ease-out, transform 150ms ease-out, box-shadow 150ms ease-out;
+  }
+  .feature:hover {
+    border-color: rgba(45,212,191,0.35);
+    box-shadow: 0 4px 24px rgba(13,148,136,0.10);
+    transform: translateY(-2px);
+  }
+  .feature .icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; border-radius: 9px;
+    background: rgba(45,212,191,0.09); border: 1px solid rgba(45,212,191,0.22);
+    color: var(--primary); margin-bottom: 14px;
+  }
+  .feature .icon svg { width: 19px; height: 19px; }
+  .feature h3 { font-size: 15.5px; font-weight: 600; margin-bottom: 6px; letter-spacing: -0.01em; }
+  .feature p { font-size: 14px; color: var(--muted); line-height: 1.55; }
+
+  /* ---------- Gallery ---------- */
+  .tabs {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+    margin-bottom: 28px;
+  }
+  .tab {
+    font-family: var(--font-sans); font-size: 14px; font-weight: 500;
+    color: var(--muted); background: transparent;
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 8px 18px; cursor: pointer;
+    transition: color 150ms ease-out, background 150ms ease-out, border-color 150ms ease-out;
+  }
+  .tab:hover { color: var(--text); border-color: #2E4165; }
+  .tab[aria-selected="true"] {
+    color: var(--on-primary); background: var(--primary); border-color: var(--primary);
+    font-weight: 600;
+  }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .shot-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; overflow: hidden; max-width: 980px; margin: 0 auto;
+    box-shadow: 0 18px 50px -20px rgba(0,0,0,0.6);
+  }
+  .shot-card figcaption {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    padding: 14px 20px; border-top: 1px solid var(--border);
+    font-size: 13.5px; color: var(--muted);
+  }
+  .shot-card figcaption b { color: var(--text); font-weight: 600; }
+
+  /* ---------- Deploy ---------- */
+  .deploy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .deploy-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 22px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .deploy-card h3 { font-size: 15.5px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+  .deploy-card h3 .tag {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--accent); background: rgba(56,189,248,0.09);
+    border: 1px solid rgba(56,189,248,0.25); border-radius: 999px; padding: 2px 9px;
+  }
+  .deploy-card p { font-size: 13.5px; color: var(--muted); }
+  .cmd {
+    display: flex; align-items: flex-start; gap: 10px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 9px; padding: 12px 12px 12px 14px;
+    margin-top: auto;
+  }
+  .cmd pre {
+    font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6;
+    color: var(--text); overflow-x: auto; flex: 1; min-width: 0; margin: 0;
+  }
+  .cmd pre .c { color: var(--muted); }
+
+  /* ---------- CTA ---------- */
+  .cta {
+    position: relative; text-align: center;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 64px 32px; overflow: hidden;
+  }
+  .cta::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(60% 90% at 50% 0%, rgba(20,184,166,0.14), transparent 70%);
+    pointer-events: none;
+  }
+  .cta > * { position: relative; }
+  .cta h2 { margin-bottom: 12px; }
+  .cta p { color: var(--muted); max-width: 520px; margin: 0 auto 28px; }
+  .cta .hero-ctas { margin-bottom: 0; }
+
+  /* ---------- Footer ---------- */
+  footer { border-top: 1px solid var(--border); padding: 36px 0 44px; margin-top: 40px; }
+  .footer-inner {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 18px; flex-wrap: wrap;
+    font-size: 13.5px; color: var(--muted);
+  }
+  .footer-inner .brand { font-size: 15px; }
+  .footer-inner .brand img { width: 22px; height: 22px; border-radius: 6px; }
+  .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+  .footer-links a { color: var(--muted); }
+  .footer-links a:hover { color: var(--text); }
+  .footer-legal { width: 100%; margin-top: 14px; font-size: 12.5px; color: #64748B; line-height: 1.6; }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 900px) {
+    .features-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 720px) {
+    .nav-links a:not(.btn) { display: none; }
+    .hero { padding-top: 60px; }
+    section { padding: 60px 0; }
+    .features-grid, .deploy-grid { grid-template-columns: minmax(0, 1fr); }
+    .code-chip { width: 100%; justify-content: space-between; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition-duration: 0.01ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="brand" href="#top" aria-label="k-shui home">
+      <img src="assets/mark-small.svg" alt="" width="28" height="28">
+      k-shui
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="#features">Features</a>
+      <a href="#screenshots">Screenshots</a>
+      <a href="#deploy">Deploy</a>
+      <a class="btn btn-secondary btn-sm" href="https://github.com/k-shui/k-shui">
+        <svg class="gh-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- Hero -->
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="container">
+      <div class="hero-content">
+        <p class="badge"><span class="dot" aria-hidden="true"></span> Open source &middot; Apache-2.0</p>
+        <h1 id="hero-title">The open-source <span class="grad">control center</span> for Apache&nbsp;Kafka&reg;</h1>
+        <p class="hero-sub">
+          One UI for your whole streaming stack — <strong>topics</strong>, <strong>consumer groups</strong>,
+          <strong>messages</strong>, <strong>schemas</strong>, <strong>Kafka Connect</strong>,
+          <strong>ksqlDB</strong>, <strong>Flink</strong>, <strong>metrics</strong>,
+          <strong>lineage</strong>, and <strong>alerts</strong>. No tab farm. No license gate.
+        </p>
+        <div class="hero-ctas">
+          <a class="btn btn-primary" href="#deploy">Get started</a>
+          <a class="btn btn-secondary" href="https://github.com/k-shui/k-shui">
+            <svg class="gh-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+            View on GitHub
+          </a>
+        </div>
+        <div class="code-chip">
+          <span class="prompt" aria-hidden="true">$</span>
+          <code>uvx k-shui serve</code>
+          <button class="copy-btn" type="button" data-copy="uvx k-shui serve" aria-label="Copy command: uvx k-shui serve">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span>Copy</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="hero-shot">
+        <div class="browser">
+          <div class="browser-bar" aria-hidden="true">
+            <div class="dots"><span></span><span></span><span></span></div>
+            <span class="url">localhost:8090</span>
+          </div>
+          <img src="assets/overview.png" alt="k-shui cluster overview: broker health, throughput charts, topic and consumer group summaries" width="2880" height="1800" fetchpriority="high">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Works with your stack -->
+  <section class="stack-strip" aria-label="Works with your stack">
+    <div class="container">
+      <p class="stack-label">Works with your stack</p>
+      <ul class="stack-chips">
+        <li>Apache Kafka</li>
+        <li>Strimzi</li>
+        <li>Schema Registry / Apicurio</li>
+        <li>Kafka Connect</li>
+        <li>ksqlDB</li>
+        <li>Apache Flink</li>
+        <li>Prometheus</li>
+        <li>Grafana</li>
+        <li>Marquez / OpenLineage</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features" aria-labelledby="features-title">
+    <div class="container">
+      <div class="section-head">
+        <p class="kicker">Features</p>
+        <h2 id="features-title">Everything Control Center does. Open, and then some.</h2>
+        <p>One application, one auth model, one command to start it — instead of five tools welded together.</p>
+      </div>
+      <div class="features-grid">
+        <article class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/><circle cx="7" cy="6" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="17" cy="18" r="1" fill="currentColor"/></svg></span>
+          <h3>Topics &amp; partitions</h3>
+          <p>Create, configure, and delete topics; add partitions, purge, clone, and diff configs across clusters.</p>
+        </article>
+        <article class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+          <h3>Live message browser</h3>
+          <p>Live tail over SSE or paged fetch, produce messages, decode JSON / Avro / Protobuf / JSON Schema, filter by JSONPath or regex, export CSV/NDJSON.</p>
+        </article>
+        <article class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+          <h3>Consumer groups &amp; lag</h3>
+          <p>Lag per partition, members and assignments, offset resets to earliest / latest / timestamp / shift — plus Kafka 4.x share groups.</p>
+        </article>
+        <article class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg></span>
+          <h3>Schema registry</h3>
+          <p>Confluent, Apicurio, and Karapace: browse subjects and versions, diff schemas, and run compatibility checks.</p>
+        </article>
+        <article class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12a3 3 0 1 0 6 0 3 3 0 0 0-6 0z"/><path d="M3 12h6M15 12h6"/><circle cx="3" cy="12" r="1" fill="currentColor"/><circle cx="21" cy="12" r="1" fill="currentColor"/></svg></span>
+          <h3>Kafka Connect + wizard</h3>
+          <p>Connector CRUD with a guided creation wizard, pause / resume / restart, task status, plugin validation, and a MirrorMaker2 replication view.</p>
+        </article>
+        <article class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg></span>
+          <h3>ksqlDB &amp; Flink</h3>
+          <p>ksqlDB SQL editor with streaming results; Flink jobs, checkpoints, execution graphs, jar upload/run, and SQL Gateway.</p>
+        </article>
+        <article class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></span>
+          <h3>Metrics dashboards</h3>
+          <p>Prometheus-backed dashboards with Grafana-JSON import, a PromQL explorer, and a zero-dependency sampled fallback.</p>
+        </article>
+        <article class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7 7.5l3.5 8M17 7.5l-3.5 8"/></svg></span>
+          <h3>Stream lineage</h3>
+          <p>OpenLineage / Marquez graph on an interactive canvas, enriched with edges derived from Connect, ksqlDB, Flink, and consumer groups.</p>
+        </article>
+        <article class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span>
+          <h3>Alerts</h3>
+          <p>Metric-based triggers with buffered conditions, delivered to email, Slack, PagerDuty, Teams, or webhooks — with full history.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screenshots -->
+  <section id="screenshots" aria-labelledby="screenshots-title">
+    <div class="container">
+      <div class="section-head">
+        <p class="kicker">Screenshots</p>
+        <h2 id="screenshots-title">Dense but airy. Built for operators.</h2>
+        <p>A single design system across the whole streaming surface — light and dark, WCAG AA, keyboard-first.</p>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Product screenshots">
+        <button class="tab" role="tab" id="tab-messages" aria-controls="panel-messages" aria-selected="true">Messages</button>
+        <button class="tab" role="tab" id="tab-schemas" aria-controls="panel-schemas" aria-selected="false" tabindex="-1">Schemas</button>
+        <button class="tab" role="tab" id="tab-connect" aria-controls="panel-connect" aria-selected="false" tabindex="-1">Connect</button>
+        <button class="tab" role="tab" id="tab-flink" aria-controls="panel-flink" aria-selected="false" tabindex="-1">Flink</button>
+        <button class="tab" role="tab" id="tab-metrics" aria-controls="panel-metrics" aria-selected="false" tabindex="-1">Metrics</button>
+        <button class="tab" role="tab" id="tab-lineage" aria-controls="panel-lineage" aria-selected="false" tabindex="-1">Lineage</button>
+      </div>
+
+      <div class="panel active" role="tabpanel" id="panel-messages" aria-labelledby="tab-messages">
+        <figure class="shot-card">
+          <img src="assets/messages.png" alt="k-shui message browser with live tail, decoded payloads, and filters" width="2880" height="1800" loading="lazy">
+          <figcaption><b>Message browser</b> Live tail or paged fetch, serde-aware decoding, JSONPath and regex filters, CSV/NDJSON export.</figcaption>
+        </figure>
+      </div>
+      <div class="panel" role="tabpanel" id="panel-schemas" aria-labelledby="tab-schemas" hidden>
+        <figure class="shot-card">
+          <img src="assets/schemas.png" alt="k-shui schema registry view with subjects, versions, and compatibility" width="2880" height="1800" loading="lazy">
+          <figcaption><b>Schema registry</b> Subjects, version history, diffs, and compatibility checks for Confluent, Apicurio, and Karapace.</figcaption>
+        </figure>
+      </div>
+      <div class="panel" role="tabpanel" id="panel-connect" aria-labelledby="tab-connect" hidden>
+        <figure class="shot-card">
+          <img src="assets/connect.png" alt="k-shui Kafka Connect view with connectors and task statuses" width="2880" height="1800" loading="lazy">
+          <figcaption><b>Kafka Connect</b> Connector and task health, pause/resume/restart, plugin validation, MirrorMaker2 replication.</figcaption>
+        </figure>
+      </div>
+      <div class="panel" role="tabpanel" id="panel-flink" aria-labelledby="tab-flink" hidden>
+        <figure class="shot-card">
+          <img src="assets/flink-job.png" alt="k-shui Flink job detail with execution graph and checkpoints" width="2880" height="1800" loading="lazy">
+          <figcaption><b>Flink jobs</b> Execution graph, checkpoints, task managers, jar upload/run, and SQL Gateway sessions.</figcaption>
+        </figure>
+      </div>
+      <div class="panel" role="tabpanel" id="panel-metrics" aria-labelledby="tab-metrics" hidden>
+        <figure class="shot-card">
+          <img src="assets/metrics-dashboard.png" alt="k-shui metrics dashboard with Prometheus-backed charts" width="2880" height="1800" loading="lazy">
+          <figcaption><b>Metrics</b> Prometheus-backed dashboards, Grafana-JSON import, PromQL explorer, sampled fallback.</figcaption>
+        </figure>
+      </div>
+      <div class="panel" role="tabpanel" id="panel-lineage" aria-labelledby="tab-lineage" hidden>
+        <figure class="shot-card">
+          <img src="assets/lineage.png" alt="k-shui stream lineage canvas with topics, connectors, and jobs as nodes" width="2880" height="1800" loading="lazy">
+          <figcaption><b>Stream lineage</b> OpenLineage/Marquez graph merged with edges derived from Connect, ksqlDB, Flink, and consumers.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- Deploy -->
+  <section id="deploy" aria-labelledby="deploy-title">
+    <div class="container">
+      <div class="section-head">
+        <p class="kicker">Deploy</p>
+        <h2 id="deploy-title">One command. Pick your runtime.</h2>
+        <p>All four run the same application. Then open <span class="mono">http://localhost:8090</span> — with no config, k-shui points at <span class="mono">localhost:9092</span>.</p>
+      </div>
+      <div class="deploy-grid">
+        <div class="deploy-card">
+          <h3>uv / uvx <span class="tag">Fastest</span></h3>
+          <p>No local Python install needed — uv resolves and runs the PyPI package.</p>
+          <div class="cmd">
+            <pre><code>uvx k-shui serve</code></pre>
+            <button class="copy-btn" type="button" data-copy="uvx k-shui serve" aria-label="Copy uvx command">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span>Copy</span>
+            </button>
+          </div>
+        </div>
+        <div class="deploy-card">
+          <h3>npx</h3>
+          <p>No Node or Python dependencies to manage — the launcher wraps uv, pipx, or Docker.</p>
+          <div class="cmd">
+            <pre><code>npx k-shui serve</code></pre>
+            <button class="copy-btn" type="button" data-copy="npx k-shui serve" aria-label="Copy npx command">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span>Copy</span>
+            </button>
+          </div>
+        </div>
+        <div class="deploy-card">
+          <h3>Docker</h3>
+          <p>Single container from GitHub Container Registry; point it at your bootstrap servers.</p>
+          <div class="cmd">
+            <pre><code>docker run -p 8090:8090 \
+  -e KSHUI_BOOTSTRAP_SERVERS=host.docker.internal:9092 \
+  ghcr.io/k-shui/k-shui</code></pre>
+            <button class="copy-btn" type="button" data-copy="docker run -p 8090:8090 -e KSHUI_BOOTSTRAP_SERVERS=host.docker.internal:9092 ghcr.io/k-shui/k-shui" aria-label="Copy Docker command">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span>Copy</span>
+            </button>
+          </div>
+        </div>
+        <div class="deploy-card">
+          <h3>Helm <span class="tag">Kubernetes</span></h3>
+          <p>OCI chart for Kubernetes — Kustomize overlays are available too.</p>
+          <div class="cmd">
+            <pre><code>helm install k-shui \
+  oci://ghcr.io/k-shui/charts/k-shui</code></pre>
+            <button class="copy-btn" type="button" data-copy="helm install k-shui oci://ghcr.io/k-shui/charts/k-shui" aria-label="Copy Helm command">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span>Copy</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Open-source CTA -->
+  <section aria-labelledby="cta-title">
+    <div class="container">
+      <div class="cta">
+        <p class="kicker">Open source</p>
+        <h2 id="cta-title">Free forever. Apache-2.0.</h2>
+        <p>No paid tiers, no feature gates, no phone-home. Star the repo, file issues, or send a PR — contributions are welcome.</p>
+        <div class="hero-ctas">
+          <a class="btn btn-primary" href="https://github.com/k-shui/k-shui">
+            <svg class="gh-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+            Star on GitHub
+          </a>
+          <a class="btn btn-secondary" href="https://github.com/k-shui/k-shui/blob/main/CONTRIBUTING.md">Contributing guide</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container footer-inner">
+    <a class="brand" href="#top">
+      <img src="assets/mark-small.svg" alt="" width="22" height="22">
+      k-shui
+    </a>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="https://github.com/k-shui/k-shui">GitHub</a>
+      <a href="https://github.com/k-shui/k-shui/blob/main/LICENSE">Apache-2.0 license</a>
+      <a href="https://github.com/k-shui/k-shui/tree/main/docs">Documentation</a>
+      <a href="https://github.com/k-shui/k-shui/blob/main/SECURITY.md">Security</a>
+    </nav>
+    <span>Built with FastAPI + React</span>
+    <p class="footer-legal">
+      &copy; 2026 k-shui contributors. Apache Kafka&reg;, Apache Flink&reg;, and Apache&reg; are trademarks of the
+      Apache Software Foundation. k-shui is not affiliated with or endorsed by the ASF or Confluent, Inc.
+    </p>
+  </div>
+</footer>
+
+<script>
+  // Copy-to-clipboard on command chips
+  document.querySelectorAll(".copy-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var text = btn.getAttribute("data-copy");
+      var done = function () {
+        var label = btn.querySelector("span");
+        btn.classList.add("copied");
+        label.textContent = "Copied";
+        setTimeout(function () {
+          btn.classList.remove("copied");
+          label.textContent = "Copy";
+        }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done);
+      } else {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        done();
+      }
+    });
+  });
+
+  // Screenshot gallery tabs
+  var tabs = Array.prototype.slice.call(document.querySelectorAll(".tab"));
+  function selectTab(tab) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.tabIndex = on ? 0 : -1;
+      var panel = document.getElementById(t.getAttribute("aria-controls"));
+      panel.classList.toggle("active", on);
+      panel.hidden = !on;
+    });
+  }
+  tabs.forEach(function (tab, i) {
+    tab.addEventListener("click", function () { selectTab(tab); });
+    tab.addEventListener("keydown", function (e) {
+      var next = null;
+      if (e.key === "ArrowRight") next = tabs[(i + 1) % tabs.length];
+      if (e.key === "ArrowLeft") next = tabs[(i - 1 + tabs.length) % tabs.length];
+      if (next) { e.preventDefault(); next.focus(); selectTab(next); }
+    });
+  });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" color="#0D9488" role="img" aria-label="k-shui mark">
+  <!-- single-color mark: set `color` (or CSS currentColor context) to recolor -->
+  <g fill="none" stroke="currentColor" stroke-opacity="0.4" stroke-width="3.25" stroke-linecap="round">
+    <path d="M49.5 23.5 C43.5 28.5 40.5 30 35.5 31.5"/>
+    <path d="M35.5 32.5 C40.5 34 43.5 35.5 49.5 40.5"/>
+  </g>
+  <g fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round">
+    <path d="M19.5 15.5 V48.5"/>
+    <path d="M45 14.5 C34.5 18.5 36.5 26 21.5 30.5"/>
+    <path d="M21.5 33.5 C36.5 38 34.5 45.5 45 49.5"/>
+  </g>
+</svg>

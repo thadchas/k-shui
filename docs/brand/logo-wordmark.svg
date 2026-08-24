@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 232 64" width="232" height="64" role="img" aria-label="k-shui">
+  <defs>
+    <linearGradient id="ksw-tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14B8A6"/>
+      <stop offset="1" stop-color="#0D9488"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(0 4) scale(0.875)">
+    <rect width="64" height="64" rx="14" fill="url(#ksw-tile)"/>
+    <g fill="none" stroke="#FFFFFF" stroke-opacity="0.4" stroke-width="3.25" stroke-linecap="round">
+      <path d="M49.5 23.5 C43.5 28.5 40.5 30 35.5 31.5"/>
+      <path d="M35.5 32.5 C40.5 34 43.5 35.5 49.5 40.5"/>
+    </g>
+    <g fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round">
+      <path d="M19.5 15.5 V48.5"/>
+      <path d="M45 14.5 C34.5 18.5 36.5 26 21.5 30.5"/>
+      <path d="M21.5 33.5 C36.5 38 34.5 45.5 45 49.5"/>
+    </g>
+  </g>
+  <text x="72" y="43" font-family="Inter, 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="31" font-weight="600" letter-spacing="-0.5" fill="#0F172A">k-shui</text>
+</svg>
