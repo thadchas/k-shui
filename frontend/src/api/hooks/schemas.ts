@@ -7,8 +7,12 @@ import { api } from '@/api/client';
 import { qk } from '@/api/keys';
 import type {
   CompatibilityCheckResponse,
+  Compatibility,
+  RegisterSchemaForSubject,
   RegisterSchemaRequest,
+  RegisterSchemaResponse,
   SchemaDiff,
+  SchemaRegistryConfig,
   SchemaRegistryInfo,
   SchemaSubjectDetail,
   SchemaSubjectSummary,
@@ -112,5 +116,120 @@ export function useDeleteSubject(cluster: string) {
         permanent,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.schemaSubjects(cluster, {}).slice(0, 4) }),
+  });
+}
+
+/* -------------------------------------------------------------------------- *
+ * Additions for the Schemas pages. Query keys are derived from `qk` so they
+ * stay inside the per-cluster cache scope.
+ * -------------------------------------------------------------------------- */
+
+/** Global registry compatibility (`GET /clusters/{c}/schemas/config`). */
+export function useSchemaGlobalConfig(cluster: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: qk.schemaGlobalConfig(cluster ?? ''),
+    queryFn: () => api.get<SchemaRegistryConfig>(`/clusters/${cluster}/schemas/config`),
+    enabled: Boolean(cluster) && enabled,
+    retry: false,
+  });
+}
+
+export function useUpdateSchemaGlobalConfig(cluster: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (compatibility: Compatibility) =>
+      api.put<SchemaRegistryConfig>(`/clusters/${cluster}/schemas/config`, { compatibility }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: qk.schemaGlobalConfig(cluster) });
+      void qc.invalidateQueries({ queryKey: qk.schemaSubjects(cluster, {}).slice(0, 4) });
+    },
+  });
+}
+
+/** Per-subject compatibility override (`GET .../subjects/{s}/config`). */
+export function useSubjectConfig(
+  cluster: string | undefined,
+  subject: string | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: [...qk.schemaSubject(cluster ?? '', subject ?? ''), 'config'] as const,
+    queryFn: () =>
+      api.get<SchemaRegistryConfig>(
+        `/clusters/${cluster}/schemas/subjects/${encodeURIComponent(subject!)}/config`,
+      ),
+    enabled: Boolean(cluster && subject) && enabled,
+    retry: false,
+  });
+}
+
+export function useUpdateSubjectConfig(cluster: string, subject: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (compatibility: Compatibility) =>
+      api.put<SchemaRegistryConfig>(
+        `/clusters/${cluster}/schemas/subjects/${encodeURIComponent(subject)}/config`,
+        { compatibility },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({
+        queryKey: [...qk.schemaSubject(cluster, subject), 'config'] as const,
+      });
+      void qc.invalidateQueries({ queryKey: qk.schemaSubject(cluster, subject) });
+      void qc.invalidateQueries({ queryKey: qk.schemaSubjects(cluster, {}).slice(0, 4) });
+    },
+  });
+}
+
+/** Register a new version against a subject chosen at call time. */
+export function useRegisterSchemaForSubject(cluster: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ subject, ...body }: RegisterSchemaForSubject) =>
+      api.post<RegisterSchemaResponse>(
+        `/clusters/${cluster}/schemas/subjects/${encodeURIComponent(subject)}/versions`,
+        body,
+      ),
+    onSuccess: (_data, variables) => {
+      void qc.invalidateQueries({ queryKey: qk.schemaSubject(cluster, variables.subject) });
+      void qc.invalidateQueries({ queryKey: qk.schemaSubjects(cluster, {}).slice(0, 4) });
+    },
+  });
+}
+
+/** Compatibility check against a subject chosen at call time. */
+export function useCheckCompatibilityForSubject(cluster: string) {
+  return useMutation({
+    mutationFn: ({
+      subject,
+      ...body
+    }: Pick<RegisterSchemaRequest, 'schema' | 'schemaType'> & { subject: string }) =>
+      api.post<CompatibilityCheckResponse>(
+        `/clusters/${cluster}/schemas/subjects/${encodeURIComponent(subject)}/compatibility`,
+        body,
+      ),
+  });
+}
+
+export function useDeleteSchemaVersion(cluster: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      subject,
+      version,
+      permanent,
+    }: {
+      subject: string;
+      version: number;
+      permanent?: boolean;
+    }) =>
+      api.delete<void>(
+        `/clusters/${cluster}/schemas/subjects/${encodeURIComponent(subject)}/versions/${version}`,
+        { permanent },
+      ),
+    onSuccess: (_data, variables) => {
+      void qc.invalidateQueries({ queryKey: qk.schemaSubject(cluster, variables.subject) });
+      void qc.invalidateQueries({ queryKey: qk.schemaSubjects(cluster, {}).slice(0, 4) });
+    },
   });
 }

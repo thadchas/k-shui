@@ -7,7 +7,9 @@ import type {
   ConnectCluster,
   Connector,
   ConnectorOffsets,
+  ConnectorOffsetsPatch,
   ConnectorPlugin,
+  ConnectorTopicsResponse,
   ConnectorValidationResult,
   CreateConnectorRequest,
 } from '@/api/types';
@@ -142,5 +144,86 @@ export function useValidatePlugin(cluster: string, kc: string) {
         `/clusters/${cluster}/connect/${kc}/plugins/${encodeURIComponent(pluginClass)}/validate`,
         config,
       ),
+  });
+}
+
+/* -------------------------------------------------------------------------- *
+ * Additions for the Connect pages.
+ * -------------------------------------------------------------------------- */
+
+function connectorPath(cluster: string, kc: string, name: string) {
+  return `/clusters/${cluster}/connect/${kc}/connectors/${encodeURIComponent(name)}`;
+}
+
+export function useConnectCluster(cluster: string | undefined, kc: string | undefined) {
+  const query = useConnectClusters(cluster, Boolean(cluster && kc));
+  return {
+    ...query,
+    data: query.data?.find((c) => c.name === kc),
+  };
+}
+
+export function useConnectorConfig(
+  cluster: string | undefined,
+  kc: string | undefined,
+  name: string | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: qk.connectorConfig(cluster ?? '', kc ?? '', name ?? ''),
+    queryFn: () => api.get<Record<string, string>>(`${connectorPath(cluster!, kc!, name!)}/config`),
+    enabled: Boolean(cluster && kc && name) && enabled,
+    retry: false,
+  });
+}
+
+export function useConnectorTopics(
+  cluster: string | undefined,
+  kc: string | undefined,
+  name: string | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: [...qk.connector(cluster ?? '', kc ?? '', name ?? ''), 'topics'] as const,
+    queryFn: () =>
+      api.get<ConnectorTopicsResponse | string[]>(`${connectorPath(cluster!, kc!, name!)}/topics`),
+    enabled: Boolean(cluster && kc && name) && enabled,
+    retry: false,
+  });
+}
+
+export function useResetConnectorTopics(cluster: string, kc: string, name: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.put<void>(`${connectorPath(cluster, kc, name)}/topics/reset`),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: [...qk.connector(cluster, kc, name), 'topics'] as const }),
+  });
+}
+
+export function useRestartConnectorTask(cluster: string, kc: string, name: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: number) =>
+      api.post<void>(`${connectorPath(cluster, kc, name)}/tasks/${taskId}/restart`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.connector(cluster, kc, name) }),
+  });
+}
+
+export function usePatchConnectorOffsets(cluster: string, kc: string, name: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ConnectorOffsetsPatch) =>
+      api.patch<{ message?: string }>(`${connectorPath(cluster, kc, name)}/offsets`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.connectorOffsets(cluster, kc, name) }),
+  });
+}
+
+export function useResetConnectorOffsets(cluster: string, kc: string, name: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api.delete<{ message?: string }>(`${connectorPath(cluster, kc, name)}/offsets`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.connectorOffsets(cluster, kc, name) }),
   });
 }

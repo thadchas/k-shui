@@ -3,9 +3,31 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
 
+/**
+ * Monaco ships language services for TypeScript, CSS and HTML that pull in
+ * multi-megabyte web workers. k-shui only edits JSON, SQL, protobuf and YAML,
+ * so those services are resolved to an empty module. If Monaco ever moves the
+ * files the pattern simply stops matching and the services come back.
+ */
+const MONACO_EMPTY = '\0kshui-monaco-empty';
+
+const monacoTrimUnusedLanguageServices = {
+  name: 'kshui:monaco-trim',
+  enforce: 'pre' as const,
+  resolveId(source: string, importer?: string) {
+    if (!importer || !importer.includes('monaco-editor')) return null;
+    return /languages\/features\/(typescript|css|html)\/register\.js$/.test(source)
+      ? MONACO_EMPTY
+      : null;
+  },
+  load(id: string) {
+    return id === MONACO_EMPTY ? 'export default {};' : null;
+  },
+};
+
 export default defineConfig({
   base: '/',
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), monacoTrimUnusedLanguageServices],
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, './src'),

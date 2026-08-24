@@ -1,12 +1,16 @@
 /** ksqlDB hooks — pages land with the Streaming agent. */
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { api } from '@/api/client';
+import { api, sse } from '@/api/client';
 import { qk } from '@/api/keys';
 import type {
   KsqlCluster,
+  KsqlHeaderEvent,
   KsqlHistoryEntry,
   KsqlQueryInfo,
   KsqlQueryRequest,
+  KsqlRowEvent,
+  KsqlSourceDescription,
   KsqlStream,
   KsqlTable,
 } from '@/api/types';
@@ -68,4 +72,169 @@ export function useTerminateKsqlQuery(cluster: string, k: string) {
     mutationFn: (id: string) =>
       api.delete<void>(`/clusters/${cluster}/ksql/${k}/queries/${encodeURIComponent(id)}`),
   });
+}
+
+/* -------------------------------------------------------------------------- *
+ * Additions for the ksqlDB page: DESCRIBE EXTENDED + push-query SSE streaming.
+ * -------------------------------------------------------------------------- */
+
+export type KsqlSourceKind = 'stream' | 'table';
+
+export function useKsqlDescribe(
+  cluster: string | undefined,
+  k: string | undefined,
+  kind: KsqlSourceKind | undefined,
+  name: string | undefined,
+) {
+  return useQuery({
+    queryKey: [
+      ...qk.ksqlStreams(cluster ?? '', k ?? ''),
+      'describe',
+      kind ?? '',
+      name ?? '',
+    ] as const,
+    queryFn: () =>
+      api.get<KsqlSourceDescription>(
+        `/clusters/${cluster}/ksql/${k}/${kind === 'table' ? 'tables' : 'streams'}/${encodeURIComponent(name!)}`,
+      ),
+    enabled: Boolean(cluster && k && kind && name),
+    retry: false,
+  });
+}
+
+export interface KsqlStreamState {
+  columns: string[];
+  columnTypes: string[];
+  queryId: string | null;
+  rows: unknown[][];
+  streaming: boolean;
+  error: Error | null;
+  finished: boolean;
+  start: (request: KsqlQueryRequest, maxRows?: number) => void;
+  stop: () => void;
+  clear: () => void;
+}
+
+const MAX_ROWS_DEFAULT = 2000;
+
+/**
+ * Push/pull query streaming over SSE. Rows are buffered and flushed on an
+ * animation frame so a fast query cannot thrash React.
+ */
+export function useKsqlQueryStream(
+  cluster: string | undefined,
+  k: string | undefined,
+): KsqlStreamState {
+  const [columns, setColumns] = useState<string[]>([]);
+  const [columnTypes, setColumnTypes] = useState<string[]>([]);
+  const [queryId, setQueryId] = useState<string | null>(null);
+  const [rows, setRows] = useState<unknown[][]>([]);
+  const [streaming, setStreaming] = useState(false);
+  const [finished, setFinished] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const abortRef = useRef<(() => void) | null>(null);
+  const bufferRef = useRef<unknown[][]>([]);
+  const frameRef = useRef<number | null>(null);
+  const maxRowsRef = useRef<number>(MAX_ROWS_DEFAULT);
+
+  const flush = useCallback(() => {
+    frameRef.current = null;
+    if (bufferRef.current.length === 0) return;
+    const batch = bufferRef.current;
+    bufferRef.current = [];
+    setRows((prev) => {
+      const next = prev.concat(batch);
+      return next.length > maxRowsRef.current ? next.slice(next.length - maxRowsRef.current) : next;
+    });
+  }, []);
+
+  const schedule = useCallback(() => {
+    if (frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(flush);
+  }, [flush]);
+
+  const stop = useCallback(() => {
+    abortRef.current?.();
+    abortRef.current = null;
+    flush();
+    setStreaming(false);
+  }, [flush]);
+
+  const clear = useCallback(() => {
+    bufferRef.current = [];
+    setRows([]);
+    setColumns([]);
+    setColumnTypes([]);
+    setQueryId(null);
+    setError(null);
+    setFinished(false);
+  }, []);
+
+  const start = useCallback(
+    (request: KsqlQueryRequest, maxRows = MAX_ROWS_DEFAULT) => {
+      if (!cluster || !k) return;
+      abortRef.current?.();
+      bufferRef.current = [];
+      maxRowsRef.current = Math.max(maxRows, 1);
+      setRows([]);
+      setColumns([]);
+      setColumnTypes([]);
+      setQueryId(null);
+      setError(null);
+      setFinished(false);
+      setStreaming(true);
+
+      abortRef.current = sse(`/clusters/${cluster}/ksql/${k}/query`, {
+        method: 'POST',
+        body: request,
+        on: {
+          header: (payload) => {
+            const header = payload as KsqlHeaderEvent;
+            setColumns(header.columnNames ?? []);
+            setColumnTypes(header.columnTypes ?? []);
+            setQueryId(header.queryId ?? null);
+          },
+          row: (payload) => {
+            const row = payload as KsqlRowEvent;
+            bufferRef.current.push(Array.isArray(row?.values) ? row.values : [row]);
+            schedule();
+          },
+          error: (payload) => {
+            const detail =
+              payload && typeof payload === 'object' && 'detail' in payload
+                ? String((payload as { detail: unknown }).detail)
+                : typeof payload === 'object' && payload && 'message' in payload
+                  ? String((payload as { message: unknown }).message)
+                  : String(payload);
+            setError(new Error(detail));
+          },
+          end: () => {
+            flush();
+            setFinished(true);
+            setStreaming(false);
+          },
+        },
+        onError: (e) => {
+          setError(e instanceof Error ? e : new Error(String(e)));
+          setStreaming(false);
+        },
+        onClose: () => {
+          flush();
+          setStreaming(false);
+        },
+      });
+    },
+    [cluster, k, flush, schedule],
+  );
+
+  useEffect(
+    () => () => {
+      abortRef.current?.();
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    },
+    [],
+  );
+
+  return { columns, columnTypes, queryId, rows, streaming, finished, error, start, stop, clear };
 }

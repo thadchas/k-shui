@@ -41,6 +41,7 @@
     "dagre": "^0.8.5",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.475.0",
+    "monaco-editor": "^0.56.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.54.2",

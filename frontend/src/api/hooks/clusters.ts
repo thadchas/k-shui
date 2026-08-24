@@ -11,6 +11,8 @@ import type {
   KRaftQuorum,
   RangeParams,
   ReplicationFlow,
+  ReplicationOverview,
+  ReplicationResponse,
   SeriesResponse,
 } from '@/api/types';
 
@@ -91,4 +93,32 @@ export function useReplication(cluster: string | undefined) {
 export function useInvalidateCluster(cluster: string) {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: clusterScope(cluster) });
+}
+
+/* -------------------------------------------------------------------------- *
+ * Addition for the Replication page. `GET /clusters/{c}/replication` returns
+ * either a bare flow array or an envelope; this hook normalises both.
+ * -------------------------------------------------------------------------- */
+
+export function useReplicationOverview(cluster: string | undefined) {
+  const refetchInterval = useRefetchInterval();
+  return useQuery({
+    queryKey: [...qk.replication(cluster ?? ''), 'overview'] as const,
+    queryFn: async (): Promise<ReplicationOverview> => {
+      const data = await api.get<ReplicationResponse>(`/clusters/${cluster}/replication`);
+      if (Array.isArray(data)) {
+        return { supported: true, detected: data.length > 0, flows: data };
+      }
+      return {
+        supported: data?.supported ?? true,
+        detected: data?.detected ?? (data?.flows?.length ?? 0) > 0,
+        flows: data?.flows ?? [],
+        links: data?.links,
+        connectClusters: data?.connectClusters,
+      };
+    },
+    enabled: Boolean(cluster),
+    refetchInterval,
+    retry: false,
+  });
 }

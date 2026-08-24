@@ -5,7 +5,6 @@ import {
   Database,
   Eraser,
   ExternalLink,
-  GitBranch,
   MoreHorizontal,
   SplitSquareHorizontal,
   Trash2,
@@ -28,6 +27,7 @@ import { pickSeries } from '@/lib/charts';
 import { formatBytes, formatBytesPerSec, formatCompact, formatDuration } from '@/lib/format';
 import { ConfigTable } from '@/components/ConfigTable';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
+import { LineageTopicPreview } from '@/components/LineageGraph';
 import { PartitionsTable } from '@/components/PartitionsTable';
 import { StatTile, StatTileRow } from '@/components/StatTile';
 import { TimeSeriesChart } from '@/components/TimeSeriesChart';
@@ -432,18 +432,9 @@ export function TopicDetailPage() {
 
         <TabsContent value="lineage">
           <Card>
-            <EmptyState
-              icon={GitBranch}
-              title="Lineage graph"
-              description="The stream lineage canvas lands with the governance milestone."
-              action={
-                <Button asChild variant="outline">
-                  <Link to={`/c/${cluster}/lineage?focus=topic:${encodeURIComponent(topic)}`}>
-                    Open lineage
-                  </Link>
-                </Button>
-              }
-            />
+            <div className="p-4">
+              <LineageTopicPreview cluster={cluster} topic={topic} />
+            </div>
           </Card>
         </TabsContent>
       </Tabs>
