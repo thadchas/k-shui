@@ -2,7 +2,7 @@
 
 # k-shui
 
-**Kafka Streaming Hub UI — the open-source control center for Apache Kafka® and its streaming ecosystem**
+**Kafka Streaming Hub UI — one open-source control center for Apache Kafka® and its entire streaming ecosystem**
 
 [![License](https://img.shields.io/github/license/thadchas/k-shui?color=0D9488)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/thadchas/k-shui/ci.yml?branch=main&label=CI&logo=github)](https://github.com/thadchas/k-shui/actions/workflows/ci.yml)
@@ -21,19 +21,22 @@ clusters and services you already run.
 
 ## Why k-shui
 
-Confluent Control Center is closed-source and license-gated to Confluent Platform.
-Everything else in the open-source Kafka UI space covers one slice each — a topic
-browser, or a Flink dashboard, or a lineage graph — leaving you with a tab farm.
-k-shui unifies:
+Operating a streaming platform today usually means running a tab farm: one UI
+for topics, another for stream-processing jobs, a third for dashboards, a
+fourth for lineage — each with its own login, its own look, and none of them
+talking to each other. The full-suite alternatives are commercial,
+closed-source, and tied to a single vendor's distribution.
 
-- **[Kafbat UI](https://github.com/kafbat/kafka-ui)-style** cluster/topic/consumer management
-- **Flink UI** job, checkpoint and SQL Gateway operations
-- **Kafka Connect** connector/task management, including MirrorMaker2 replication views
-- **Schema Registry** (Confluent, Apicurio, Karapace — any `ccompat`-speaking registry)
-- **Prometheus/Grafana**-equivalent dashboards, with a zero-dependency sampled-metrics fallback
-- **OpenLineage/Marquez** stream lineage, enriched with edges derived from Connect/ksqlDB/Flink/consumer groups
+k-shui takes a different path — one open application that unifies:
 
-...in one application, with one auth model, one command to start it, and a
+- **Cluster, topic & consumer operations** — browse, create, configure, reset offsets, tail messages live
+- **Flink operations** — jobs, checkpoints, execution graphs, and SQL Gateway
+- **Kafka Connect** — connector/task management, including MirrorMaker2 replication views
+- **Schema management** — any registry speaking the standard `ccompat` API: Apicurio, Karapace, Confluent Schema Registry
+- **Metrics dashboards** — Prometheus-backed with Grafana-JSON import, plus a zero-dependency sampled-metrics fallback
+- **Stream lineage** — OpenLineage/Marquez graphs, enriched with edges derived from Connect, ksqlDB, Flink, and consumer groups
+
+…in one application, with one auth model, one command to start it, and a
 design system that doesn't look like five apps welded together.
 
 ## Features
@@ -249,24 +252,24 @@ detail, including the background sampler and alert-evaluation jobs.
 ## How it compares
 
 Honest, feature-by-feature. See [`docs/comparison.md`](docs/comparison.md) for the
-full breakdown and a Control Center → k-shui page mapping.
+full breakdown — including a page-by-page migration map if you're moving off a
+commercial control center.
 
-| | k-shui | Confluent Control Center | Kafbat UI | AKHQ | Redpanda Console |
-|---|:---:|:---:|:---:|:---:|:---:|
-| License | Apache-2.0 | Commercial (bundled w/ Confluent Platform) | Apache-2.0 | Apache-2.0 | BSL / Apache-2.0¹ |
-| Topics, brokers, consumers | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Schema Registry | ✅ Confluent/Apicurio/Karapace | ✅ Confluent only | ✅ | ✅ | ✅ Confluent-compatible |
-| Kafka Connect | ✅ + MirrorMaker2 view | ✅ | ✅ | ✅ | ➖ limited |
-| ksqlDB | ✅ | ✅ | ➖ | ❌ | ❌ |
-| Flink (jobs/SQL) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Prometheus/Grafana-style dashboards | ✅ built-in | ✅ built-in | ➖ | ❌ | ➖ basic |
-| Stream lineage (OpenLineage) | ✅ | ➖ Stream Lineage (paid tier) | ❌ | ❌ | ❌ |
-| Alerting (email/Slack/PagerDuty/Teams) | ✅ | ✅ | ❌ | ❌ | ❌ |
-| RBAC / OIDC | ✅ basic + OIDC | ✅ (paid tier) | ✅ | ✅ | ✅ (Enterprise) |
-| Single-binary / npx / uvx install | ✅ | ❌ | ➖ (Docker/JAR) | ➖ (JAR) | ➖ (binary/Docker) |
+| | k-shui | Kafbat UI | AKHQ | Redpanda Console |
+|---|:---:|:---:|:---:|:---:|
+| License | Apache-2.0 | Apache-2.0 | Apache-2.0 | BSL / Apache-2.0¹ |
+| Topics, brokers, consumers | ✅ | ✅ | ✅ | ✅ |
+| Schema Registry | ✅ Confluent/Apicurio/Karapace | ✅ | ✅ | ✅ Confluent-compatible |
+| Kafka Connect | ✅ + MirrorMaker2 view | ✅ | ✅ | ➖ limited |
+| ksqlDB | ✅ | ➖ | ❌ | ❌ |
+| Flink (jobs/SQL) | ✅ | ❌ | ❌ | ❌ |
+| Prometheus/Grafana-style dashboards | ✅ built-in | ➖ | ❌ | ➖ basic |
+| Stream lineage (OpenLineage) | ✅ | ❌ | ❌ | ❌ |
+| Alerting (email/Slack/PagerDuty/Teams) | ✅ | ❌ | ❌ | ❌ |
+| RBAC / OIDC | ✅ basic + OIDC | ✅ | ✅ | ✅ (Enterprise) |
+| Single-binary / npx / uvx install | ✅ | ➖ (Docker/JAR) | ➖ (JAR) | ➖ (binary/Docker) |
 
 ¹ Redpanda Console is BSL-licensed with some features gated to Redpanda Enterprise.
-
 ## Contributing
 
 Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for local
