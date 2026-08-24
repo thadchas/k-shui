@@ -24,6 +24,22 @@ docker build -f deploy/docker/Dockerfile -t k-shui:local .
 Useful build args: `VERSION`, `VCS_REF`, `BUILD_DATE` (populate the OCI labels);
 `PYTHON_VERSION` (default `3.12`).
 
+The Dockerfile deliberately uses no BuildKit-only syntax (no `# syntax=`
+directive, no `RUN --mount=type=cache`), so it builds with the classic builder
+too — e.g. a Colima/Docker install without the `buildx` plugin, where
+`DOCKER_BUILDKIT=1` fails with *"BuildKit is enabled but the buildx component is
+missing"*. CI still builds it through BuildKit (`docker/build-push-action`) and
+gets layer caching from `cache-from: type=gha`.
+
+Stage 1 runs `npm run build -- --outDir dist --emptyOutDir`: `vite.config.ts`
+points `outDir` at `../backend/k_shui/static` for local development, which would
+otherwise land outside the stage's `WORKDIR` and break the `COPY --from=frontend`
+in stage 2.
+
+Built image size is ~290 MB (`docker images k-shui:local`), dominated by the
+Python runtime plus `confluent-kafka`'s bundled `librdkafka` and the Monaco
+editor chunks in the SPA.
+
 ## Run
 
 ```bash
@@ -50,7 +66,10 @@ docker run --rm -p 9000:9000 k-shui:local serve --host 0.0.0.0 --port 9000
 - **User**: non-root, uid/gid `10001`, no login shell.
 - **Port**: `8090` (`EXPOSE 8090`).
 - **Healthcheck**: a dependency-free `python -c` one-liner hitting `GET /healthz`
-  (no `curl`/`wget` needed in the final image).
+  (no `curl`/`wget` needed in the final image). Interval 15s, timeout 5s, 5
+  retries — deliberately slack, because a slow or unreachable broker can stall
+  the event loop for tens of seconds and a tight healthcheck would flap on an
+  otherwise healthy container.
 - **Config volume**: `/etc/k-shui` (`VOLUME ["/etc/k-shui"]`).
 - **Labels**: standard OCI `org.opencontainers.image.*` labels (title,
   description, source, licenses, version, revision, created).
@@ -68,6 +87,13 @@ docker run --rm -p 8090:8090 \
   -e KSHUI_BOOTSTRAP_SERVERS=kafka:9092 \
   k-shui:local
 ```
+
+Pointing the container at a broker on the Docker host works with
+`KSHUI_BOOTSTRAP_SERVERS=host.docker.internal:9094`, but only if the broker's
+**advertised** listeners are reachable from inside the container too. A broker
+that advertises `localhost:9095` (a typical `kubectl port-forward` setup) will
+bootstrap and then fail every follow-up call: the cluster shows up as `offline`
+with a transport error, which k-shui reports rather than crashing.
 
 ## Published images
 

@@ -78,6 +78,60 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+  package:
+    name: python package (wheel ships the SPA)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      # `npm run build` emits straight into backend/k_shui/static (vite.config.ts
+      # outDir), which is what hatch picks up via tool.hatch.build.targets.wheel.artifacts.
+      - name: Build frontend into backend/k_shui/static
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: uv build
+        working-directory: backend
+        run: uv build
+
+      - name: Assert the wheel ships the built SPA
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          whl=$(ls dist/*.whl)
+          unzip -l "${whl}" | grep -q 'k_shui/static/index.html'
+          assets=$(unzip -l "${whl}" | grep -c 'k_shui/static/assets/')
+          echo "static assets in wheel: ${assets}"
+          test "${assets}" -gt 0
+
+      - name: Smoke-test the wheel via uvx
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          whl=$(ls "${PWD}"/dist/*.whl)
+          uvx --from "${whl}" k-shui version
+          uvx --from "${whl}" k-shui serve --port 8097 &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8097/healthz && break || sleep 2
+          done
+          curl -fsS http://127.0.0.1:8097/api/v1/info
+          curl -fsS http://127.0.0.1:8097/ | grep -q '<div id="root">'
+
   npm-package:
     name: npm package (packages/npm)
     runs-on: ubuntu-latest
@@ -104,6 +158,17 @@ jobs:
         run: helm template t charts/k-shui
       - name: helm template (values-lakestream)
         run: helm template t charts/k-shui -f charts/k-shui/values-lakestream.yaml
+      - name: helm template (every optional feature enabled)
+        run: |
+          helm template t charts/k-shui \
+            --set ingress.enabled=true \
+            --set autoscaling.enabled=true \
+            --set podDisruptionBudget.enabled=true \
+            --set networkPolicy.enabled=true \
+            --set metrics.serviceMonitor.enabled=true \
+            --set metrics.podMonitor.enabled=true \
+            --set persistence.enabled=true \
+            --set existingSecret=k-shui-credentials
 
   kustomize:
     name: kustomize render

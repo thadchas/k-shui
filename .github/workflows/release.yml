@@ -54,6 +54,18 @@ jobs:
       - name: uv build
         working-directory: backend
         run: uv build
+      # The SPA is what makes the wheel useful; a missing/empty static/ dir would
+      # otherwise publish a headless package that only serves the JSON API.
+      - name: Assert the wheel ships the built SPA
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          whl=$(ls dist/*.whl)
+          echo "inspecting ${whl}"
+          unzip -l "${whl}" | grep -q 'k_shui/static/index.html'
+          assets=$(unzip -l "${whl}" | grep -c 'k_shui/static/assets/')
+          echo "static assets in wheel: ${assets}"
+          test "${assets}" -gt 0
       - name: Publish to PyPI (trusted publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
         with:

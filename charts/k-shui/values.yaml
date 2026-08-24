@@ -141,18 +141,22 @@ persistence:
   existingClaim: ""
   annotations: {}
 
+# -- Liveness is deliberately slack: /healthz is a static handler, but a slow or
+# unreachable Kafka broker can stall the event loop for tens of seconds, and a tight
+# liveness probe then restart-loops an otherwise healthy pod. Readiness (/readyz, which
+# does reflect cluster reachability) is what should flap in that situation, not liveness.
 probes:
   liveness:
     path: /healthz
-    initialDelaySeconds: 5
-    periodSeconds: 10
-    timeoutSeconds: 3
-    failureThreshold: 3
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 6
   readiness:
     path: /readyz
     initialDelaySeconds: 5
     periodSeconds: 10
-    timeoutSeconds: 3
+    timeoutSeconds: 5
     failureThreshold: 3
 
 metrics:

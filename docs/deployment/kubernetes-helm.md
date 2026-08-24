@@ -82,6 +82,28 @@ Set `config.server.basePath` to the same prefix as your Ingress path (e.g.
 `/k-shui`) so the SPA and API routes agree, then configure `ingress.hosts` and
 any rewrite annotation your controller needs.
 
+> **Known limitation (verified against 0.1.0).** `basePath` is wired into the
+> ASGI `root_path`, so *routing* under the prefix works — `/k-shui/healthz`,
+> `/k-shui/api/v1/...`, `/k-shui/assets/...` and `/k-shui/` all answer correctly.
+> What does **not** work yet is the served `index.html`: it is returned verbatim,
+> still referencing `/assets/...` at the domain root and without the
+> `window.__KSHUI_BASE__` value the SPA reads (see `basePath()` in
+> `frontend/src/lib/utils.ts`). Behind an Ingress that only routes `/k-shui/*`,
+> the browser therefore requests assets the Ingress will not forward. Until the
+> server rewrites those references, deploy k-shui on its own host or at `/`, or
+> use a rewrite rule that also exposes `/assets` and `/api` at the root.
+
+## Probes
+
+`probes.liveness` defaults to `/healthz` every 15s, `timeoutSeconds: 5`,
+`failureThreshold: 6`; `probes.readiness` to `/readyz` every 10s,
+`timeoutSeconds: 5`, `failureThreshold: 3`. Liveness is slack on purpose: a slow
+or unreachable broker can block the event loop long enough that even the static
+`/healthz` handler misses a short deadline, and a tight liveness probe then
+restart-loops a pod that is perfectly healthy. `/readyz` is the probe that is
+*meant* to reflect cluster reachability — let that one flap instead, and it will
+take the pod out of the Service until the cluster recovers.
+
 ## Validating
 
 ```bash
@@ -89,7 +111,22 @@ helm lint charts/k-shui
 helm template t charts/k-shui
 helm template t charts/k-shui -f charts/k-shui/values-lakestream.yaml
 # or: make helm-lint / make helm-template
+
+# every optional feature at once (what CI renders)
+helm template t charts/k-shui \
+  --set ingress.enabled=true --set autoscaling.enabled=true \
+  --set podDisruptionBudget.enabled=true --set networkPolicy.enabled=true \
+  --set metrics.serviceMonitor.enabled=true --set metrics.podMonitor.enabled=true \
+  --set persistence.enabled=true --set existingSecret=k-shui-credentials
 ```
+
+`ServiceMonitor`/`PodMonitor` need the prometheus-operator CRDs; on a cluster
+without them `helm install` fails with *no matches for kind "ServiceMonitor" in
+version "monitoring.coreos.com/v1"*. Leave both disabled there.
+
+`values-lakestream.yaml` sets `auth.type: oidc` and `existingSecret:
+k-shui-credentials`; create that Secret (or override both) before installing, or
+the pod will not start.
 
 ## Upgrading / uninstalling
 

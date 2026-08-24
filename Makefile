@@ -6,6 +6,11 @@ KIND_CLUSTER ?= kind
 HELM_RELEASE ?= k-shui
 HELM_NAMESPACE ?= k-shui
 PORT ?= 8090
+COMPOSE_FILE ?= deploy/compose/docker-compose.yml
+
+# Prefer the `docker compose` plugin, fall back to standalone `docker-compose`
+# (Colima / older Docker Desktop installs often ship only the latter).
+COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')
 
 .PHONY: help dev build build-frontend build-backend run test lint docker compose-up compose-down compose-full-up compose-down-full helm-template helm-lint helm-install kustomize-dev kustomize-prod clean
 
@@ -46,13 +51,13 @@ docker: ## Build the k-shui Docker image (context = repo root)
 	docker build -f deploy/docker/Dockerfile -t $(IMAGE) .
 
 compose-up: ## docker compose up (kafka + k-shui only)
-	docker compose -f deploy/compose/docker-compose.yml up --build
+	$(COMPOSE) -f $(COMPOSE_FILE) up --build
 
 compose-full-up: ## docker compose up --profile full (everything: connect, apicurio, flink, prometheus, marquez)
-	docker compose -f deploy/compose/docker-compose.yml --profile full up --build
+	$(COMPOSE) -f $(COMPOSE_FILE) --profile full up --build
 
 compose-down: ## docker compose down -v
-	docker compose -f deploy/compose/docker-compose.yml down -v
+	$(COMPOSE) -f $(COMPOSE_FILE) --profile full down -v
 
 helm-template: ## helm template the chart with default values and values-lakestream.yaml
 	helm template t charts/k-shui

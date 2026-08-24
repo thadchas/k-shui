@@ -125,8 +125,15 @@ services:
     networks: [k-shui]
     ports:
       - "8084:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
     environment:
-      APICURIO_STORAGE_KIND: mem
+      # Apicurio Registry 3.x dropped the 2.x "mem" storage variant (it fails with
+      # "No Registry storage variant defined for value mem"); kafkasql keeps the demo
+      # dependency-free by reusing the compose broker as the storage log.
+      APICURIO_STORAGE_KIND: kafkasql
+      APICURIO_KAFKASQL_BOOTSTRAP_SERVERS: kafka:9092
       APICURIO_REST_DELETION_ARTIFACT_ENABLED: "true"
       APICURIO_REST_DELETION_ARTIFACT-VERSION_ENABLED: "true"
     restart: unless-stopped

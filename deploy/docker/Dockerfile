@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 # k-shui — multi-stage image
 #   1. frontend  : node:22-alpine        -> builds the Vite/React SPA
 #   2. builder   : uv (python3.12-slim)  -> resolves/builds the venv + wheel, injects static assets
@@ -18,7 +17,9 @@ WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
 COPY frontend/ ./
-RUN npm run build
+# vite.config.ts writes into ../backend/k_shui/static for local dev; pin the output
+# to ./dist here so this stage stays self-contained regardless of that setting.
+RUN npm run build -- --outDir dist --emptyOutDir
 
 # ---------------------------------------------------------------------------
 # Stage 2: python dependency + build stage (uv)
@@ -35,16 +36,14 @@ WORKDIR /app
 # Install dependencies first (cache-friendly layer); confluent-kafka ships manylinux
 # wheels bundling librdkafka, so no apt build-essential/librdkafka-dev needed.
 COPY backend/pyproject.toml backend/uv.lock* /app/
-RUN --mount=type=cache,target=/root/.cache/uv \
-    if [ -f uv.lock ]; then uv sync --frozen --no-dev --no-install-project; \
+RUN if [ -f uv.lock ]; then uv sync --frozen --no-dev --no-install-project; \
     else uv sync --no-dev --no-install-project; fi
 
 # Now bring in the rest of the backend source + the built frontend static assets.
 COPY backend/ /app/
 COPY --from=frontend /src/frontend/dist/ /app/k_shui/static/
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    if [ -f uv.lock ]; then uv sync --frozen --no-dev; \
+RUN if [ -f uv.lock ]; then uv sync --frozen --no-dev; \
     else uv sync --no-dev; fi
 
 # ---------------------------------------------------------------------------
@@ -93,7 +92,7 @@ USER kshui:kshui
 
 EXPOSE 8090
 
-HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=15s --timeout=5s --start-period=15s --retries=5 \
   CMD ["python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=2).status == 200 else sys.exit(1)"]
 
 ENTRYPOINT ["k-shui"]
