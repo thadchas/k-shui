@@ -5,10 +5,10 @@ type: application
 version: 0.1.0
 appVersion: "0.1.0"
 kubeVersion: ">=1.25.0-0"
-home: https://github.com/k-shui/k-shui
+home: https://github.com/thadchas/k-shui
 sources:
-  - https://github.com/k-shui/k-shui
-icon: https://raw.githubusercontent.com/k-shui/k-shui/main/docs/assets/logo.png
+  - https://github.com/thadchas/k-shui
+icon: https://raw.githubusercontent.com/thadchas/k-shui/main/docs/assets/logo.png
 keywords:
   - kafka
   - kafka-ui
@@ -22,9 +22,9 @@ keywords:
   - openlineage
 maintainers:
   - name: k-shui contributors
-    url: https://github.com/k-shui/k-shui
+    url: https://github.com/thadchas/k-shui
 annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/links: |
     - name: Documentation
-      url: https://github.com/k-shui/k-shui/tree/main/docs
+      url: https://github.com/thadchas/k-shui/tree/main/docs

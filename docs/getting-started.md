@@ -34,7 +34,7 @@ present), or via `--docker` to skip Python entirely. See
 ```bash
 docker run -p 8090:8090 \
   -e KSHUI_BOOTSTRAP_SERVERS=host.docker.internal:9092 \
-  ghcr.io/k-shui/k-shui
+  ghcr.io/thadchas/k-shui
 ```
 
 See [`deployment/docker.md`](deployment/docker.md) for a config-file mount and
@@ -44,7 +44,7 @@ stack (Kafka, Connect, Apicurio, Flink, Prometheus, Marquez).
 ### Kubernetes (Helm)
 
 ```bash
-helm install k-shui oci://ghcr.io/k-shui/charts/k-shui \
+helm install k-shui oci://ghcr.io/thadchas/charts/k-shui \
   --namespace k-shui --create-namespace \
   -f my-values.yaml
 ```

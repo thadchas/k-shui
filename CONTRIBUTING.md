@@ -11,7 +11,7 @@ Prerequisites: [uv](https://astral.sh/uv), Node.js ≥ 22, Docker (for image/com
 work), Helm and `kubectl` (for chart/kustomize work).
 
 ```bash
-git clone https://github.com/k-shui/k-shui.git
+git clone https://github.com/thadchas/k-shui.git
 cd k-shui
 make dev   # backend (uvicorn --reload) + frontend (vite) side by side
 ```

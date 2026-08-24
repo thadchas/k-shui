@@ -38,7 +38,7 @@ Upgrade with `uv tool upgrade k-shui`; remove with `uv tool uninstall k-shui`.
 ## From source (contributors)
 
 ```bash
-git clone https://github.com/k-shui/k-shui.git
+git clone https://github.com/thadchas/k-shui.git
 cd k-shui
 cd frontend && npm ci && npm run build && cd ..   # emits into backend/k_shui/static/
 cd backend && uv sync --frozen                     # falls back to `uv sync` if uv.lock is stale

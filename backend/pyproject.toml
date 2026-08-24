@@ -51,8 +51,8 @@ otel = ["opentelemetry-sdk>=1.26", "opentelemetry-instrumentation-fastapi>=0.47b
 k-shui = "k_shui.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/k-shui/k-shui"
-Documentation = "https://github.com/k-shui/k-shui/tree/main/docs"
+Homepage = "https://github.com/thadchas/k-shui"
+Documentation = "https://github.com/thadchas/k-shui/tree/main/docs"
 
 [build-system]
 requires = ["hatchling"]

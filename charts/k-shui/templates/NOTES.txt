@@ -22,7 +22,7 @@ Config is rendered from `.Values.config` into the ConfigMap
 {{ include "k-shui.fullname" . }}-config and mounted at /etc/k-shui/config.yaml. To change
 clusters/auth/etc., set `--set-file` or override `config:` in your values file and upgrade:
 
-  helm upgrade {{ .Release.Name }} k-shui/k-shui -f my-values.yaml
+  helm upgrade {{ .Release.Name }} thadchas/k-shui -f my-values.yaml
 
 {{- if not .Values.persistence.enabled }}
 

@@ -57,9 +57,9 @@ ARG VERSION=0.1.0
 
 LABEL org.opencontainers.image.title="k-shui" \
       org.opencontainers.image.description="Kafka Streaming Hub UI — open-source Confluent Control Center replacement" \
-      org.opencontainers.image.url="https://github.com/k-shui/k-shui" \
-      org.opencontainers.image.source="https://github.com/k-shui/k-shui" \
-      org.opencontainers.image.documentation="https://github.com/k-shui/k-shui/tree/main/docs" \
+      org.opencontainers.image.url="https://github.com/thadchas/k-shui" \
+      org.opencontainers.image.source="https://github.com/thadchas/k-shui" \
+      org.opencontainers.image.documentation="https://github.com/thadchas/k-shui/tree/main/docs" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.vendor="k-shui contributors" \
       org.opencontainers.image.version="${VERSION}" \

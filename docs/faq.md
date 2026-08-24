@@ -78,5 +78,5 @@ private disclosure process.
 
 **How do I get help or discuss a feature?**
 Open a GitHub issue or discussion at
-[github.com/k-shui/k-shui](https://github.com/k-shui/k-shui). See
+[github.com/thadchas/k-shui](https://github.com/thadchas/k-shui). See
 [`../CONTRIBUTING.md`](../CONTRIBUTING.md) if you'd like to contribute.

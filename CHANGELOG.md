@@ -7,7 +7,7 @@ All notable changes to k-shui are documented here. Format loosely follows
 ## [Unreleased]
 
 Tracked in [`docs/roadmap.md`](docs/roadmap.md) and the
-[issue tracker](https://github.com/k-shui/k-shui/issues).
+[issue tracker](https://github.com/thadchas/k-shui/issues).
 
 ## [0.1.0] — initial release
 
@@ -55,5 +55,5 @@ control center for Apache Kafka and its streaming ecosystem, deployable via
   Compose demo stack / Helm chart / Kustomize base+overlays; health probes,
   Prometheus `/metrics`, optional OpenTelemetry traces, structured logs.
 
-[Unreleased]: https://github.com/k-shui/k-shui/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/k-shui/k-shui/releases/tag/v0.1.0
+[Unreleased]: https://github.com/thadchas/k-shui/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/thadchas/k-shui/releases/tag/v0.1.0

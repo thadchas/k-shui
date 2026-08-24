@@ -11,13 +11,13 @@
     "flink",
     "cli"
   ],
-  "homepage": "https://github.com/k-shui/k-shui/tree/main/packages/npm#readme",
+  "homepage": "https://github.com/thadchas/k-shui/tree/main/packages/npm#readme",
   "bugs": {
-    "url": "https://github.com/k-shui/k-shui/issues"
+    "url": "https://github.com/thadchas/k-shui/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/k-shui/k-shui.git",
+    "url": "git+https://github.com/thadchas/k-shui.git",
     "directory": "packages/npm"
   },
   "license": "Apache-2.0",

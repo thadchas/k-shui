@@ -14,7 +14,7 @@ minor release only; there is no separate LTS branch yet.
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Please report vulnerabilities privately via [GitHub Security Advisories](https://github.com/k-shui/k-shui/security/advisories/new)
+Please report vulnerabilities privately via [GitHub Security Advisories](https://github.com/thadchas/k-shui/security/advisories/new)
 for this repository. If that's not accessible to you, email the maintainers at
 the address listed in the repository's GitHub profile.
 

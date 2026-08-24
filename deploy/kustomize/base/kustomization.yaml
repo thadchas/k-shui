@@ -18,5 +18,5 @@ configMapGenerator:
       - config.yaml=k-shui.yaml
 
 images:
-  - name: ghcr.io/k-shui/k-shui
+  - name: ghcr.io/thadchas/k-shui
     newTag: "0.1.0"

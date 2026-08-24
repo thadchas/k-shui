@@ -22,7 +22,7 @@ In order:
    ```bash
    docker run --rm -p 8090:8090 \
      -v $PWD/k-shui.yaml:/etc/k-shui/config.yaml \
-     ghcr.io/k-shui/k-shui:latest serve
+     ghcr.io/thadchas/k-shui:latest serve
    ```
    The config bind-mount is added only when `./k-shui.yaml` exists — otherwise
    Docker would create an empty *directory* at that path. Override the image with
@@ -48,7 +48,7 @@ KSHUI_UVX_FROM=backend/dist/k_shui-0.1.0-py3-none-any.whl npx k-shui version
 npx k-shui --from ./backend/dist/k_shui-0.1.0-py3-none-any.whl serve --port 8090
 
 # straight from git (the Python project lives in backend/)
-npx k-shui --from 'git+https://github.com/k-shui/k-shui@main#subdirectory=backend' version
+npx k-shui --from 'git+https://github.com/thadchas/k-shui@main#subdirectory=backend' version
 ```
 
 ## Seeing the command without running it
@@ -61,7 +61,7 @@ $ npx k-shui --dry-run --from ./backend/dist/k_shui-0.1.0-py3-none-any.whl versi
 uvx --from /abs/path/backend/dist/k_shui-0.1.0-py3-none-any.whl k-shui version
 
 $ npx k-shui --docker --dry-run serve --port 9000
-docker run --rm -i -p 8090:8090 ghcr.io/k-shui/k-shui:latest serve --port 9000
+docker run --rm -i -p 8090:8090 ghcr.io/thadchas/k-shui:latest serve --port 9000
 ```
 
 `--help` on its own prints the launcher's own help; combine it with `--dry-run`
@@ -84,7 +84,7 @@ KSHUI_UVX_FROM=./backend/dist/k_shui-0.1.0-py3-none-any.whl npx k-shui version
 | Flag / env | Meaning |
 | --- | --- |
 | `--from <spec>` / `KSHUI_UVX_FROM` | Package spec handed to uvx/uv/pipx instead of `k-shui` (wheel, sdist, directory, git URL) |
-| `--docker` | Run `ghcr.io/k-shui/k-shui` instead of a Python runner |
+| `--docker` | Run `ghcr.io/thadchas/k-shui` instead of a Python runner |
 | `KSHUI_DOCKER_IMAGE` | Image used by `--docker` |
 | `--dry-run` | Print the resolved command and exit |
 | `--yes` / `-y` | Skip the "install uv?" confirmation |

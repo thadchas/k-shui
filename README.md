@@ -4,8 +4,8 @@
 
 **Kafka Streaming Hub UI — the open-source control center for Apache Kafka® and its streaming ecosystem**
 
-[![License](https://img.shields.io/github/license/k-shui/k-shui?color=0D9488)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/k-shui/k-shui/ci.yml?branch=main&label=CI&logo=github)](https://github.com/k-shui/k-shui/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/thadchas/k-shui?color=0D9488)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/thadchas/k-shui/ci.yml?branch=main&label=CI&logo=github)](https://github.com/thadchas/k-shui/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/k-shui?label=PyPI&logo=pypi&logoColor=white&color=0D9488)](https://pypi.org/project/k-shui/)
 [![npm](https://img.shields.io/npm/v/k-shui?label=npm&logo=npm&color=CB3837)](https://www.npmjs.com/package/k-shui)
 [![Docker](https://img.shields.io/badge/ghcr.io-k--shui%2Fk--shui-0D9488?logo=docker&logoColor=white)](https://github.com/orgs/k-shui/packages/container/package/k-shui)
@@ -68,10 +68,10 @@ uvx k-shui serve
 npx k-shui serve
 
 # Docker
-docker run -p 8090:8090 -e KSHUI_BOOTSTRAP_SERVERS=host.docker.internal:9092 ghcr.io/k-shui/k-shui
+docker run -p 8090:8090 -e KSHUI_BOOTSTRAP_SERVERS=host.docker.internal:9092 ghcr.io/thadchas/k-shui
 
 # Helm, on Kubernetes
-helm install k-shui oci://ghcr.io/k-shui/charts/k-shui
+helm install k-shui oci://ghcr.io/thadchas/charts/k-shui
 ```
 
 Then open **http://localhost:8090**. With no config file at all, k-shui starts

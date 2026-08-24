@@ -1,6 +1,6 @@
 # k-shui
 
-Helm chart for [k-shui](https://github.com/k-shui/k-shui) — an open-source control center
+Helm chart for [k-shui](https://github.com/thadchas/k-shui) — an open-source control center
 for Apache Kafka and its streaming ecosystem (Connect, Schema Registry, ksqlDB, Flink,
 Prometheus metrics and OpenLineage/Marquez lineage) in a single UI.
 
@@ -41,7 +41,7 @@ helm template t charts/k-shui -f charts/k-shui/values-lakestream.yaml
 | Key                                                   | Type   | Default                                                        | Description                                                                          |
 | ----------------------------------------------------- | ------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `replicaCount`                                        | int    | `1`                                                            | Pod replicas (ignored when `autoscaling.enabled`).                                   |
-| `image.repository`                                    | string | `ghcr.io/k-shui/k-shui`                                        | Image repository.                                                                    |
+| `image.repository`                                    | string | `ghcr.io/thadchas/k-shui`                                        | Image repository.                                                                    |
 | `image.tag`                                           | string | `""`                                                           | Image tag; defaults to `.Chart.AppVersion`.                                          |
 | `image.pullPolicy`                                    | string | `IfNotPresent`                                                 | Image pull policy.                                                                   |
 | `imagePullSecrets`                                    | list   | `[]`                                                           | Names of existing image pull secrets.                                                |

@@ -1,6 +1,6 @@
 # k-shui (npx launcher)
 
-Run [k-shui](https://github.com/k-shui/k-shui) — the open-source Kafka Streaming Hub UI —
+Run [k-shui](https://github.com/thadchas/k-shui) — the open-source Kafka Streaming Hub UI —
 without installing Python or Node dependencies yourself:
 
 ```bash
@@ -14,7 +14,7 @@ This package is a small launcher, not the application itself. It resolves, in or
 3. **Neither found** — asks to download [uv](https://astral.sh/uv) to `~/.k-shui/bin`
    (skip the prompt with `--yes`/`-y`), then re-execs through it.
 4. **`--docker`** — skips all of the above and runs the published container instead:
-   `docker run --rm -p 8090:8090 -v $PWD/k-shui.yaml:/etc/k-shui/config.yaml ghcr.io/k-shui/k-shui:latest <args>`.
+   `docker run --rm -p 8090:8090 -v $PWD/k-shui.yaml:/etc/k-shui/config.yaml ghcr.io/thadchas/k-shui:latest <args>`.
 
 Everything else — `init`, `serve`, `check`, `version`, `--config`, `--port`, ... — is
 forwarded verbatim to the real `k-shui` CLI; this wrapper only understands

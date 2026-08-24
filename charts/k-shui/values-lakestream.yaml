@@ -2,13 +2,13 @@
 # running in the `kafka` namespace, alongside Connect/Apicurio/Flink/Prometheus/Marquez
 # deployed in their own namespaces. Adjust hostnames/ports to match your cluster.
 #
-#   helm upgrade --install k-shui k-shui/k-shui -n k-shui --create-namespace \
+#   helm upgrade --install k-shui thadchas/k-shui -n k-shui --create-namespace \
 #     -f charts/k-shui/values-lakestream.yaml
 
 replicaCount: 2
 
 image:
-  repository: ghcr.io/k-shui/k-shui
+  repository: ghcr.io/thadchas/k-shui
   tag: "0.1.0"
 
 resources:

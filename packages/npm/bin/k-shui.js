@@ -5,7 +5,7 @@
  * npx k-shui — thin launcher for the k-shui Python CLI.
  *
  * Resolution order:
- *   1. `--docker`         -> docker run ghcr.io/k-shui/k-shui
+ *   1. `--docker`         -> docker run ghcr.io/thadchas/k-shui
  *   2. `uvx` on PATH      -> uvx --from <spec> k-shui <args>
  *   3. `uv` on PATH       -> uv tool run --from <spec> k-shui <args>
  *   4. `pipx` on PATH     -> pipx run --spec <spec> k-shui <args>
@@ -17,7 +17,7 @@
  * pre-release builds that are not on PyPI yet, e.g.
  *
  *   KSHUI_UVX_FROM=./backend/dist/k_shui-0.1.0-py3-none-any.whl npx k-shui version
- *   npx k-shui --from 'git+https://github.com/k-shui/k-shui@main#subdirectory=backend' serve
+ *   npx k-shui --from 'git+https://github.com/thadchas/k-shui@main#subdirectory=backend' serve
  *
  * `init`, `serve`, `check`, `version`, etc. are all just forwarded to the real k-shui CLI —
  * this wrapper has no subcommands of its own besides --help/--docker/--from/--dry-run/--yes.
@@ -30,7 +30,7 @@ const fs = require('node:fs');
 const readline = require('node:readline');
 
 const PACKAGE_NAME = 'k-shui';
-const DOCKER_IMAGE = process.env.KSHUI_DOCKER_IMAGE || 'ghcr.io/k-shui/k-shui:latest';
+const DOCKER_IMAGE = process.env.KSHUI_DOCKER_IMAGE || 'ghcr.io/thadchas/k-shui:latest';
 const UV_INSTALL_DIR = path.join(os.homedir(), '.k-shui', 'bin');
 
 /** Package spec handed to uvx/uv/pipx. Defaults to the published PyPI name. */
@@ -73,7 +73,7 @@ k-shui prefers an existing 'uv'/'uvx' or 'pipx' on PATH. If neither is found, it
 to install uv (https://astral.sh/uv) to ~/.k-shui/bin and re-exec through it. Pass
 --docker to run the published container image instead (requires Docker).
 
-Docs: https://github.com/k-shui/k-shui/tree/main/docs
+Docs: https://github.com/thadchas/k-shui/tree/main/docs
 `);
 }
 

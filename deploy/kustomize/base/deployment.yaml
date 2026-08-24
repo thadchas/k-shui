@@ -24,7 +24,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: k-shui
-          image: ghcr.io/k-shui/k-shui:latest
+          image: ghcr.io/thadchas/k-shui:latest
           imagePullPolicy: IfNotPresent
           args: ["serve", "--host", "0.0.0.0"]
           securityContext:

@@ -1,7 +1,7 @@
 # Roadmap
 
 k-shui is pre-1.0 and under active development. This is a living, directional
-list, not a committed schedule — see the [issue tracker](https://github.com/k-shui/k-shui/issues)
+list, not a committed schedule — see the [issue tracker](https://github.com/thadchas/k-shui/issues)
 for what's actually being worked on, and [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
 to help push something up the list.
 
@@ -70,5 +70,5 @@ quotas/SCRAM/KRaft quorum, audit log, basic/OIDC auth, light/dark theme. See
   distributed-scheduling items above.
 
 Have a feature you need sooner? Open a
-[GitHub issue](https://github.com/k-shui/k-shui/issues) describing your use
+[GitHub issue](https://github.com/thadchas/k-shui/issues) describing your use
 case — roadmap ordering is driven by real usage, not this list alone.
