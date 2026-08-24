@@ -164,7 +164,7 @@ jobs:
           output-file: sbom.spdx.json
 
       - name: Attest SBOM
-        uses: actions/attest-sbom@v2
+        uses: actions/attest-sbom@v4
         with:
           subject-name: ${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build.outputs.digest }}
