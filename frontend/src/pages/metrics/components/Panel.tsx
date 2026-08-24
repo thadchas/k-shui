@@ -268,7 +268,7 @@ export function Panel({
                 borderRadius: 8,
                 fontSize: 12,
               }}
-              formatter={(v: number) => formatUnit(v, unit.unit)}
+              formatter={(v) => formatUnit(typeof v === 'number' ? v : Number(v), unit.unit)}
             />
             <Bar dataKey="value" radius={[4, 4, 0, 0]} isAnimationActive={false}>
               {barRows.map((r, i) => (

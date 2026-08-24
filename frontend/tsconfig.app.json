@@ -17,7 +17,8 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
-    "baseUrl": ".",
+    // No `baseUrl`: it is deprecated in TypeScript 6 and removed in 7. The `paths`
+    // entries below are relative to this file, which is the behaviour without it.
     "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src", "src/vite-env.d.ts"]

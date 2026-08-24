@@ -41,11 +41,18 @@ const schema = z.object({
     .max(249, 'Topic names are limited to 249 characters')
     .regex(TOPIC_NAME_RE, 'Only letters, digits, dot, underscore and hyphen are allowed')
     .refine((v) => v !== '.' && v !== '..', 'Invalid topic name'),
-  partitions: z.coerce.number().int().min(1, 'At least 1 partition').max(100_000),
-  replicationFactor: z.coerce.number().int().min(1, 'At least 1 replica').max(32),
+  // zod 4 types the *input* of `z.coerce.number()` as `unknown` unless it is given
+  // explicitly. These fields are bound to <input type="number">, which hands react-hook-form
+  // a string, so pin the input type to keep `z.input<typeof schema>` assignable to the DOM.
+  partitions: z.coerce.number<string | number>().int().min(1, 'At least 1 partition').max(100_000),
+  replicationFactor: z.coerce
+    .number<string | number>()
+    .int()
+    .min(1, 'At least 1 replica')
+    .max(32),
   cleanupPolicy: z.enum(['delete', 'compact', 'compact,delete']),
-  retentionMs: z.coerce.number().int(),
-  minInsyncReplicas: z.coerce.number().int().min(1).max(32),
+  retentionMs: z.coerce.number<string | number>().int(),
+  minInsyncReplicas: z.coerce.number<string | number>().int().min(1).max(32),
 });
 
 type FormValues = z.input<typeof schema>;

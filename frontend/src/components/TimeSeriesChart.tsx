@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import type { TooltipPayloadEntry } from 'recharts';
 import type { Series } from '@/api/types';
 import { chartColor, seriesLabel, seriesToRows } from '@/lib/charts';
 import { formatAxis, formatTimeShort, formatTimestamp, formatUnit, type Unit } from '@/lib/format';
@@ -36,13 +37,6 @@ export interface TimeSeriesChartProps {
   stacked?: boolean;
 }
 
-interface TooltipPayloadItem {
-  name?: string | number;
-  value?: number | string;
-  color?: string;
-  dataKey?: string | number;
-}
-
 function ChartTooltip({
   active,
   payload,
@@ -51,7 +45,7 @@ function ChartTooltip({
   labels,
 }: {
   active?: boolean;
-  payload?: TooltipPayloadItem[];
+  payload?: ReadonlyArray<TooltipPayloadEntry>;
   label?: number | string;
   unit: Unit;
   labels?: Record<string, string>;
@@ -157,11 +151,18 @@ export function TimeSeriesChart({
               height={24}
               iconType="plainline"
               iconSize={10}
-              formatter={(value: string) => (
-                <span className="text-xs text-[var(--muted)]">
-                  {labels?.[value] ?? seriesLabel(value)}
-                </span>
-              )}
+              // recharts v3 sorts legend items alphabetically by default; v2 kept the
+              // order the series were declared in. `null` restores the v2 behaviour so
+              // the legend colours line up with the chart series order.
+              itemSorter={null}
+              formatter={(value: unknown) => {
+                const key = String(value ?? '');
+                return (
+                  <span className="text-xs text-[var(--muted)]">
+                    {labels?.[key] ?? seriesLabel(key)}
+                  </span>
+                );
+              }}
             />
           ) : null}
           {names.map((name, i) =>

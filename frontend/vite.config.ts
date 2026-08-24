@@ -62,23 +62,54 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     chunkSizeWarningLimit: 1200,
-    rollupOptions: {
+    // Vite 8 bundles with Rolldown, where `rollupOptions.output.manualChunks` is
+    // deprecated, so the monaco/flow/charts/vendor split is expressed as Rolldown
+    // code-splitting groups instead. Highest `priority` claims a module first and
+    // removes it from every lower group; anything left in node_modules ends up in
+    // `vendor`. Groups also pull in their transitive dependencies (Rolldown's
+    // `includeDependenciesRecursively` default), which is what keeps the chunk graph
+    // a DAG: `flow` claims the d3 packages @xyflow/system needs before `charts` is
+    // considered, so `flow` never has to import `charts`.
+    //
+    // Whenever these groups change, re-check that the emitted chunks still form a DAG
+    // — a cycle between two chunks throws "Cannot access 'X' before initialization" at
+    // runtime, with a blank page and no build-time warning.
+    rolldownOptions: {
       output: {
-        manualChunks(id: string) {
-          const match = /node_modules\/((?:@[^/]+\/)?[^/]+)/.exec(id);
-          const pkg = match?.[1];
-          if (!pkg) return undefined;
-          if (pkg === 'react' || pkg === 'react-dom' || pkg === 'scheduler') return 'react';
-          if (pkg === 'monaco-editor' || pkg === '@monaco-editor/react') return 'monaco';
-          // NOTE: every @xyflow/* package must land in the same chunk. @xyflow/system
-          // depends on d3-drag/d3-zoom/d3-selection, so leaving it in `vendor` makes
-          // `vendor` import `charts` while `charts` already imports `vendor` — a chunk
-          // cycle that throws "Cannot access 'X' before initialization" at runtime.
-          if (pkg.startsWith('@xyflow/') || pkg === 'dagre' || pkg === 'graphlib') return 'flow';
-          if (pkg === 'recharts' || pkg === 'victory-vendor' || pkg.startsWith('d3-'))
-            return 'charts';
-          if (pkg === 'react-router' || pkg.startsWith('@tanstack/')) return 'router-query';
-          return 'vendor';
+        codeSplitting: {
+          groups: [
+            {
+              name: 'react',
+              priority: 60,
+              // react-is is a recharts peer dependency; it belongs with the React
+              // family so neither `charts` nor `vendor` ends up owning a copy.
+              test: /node_modules[\\/](react|react-dom|react-is|scheduler)[\\/]/,
+            },
+            {
+              name: 'monaco',
+              priority: 50,
+              test: /node_modules[\\/](monaco-editor|@monaco-editor[\\/]react)[\\/]/,
+            },
+            // NOTE: every @xyflow/* package must land in the same chunk, and `flow`
+            // must outrank `charts` so that the d3-drag/d3-zoom/d3-selection tree
+            // @xyflow/system pulls in is owned here rather than shared across chunks.
+            {
+              name: 'flow',
+              priority: 40,
+              test: /node_modules[\\/](@xyflow[\\/][^\\/]+|dagre|graphlib)[\\/]/,
+            },
+            {
+              name: 'charts',
+              priority: 30,
+              test: /node_modules[\\/](recharts|victory-vendor|d3-[^\\/]+)[\\/]/,
+            },
+            {
+              name: 'router-query',
+              priority: 20,
+              test: /node_modules[\\/](react-router|@tanstack[\\/][^\\/]+)[\\/]/,
+            },
+            { name: 'vendor', priority: 10, test: /node_modules[\\/]/ },
+          ],
         },
       },
     },

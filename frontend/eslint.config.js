@@ -18,7 +18,13 @@ export default tseslint.config(
       'react-refresh': reactRefresh,
     },
     rules: {
-      ...reactHooks.configs.recommended.rules,
+      // eslint-plugin-react-hooks v7's `recommended` preset also turns on the React
+      // Compiler rule set (set-state-in-effect, refs, purity, ...). Those flag ~40
+      // pre-existing patterns across the app, so only the two classic hook rules are
+      // enabled here — the same set v5 shipped. Enabling the compiler rules is a
+      // separate piece of work.
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
       'react-refresh/only-export-components': 'off',
       '@typescript-eslint/no-unused-vars': [
         'error',
