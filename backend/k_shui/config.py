@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 
 class BasicAuthUser(BaseModel):
@@ -145,8 +145,43 @@ class ClusterConfig(BaseModel):
         }
 
 
+class YamlSource(PydanticBaseSettingsSource):
+    """Feeds parsed YAML into pydantic-settings at a lower priority than the environment."""
+
+    def __init__(self, settings_cls: type[BaseSettings], data: dict[str, Any] | None = None) -> None:
+        super().__init__(settings_cls)
+        self._data = data or {}
+
+    def get_field_value(self, field: Any, field_name: str) -> tuple[Any, str, bool]:  # pragma: no cover
+        return self._data.get(field_name), field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        return dict(self._data)
+
+
 class Settings(BaseSettings):
+    """Effective configuration. Precedence: environment > YAML file > defaults."""
+
     model_config = SettingsConfigDict(env_prefix="KSHUI__", env_nested_delimiter="__", extra="ignore")
+
+    _yaml_data: ClassVar[dict[str, Any]] = {}
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            YamlSource(settings_cls, cls._yaml_data),
+            file_secret_settings,
+        )
 
     server: ServerConfig = ServerConfig()
     auth: AuthConfig = AuthConfig()
@@ -205,7 +240,11 @@ def load_settings(config_path: str | os.PathLike[str] | None = None) -> Settings
     if path:
         with path.open() as fh:
             data = _expand_env(yaml.safe_load(fh) or {})
-    settings = Settings(**data)
+    Settings._yaml_data = data
+    try:
+        settings = Settings()
+    finally:
+        Settings._yaml_data = {}
     settings.configPath = str(path) if path else None
     if not settings.clusters:
         bootstrap = os.environ.get("KSHUI_BOOTSTRAP_SERVERS", "localhost:9092")

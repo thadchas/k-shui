@@ -88,6 +88,7 @@ ignore = ["B008", "RUF012"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["alert_engine: run the test with the background alert engine started"]
 
 [tool.mypy]
 python_version = "3.11"

@@ -55,7 +55,13 @@ class UpstreamError(KShuiError):
 
 
 def problem(status: int, type_: str, title: str, detail: str, instance: str, **extra: Any) -> JSONResponse:
-    body = {"type": PROBLEM_BASE + type_, "title": title, "status": status, "detail": detail, "instance": instance}
+    body = {
+        "type": PROBLEM_BASE + type_,
+        "title": title,
+        "status": status,
+        "detail": detail,
+        "instance": instance,
+    }
     body.update(extra)
     return JSONResponse(body, status_code=status, media_type="application/problem+json")
 
@@ -71,4 +77,11 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
-        return problem(422, "validation-error", "Validation error", "Invalid request", str(request.url.path), errors=exc.errors())
+        return problem(
+            422,
+            "validation-error",
+            "Validation error",
+            "Invalid request",
+            str(request.url.path),
+            errors=exc.errors(),
+        )
