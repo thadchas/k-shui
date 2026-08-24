@@ -48,7 +48,7 @@ jobs:
         with:
           name: static-assets
           path: backend/k_shui/static/
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
       - name: uv build
