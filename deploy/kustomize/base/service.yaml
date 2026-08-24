@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: k-shui
+  labels:
+    app.kubernetes.io/name: k-shui
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: k-shui
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http
+      protocol: TCP

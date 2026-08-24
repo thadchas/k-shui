@@ -1,0 +1,120 @@
+# Example values for pointing k-shui at a Strimzi-managed "lakestream" Kafka cluster
+# running in the `kafka` namespace, alongside Connect/Apicurio/Flink/Prometheus/Marquez
+# deployed in their own namespaces. Adjust hostnames/ports to match your cluster.
+#
+#   helm upgrade --install k-shui k-shui/k-shui -n k-shui --create-namespace \
+#     -f charts/k-shui/values-lakestream.yaml
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/k-shui/k-shui
+  tag: "0.1.0"
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 768Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 75
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: k-shui
+
+networkPolicy:
+  enabled: true
+  ingress:
+    from:
+      - namespaceSelector: {} # allow from any namespace; scope down with podSelector as needed
+
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClassName: "" # use the cluster default StorageClass
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: k-shui.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: k-shui-tls
+      hosts:
+        - k-shui.example.com
+
+metrics:
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    interval: 30s
+
+# Credentials referenced as ${VAR} below are resolved from this Secret's keys at
+# process-env level (see backend/k_shui/config.py::_expand_env). Create it with e.g.:
+#   kubectl create secret generic k-shui-credentials -n k-shui \
+#     --from-literal=OIDC_CLIENT_SECRET=... \
+#     --from-literal=SR_PASSWORD=...
+existingSecret: k-shui-credentials
+
+config:
+  server:
+    host: 0.0.0.0
+    port: 8090
+    basePath: /
+  auth:
+    type: oidc
+    oidc:
+      issuer: https://login.example.com/realms/lakestream
+      clientId: k-shui
+      clientSecret: "${OIDC_CLIENT_SECRET}"
+      scopes: [openid, profile, email]
+      rolesClaim: roles
+  database:
+    url: sqlite+aiosqlite:////data/k-shui.db
+  telemetry:
+    metrics: true
+    logFormat: json
+    logLevel: INFO
+  alerts:
+    evaluationIntervalSeconds: 30
+  clusters:
+    - id: lakestream
+      name: lakestream
+      bootstrapServers: lakestream-kafka-bootstrap.kafka:9092
+      schemaRegistry:
+        url: http://apicurio-registry.kafka:8080/apis/ccompat/v7
+        type: apicurio
+      connect:
+        - name: lakestream-connect
+          url: http://lakestream-connect-connect-api.kafka:8083
+      flink:
+        - name: lakestream-session
+          url: http://lakestream-session-rest.flink:8081
+      prometheus:
+        url: http://prometheus.monitoring:9090
+        labels:
+          cluster: lakestream
+      lineage:
+        type: marquez
+        url: http://marquez.lineage:5000/api/v1
+      metricsMode: prometheus

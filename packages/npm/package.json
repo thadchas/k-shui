@@ -1,0 +1,42 @@
+{
+  "name": "k-shui",
+  "version": "0.1.0",
+  "description": "Run k-shui (Kafka Streaming Hub UI) with npx — no local Python install required. Uses uv/uvx or pipx when available, offers to install uv otherwise, or runs the Docker image with --docker.",
+  "keywords": [
+    "kafka",
+    "kafka-ui",
+    "control-center",
+    "kafka-connect",
+    "schema-registry",
+    "flink",
+    "cli"
+  ],
+  "homepage": "https://github.com/k-shui/k-shui/tree/main/packages/npm#readme",
+  "bugs": {
+    "url": "https://github.com/k-shui/k-shui/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/k-shui/k-shui.git",
+    "directory": "packages/npm"
+  },
+  "license": "Apache-2.0",
+  "author": "k-shui contributors",
+  "type": "commonjs",
+  "bin": {
+    "k-shui": "bin/k-shui.js"
+  },
+  "files": [
+    "bin/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node bin/k-shui.js --help"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

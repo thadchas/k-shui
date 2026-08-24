@@ -1,0 +1,202 @@
+# -- Default values for the k-shui chart. See charts/k-shui/README.md for the full values table.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/k-shui/k-shui
+  # -- Overrides the image tag; defaults to .Chart.AppVersion
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# -- Names of existing image pull secrets (for private registries / mirrors).
+imagePullSecrets: []
+# - name: my-registry-secret
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a ServiceAccount for the k-shui pod.
+  create: true
+  annotations: {}
+  # -- Name of the ServiceAccount to use. If not set and create is true, a name is generated.
+  name: ""
+  automountServiceAccountToken: true
+
+podAnnotations: {}
+podLabels: {}
+
+# -- Pod-level security context. Matches the non-root uid/gid baked into the image (10001).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container-level security context.
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+service:
+  type: ClusterIP
+  port: 8090
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations:
+    {}
+    # kubernetes.io/ingress.class: nginx
+    # If serving under a sub-path (e.g. https://host/k-shui), set server.basePath in `config`
+    # to match, and add any rewrite annotation your ingress controller needs, e.g. for
+    # ingress-nginx WITHOUT rewriting (basePath already matches the path prefix) no
+    # nginx.ingress.kubernetes.io/rewrite-target is needed; with rewriting to `/`, set
+    # server.basePath: "/" and nginx.ingress.kubernetes.io/rewrite-target: /$2 with a
+    # path regex capture group.
+  hosts:
+    - host: k-shui.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  # - secretName: k-shui-tls
+  #   hosts:
+  #     - k-shui.local
+
+resources:
+  # -- Left empty by default; set sensible requests/limits for production (see values-lakestream.yaml).
+  {}
+  # limits:
+  #   cpu: 1000m
+  #   memory: 512Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: null
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1   # alternative to minAvailable; only set one
+
+networkPolicy:
+  # -- When enabled, restricts ingress to pods matching podSelector/namespaceSelector below,
+  # and allows all egress (k-shui needs to reach arbitrary cluster/Connect/SR/Flink/Prometheus
+  # endpoints, so egress is intentionally left open — tighten per-environment if needed).
+  enabled: false
+  ingress:
+    from: []
+    # - namespaceSelector: {}
+    #   podSelector: {}
+  extraEgress: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+
+# -- Extra environment variables appended to the container, e.g. KSHUI__ overrides
+# or the variables referenced via ${VAR} inside `config` (see existingSecret below).
+extraEnv: []
+# - name: KSHUI__SERVER__BASEPATH
+#   value: /k-shui
+
+# -- Extra envFrom sources (ConfigMaps/Secrets), merged after the existingSecret envFrom.
+extraEnvFrom: []
+
+# -- Reference an existing Secret whose keys are exposed as env vars (envFrom). Use this to
+# keep credentials out of the rendered ConfigMap: put "${VAR}" placeholders in `config` (the
+# app's YAML loader expands ${VAR} / ${VAR:-default} from the process environment — see
+# backend/k_shui/config.py::_expand_env) and store the real values as keys in this Secret.
+existingSecret: ""
+# existingSecret: k-shui-credentials   # keys become env vars, e.g. OIDC_CLIENT_SECRET
+
+extraVolumes: []
+extraVolumeMounts: []
+
+persistence:
+  # -- Enables a PVC mounted at /data for the default SQLite database
+  # (database.url: sqlite+aiosqlite:///./k-shui.db is set relative to /data via extraEnv/
+  # workingDir in the Deployment, or point database.url in `config` at /data/k-shui.db).
+  # Leave disabled to run with an emptyDir (state lost on pod restart) or when using
+  # an external Postgres via `config.database.url`.
+  enabled: false
+  size: 1Gi
+  storageClassName: ""
+  accessModes:
+    - ReadWriteOnce
+  existingClaim: ""
+  annotations: {}
+
+probes:
+  liveness:
+    path: /healthz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    path: /readyz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+metrics:
+  serviceMonitor:
+    # -- Requires the prometheus-operator CRDs.
+    enabled: false
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    relabelings: []
+    metricRelabelings: []
+  podMonitor:
+    # -- Alternative to serviceMonitor; enable at most one.
+    enabled: false
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
+# -- Rendered as YAML into the ConfigMap mounted at /etc/k-shui/config.yaml. This mirrors
+# the schema documented in ARCHITECTURE.md / docs/deployment/configuration-reference.md.
+# Sensitive fields should be "${ENV_VAR}" placeholders resolved from `existingSecret` above,
+# never plaintext — see docs/deployment/security-hardening.md.
+config:
+  server:
+    host: 0.0.0.0
+    port: 8090
+    basePath: /
+    cors: []
+  auth:
+    type: none
+  database:
+    # -- Absolute path under the /data volume (emptyDir by default, or the PVC when
+    # `persistence.enabled` is true) so it stays writable with readOnlyRootFilesystem.
+    url: sqlite+aiosqlite:////data/k-shui.db
+  telemetry:
+    metrics: true
+    otlpEndpoint: null
+    logFormat: json
+    logLevel: INFO
+  alerts:
+    evaluationIntervalSeconds: 30
+  clusters:
+    - id: default
+      name: default
+      bootstrapServers: kafka.kafka.svc.cluster.local:9092

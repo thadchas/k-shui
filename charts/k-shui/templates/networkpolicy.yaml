@@ -1,0 +1,29 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "k-shui.fullname" . }}
+  labels:
+    {{- include "k-shui.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "k-shui.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        {{- toYaml .Values.networkPolicy.ingress.from | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.port }}
+  egress:
+    # k-shui talks to arbitrary Kafka/Connect/Schema-Registry/ksqlDB/Flink/Prometheus/Marquez
+    # endpoints configured per-cluster, so egress is left open by default. Add
+    # networkPolicy.extraEgress entries to scope it down per environment.
+    - {}
+    {{- with .Values.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

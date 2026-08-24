@@ -1,0 +1,25 @@
+# Prometheus scrape config for the k-shui compose demo.
+# Started with `--profile full` since it depends on kafka-exporter / flink being up.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: k-shui
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["k-shui:8090"]
+
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+
+  # Flink exposes a Prometheus reporter on 9249 when
+  # metrics.reporter.prom.factory.class is set (see docker-compose.yml).
+  - job_name: flink-jobmanager
+    static_configs:
+      - targets: ["flink-jobmanager:9249"]
+
+  - job_name: flink-taskmanager
+    static_configs:
+      - targets: ["flink-taskmanager:9249"]

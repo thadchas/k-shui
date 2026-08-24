@@ -1,0 +1,37 @@
+k-shui has been installed as {{ include "k-shui.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+{{- if .Values.ingress.enabled }}
+
+It should be reachable at:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}{{ (first .paths).path }}
+{{- end }}
+{{- else }}
+
+No Ingress is enabled. Reach it by port-forwarding the Service:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "k-shui.fullname" . }} 8090:{{ .Values.service.port }}
+
+Then open http://localhost:8090
+{{- end }}
+
+Health:    GET /healthz, /readyz
+Metrics:   GET /metrics {{- if not .Values.metrics.serviceMonitor.enabled }} (enable metrics.serviceMonitor.enabled or metrics.podMonitor.enabled to scrape via prometheus-operator){{- end }}
+
+Config is rendered from `.Values.config` into the ConfigMap
+{{ include "k-shui.fullname" . }}-config and mounted at /etc/k-shui/config.yaml. To change
+clusters/auth/etc., set `--set-file` or override `config:` in your values file and upgrade:
+
+  helm upgrade {{ .Release.Name }} k-shui/k-shui -f my-values.yaml
+
+{{- if not .Values.persistence.enabled }}
+
+NOTE: persistence.enabled is false — the SQLite database at /data lives in an emptyDir and
+is lost on pod restart/reschedule. Enable persistence.enabled or point config.database.url at
+an external Postgres for durable state (dashboards, alert history, audit log).
+{{- end }}
+{{- if eq .Values.config.auth.type "none" }}
+
+WARNING: auth.type is "none" — every user has admin access. See
+docs/deployment/security-hardening.md before exposing this outside a trusted network.
+{{- end }}

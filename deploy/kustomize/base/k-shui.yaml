@@ -1,0 +1,20 @@
+# Base k-shui config, rendered into the k-shui-config ConfigMap. Overlays replace this
+# file (configMapGenerator behavior=replace) with an environment-specific one.
+server:
+  host: 0.0.0.0
+  port: 8090
+  basePath: /
+auth:
+  type: none
+database:
+  url: sqlite+aiosqlite:////data/k-shui.db
+telemetry:
+  metrics: true
+  logFormat: json
+  logLevel: INFO
+alerts:
+  evaluationIntervalSeconds: 30
+clusters:
+  - id: default
+    name: default
+    bootstrapServers: kafka.kafka.svc.cluster.local:9092

@@ -1,0 +1,25 @@
+# Config used by docker-compose.attach.yml. Mirrors deploy/examples/k-shui.local.yaml
+# but reaches the host Kafka cluster (e.g. a `kind` cluster with NodePort 9094) via
+# host.docker.internal instead of localhost, since k-shui itself runs inside a container.
+server:
+  port: 8090
+auth:
+  type: none
+clusters:
+  - id: host
+    name: host cluster
+    bootstrapServers: host.docker.internal:9094
+    schemaRegistry:
+      url: http://host.docker.internal:8084/apis/ccompat/v7
+      type: apicurio
+    connect:
+      - name: connect
+        url: http://host.docker.internal:8083
+    flink:
+      - name: flink
+        url: http://host.docker.internal:8081
+    prometheus:
+      url: http://host.docker.internal:9090
+    lineage:
+      type: marquez
+      url: http://host.docker.internal:3001/api/v1

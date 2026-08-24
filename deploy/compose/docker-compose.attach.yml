@@ -1,0 +1,28 @@
+# Standalone compose file that runs ONLY k-shui, pointed at an existing Kafka
+# stack running directly on the host (e.g. the `kind`-based lakestream cluster
+# described in deploy/examples/k-shui.local.yaml, or anything else already
+# listening on the host network).
+#
+#   docker compose -f deploy/compose/docker-compose.attach.yml up --build
+#
+# On Linux, host.docker.internal isn't defined by default — the
+# extra_hosts entry below adds it (harmless no-op on Docker Desktop for
+# macOS/Windows, where it already resolves).
+
+name: k-shui-attach
+
+services:
+  k-shui:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    container_name: k-shui
+    ports:
+      - "8090:8090"
+    environment:
+      KSHUI_CONFIG: /etc/k-shui/config.yaml
+    volumes:
+      - ./k-shui.attach.yaml:/etc/k-shui/config.yaml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

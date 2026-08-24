@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - serviceaccount.yaml
+  - deployment.yaml
+  - service.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: k-shui
+      app.kubernetes.io/part-of: k-shui
+    includeSelectors: true
+
+configMapGenerator:
+  - name: k-shui-config
+    files:
+      - config.yaml=k-shui.yaml
+
+images:
+  - name: ghcr.io/k-shui/k-shui
+    newTag: "0.1.0"

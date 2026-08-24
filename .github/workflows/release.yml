@@ -1,0 +1,213 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/k-shui
+  CHART_NAME: k-shui
+
+jobs:
+  frontend-build:
+    name: build frontend static assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: static-assets
+          path: backend/k_shui/static/
+          retention-days: 1
+
+  pypi:
+    name: build & publish PyPI package
+    needs: [frontend-build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/k-shui
+    permissions:
+      id-token: write # trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: static-assets
+          path: backend/k_shui/static/
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+      - name: uv build
+        working-directory: backend
+        run: uv build
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: backend/dist/
+
+  npm:
+    name: publish npm package
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # npm provenance
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Sync version from tag
+        working-directory: packages/npm
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+      - name: npm test
+        working-directory: packages/npm
+        run: npm test
+      - name: npm publish
+        working-directory: packages/npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  docker:
+    name: build, sign & attest multi-arch image
+    needs: [frontend-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # cosign keyless signing + SBOM attestation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: static-assets
+          path: backend/k_shui/static/
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build & push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            VCS_REF=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless)
+        run: |
+          cosign sign --yes "${IMAGE_NAME}@${DIGEST}"
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - name: Generate SBOM (syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@v2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: sbom.spdx.json
+          push-to-registry: true
+
+  helm:
+    name: package & push chart (OCI)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: "latest"
+
+      - name: helm lint
+        run: helm lint charts/k-shui
+
+      - name: Set chart version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version: .*/version: ${VERSION}/" charts/k-shui/Chart.yaml
+          sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" charts/k-shui/Chart.yaml
+
+      - name: helm package
+        run: helm package charts/k-shui --destination dist/
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: helm push
+        run: helm push dist/${CHART_NAME}-*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+
+  github-release:
+    name: create GitHub release
+    needs: [pypi, npm, docker, helm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          name: k-shui ${{ github.ref_name }}
+          body: |
+            k-shui ${{ github.ref_name }}
+
+            - PyPI: https://pypi.org/project/k-shui/${{ github.ref_name }}
+            - npm: https://www.npmjs.com/package/k-shui/v/${{ github.ref_name }}
+            - Image: `docker pull ${{ env.IMAGE_NAME }}:${{ github.ref_name }}`
+            - Helm: `helm install k-shui oci://ghcr.io/${{ github.repository_owner }}/charts/k-shui --version ${{ github.ref_name }}`

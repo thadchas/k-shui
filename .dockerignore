@@ -1,0 +1,45 @@
+# VCS / editor
+.git
+.gitignore
+.github
+.vscode
+.idea
+*.md
+!README.md
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/*.egg-info/
+backend/.coverage
+backend/htmlcov/
+backend/dist/
+backend/build/
+
+# Node
+**/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+
+# Data / local artifacts
+*.db
+*.db-journal
+.env
+.DS_Store
+coverage/
+
+# k-shui static output is rebuilt inside the image
+backend/k_shui/static/*
+!backend/k_shui/static/.gitkeep
+
+# packaging / deploy trees not needed inside the build context
+charts/
+deploy/compose/
+deploy/kustomize/
+packages/npm/
+docs/

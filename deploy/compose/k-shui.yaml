@@ -1,0 +1,28 @@
+# Config used by the `k-shui` service inside docker-compose.yml.
+# All hostnames are docker-compose service names on the shared `k-shui` network.
+server:
+  port: 8090
+auth:
+  type: none
+telemetry:
+  metrics: true
+clusters:
+  - id: compose
+    name: compose (local demo)
+    bootstrapServers: kafka:9092
+    schemaRegistry:
+      url: http://apicurio-registry:8080/apis/ccompat/v7
+      type: apicurio
+    connect:
+      - name: connect
+        url: http://connect:8083
+    flink:
+      - name: flink
+        url: http://flink-jobmanager:8081
+    prometheus:
+      url: http://prometheus:9090
+      labels: {}
+    lineage:
+      type: marquez
+      url: http://marquez:5000/api/v1
+    metricsMode: prometheus

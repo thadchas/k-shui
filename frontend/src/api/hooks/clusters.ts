@@ -1,0 +1,94 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/api/client';
+import { clusterScope, qk } from '@/api/keys';
+import { useRefetchInterval } from '@/stores/ui';
+import type {
+  ClusterDetail,
+  ClusterHealth,
+  ClusterSummary,
+  ConfigEntry,
+  ConfigUpdateRequest,
+  KRaftQuorum,
+  RangeParams,
+  ReplicationFlow,
+  SeriesResponse,
+} from '@/api/types';
+
+export function useClusters() {
+  const refetchInterval = useRefetchInterval();
+  return useQuery({
+    queryKey: qk.clusters(),
+    queryFn: () => api.get<ClusterSummary[]>('/clusters'),
+    refetchInterval,
+    staleTime: 5_000,
+  });
+}
+
+export function useCluster(cluster: string | undefined) {
+  const refetchInterval = useRefetchInterval();
+  return useQuery({
+    queryKey: qk.cluster(cluster ?? ''),
+    queryFn: () => api.get<ClusterDetail>(`/clusters/${cluster}`),
+    enabled: Boolean(cluster),
+    refetchInterval,
+  });
+}
+
+export function useClusterHealth(cluster: string | undefined) {
+  const refetchInterval = useRefetchInterval();
+  return useQuery({
+    queryKey: qk.clusterHealth(cluster ?? ''),
+    queryFn: () => api.get<ClusterHealth>(`/clusters/${cluster}/health`),
+    enabled: Boolean(cluster),
+    refetchInterval,
+  });
+}
+
+export function useOverviewMetrics(cluster: string | undefined, range: RangeParams) {
+  const refetchInterval = useRefetchInterval();
+  return useQuery({
+    queryKey: qk.clusterOverviewMetrics(cluster ?? '', range),
+    queryFn: () => api.get<SeriesResponse>(`/clusters/${cluster}/overview/metrics`, { ...range }),
+    enabled: Boolean(cluster),
+    refetchInterval,
+  });
+}
+
+export function useKRaftQuorum(cluster: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: qk.kraftQuorum(cluster ?? ''),
+    queryFn: () => api.get<KRaftQuorum>(`/clusters/${cluster}/kraft/quorum`),
+    enabled: Boolean(cluster) && enabled,
+    retry: false,
+  });
+}
+
+export function useClusterConfigs(cluster: string | undefined) {
+  return useQuery({
+    queryKey: qk.clusterConfigs(cluster ?? ''),
+    queryFn: () => api.get<ConfigEntry[]>(`/clusters/${cluster}/configs`),
+    enabled: Boolean(cluster),
+  });
+}
+
+export function useUpdateClusterConfigs(cluster: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ConfigUpdateRequest) => api.put<void>(`/clusters/${cluster}/configs`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.clusterConfigs(cluster) }),
+  });
+}
+
+export function useReplication(cluster: string | undefined) {
+  return useQuery({
+    queryKey: qk.replication(cluster ?? ''),
+    queryFn: () => api.get<ReplicationFlow[]>(`/clusters/${cluster}/replication`),
+    enabled: Boolean(cluster),
+    retry: false,
+  });
+}
+
+export function useInvalidateCluster(cluster: string) {
+  const qc = useQueryClient();
+  return () => qc.invalidateQueries({ queryKey: clusterScope(cluster) });
+}

@@ -1,0 +1,39 @@
+# Prod-overlay config. Auth/credentials should be layered in via a Secret + ${VAR}
+# expansion in a real deployment (see charts/k-shui/values-lakestream.yaml for the
+# equivalent Helm pattern); this file intentionally keeps auth minimal as a starting
+# point — see docs/deployment/security-hardening.md before going live.
+server:
+  host: 0.0.0.0
+  port: 8090
+  basePath: /
+auth:
+  type: none
+database:
+  url: sqlite+aiosqlite:////data/k-shui.db
+telemetry:
+  metrics: true
+  logFormat: json
+  logLevel: INFO
+alerts:
+  evaluationIntervalSeconds: 30
+clusters:
+  - id: prod
+    name: prod
+    bootstrapServers: lakestream-kafka-bootstrap.kafka:9092
+    schemaRegistry:
+      url: http://apicurio-registry.kafka:8080/apis/ccompat/v7
+      type: apicurio
+    connect:
+      - name: lakestream-connect
+        url: http://lakestream-connect-connect-api.kafka:8083
+    flink:
+      - name: lakestream-session
+        url: http://lakestream-session-rest.flink:8081
+    prometheus:
+      url: http://prometheus.monitoring:9090
+      labels:
+        cluster: prod
+    lineage:
+      type: marquez
+      url: http://marquez.lineage:5000/api/v1
+    metricsMode: prometheus
