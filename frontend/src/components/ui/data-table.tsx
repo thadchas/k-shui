@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Link, useNavigate } from 'react-router';
 import {
   flexRender,
   getCoreRowModel,
@@ -30,7 +31,15 @@ import { ErrorState } from './error-state';
 import { Input } from './input';
 import { Pagination } from './pagination';
 import { Skeleton } from './skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from './table';
 
 declare module '@tanstack/react-table' {
   /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -60,12 +69,29 @@ export interface DataTableProps<TData> {
   onRetry?: () => void;
 
   /* toolbar */
+  /**
+   * Search box value. Client-side filtering is applied to `data` unless `manualFiltering`
+   * is set (or inferred — see `manualFiltering`).
+   */
   globalFilter?: string;
   onGlobalFilterChange?: (value: string) => void;
   searchPlaceholder?: string;
+  /** Rendered right after the search box. */
   toolbar?: React.ReactNode;
+  /** Rendered at the far right of the toolbar, before the column-visibility menu. */
+  toolbarExtra?: React.ReactNode;
   enableColumnVisibility?: boolean;
   hideToolbar?: boolean;
+  /**
+   * Skip client-side filtering for `globalFilter` / `columnFilters` (the server already
+   * filtered). Defaults to `true` when server pagination props (`page`/`total`) are given,
+   * `false` otherwise.
+   */
+  manualFiltering?: boolean;
+
+  /* column filters — controlled or uncontrolled */
+  columnFilters?: ColumnFiltersState;
+  onColumnFiltersChange?: (filters: ColumnFiltersState) => void;
 
   /* sorting — controlled (server-side) or uncontrolled */
   sorting?: SortingState;
@@ -82,6 +108,11 @@ export interface DataTableProps<TData> {
 
   /* interactions */
   onRowClick?: (row: TData) => void;
+  /**
+   * Makes rows navigable: the first visible cell is wrapped in a `<Link>` (so cmd/middle
+   * click opens a tab) and clicking / pressing Enter anywhere on the row navigates.
+   */
+  getRowHref?: (row: TData) => string;
   rowActions?: (row: TData) => React.ReactNode;
   getRowId?: (row: TData, index: number) => string;
   isRowSelected?: (row: TData) => boolean;
@@ -92,6 +123,9 @@ export interface DataTableProps<TData> {
   emptyDescription?: string;
   className?: string;
   containerClassName?: string;
+  /** Accessible table caption (visually hidden by default; pass `captionVisible` to show). */
+  caption?: React.ReactNode;
+  captionVisible?: boolean;
   /** Max body height; enables virtualization scroll container. */
   maxHeight?: number | string;
   skeletonRows?: number;
@@ -111,8 +145,12 @@ export function DataTable<TData>({
   onGlobalFilterChange,
   searchPlaceholder = 'Search…',
   toolbar,
+  toolbarExtra,
   enableColumnVisibility = true,
   hideToolbar = false,
+  manualFiltering,
+  columnFilters: controlledColumnFilters,
+  onColumnFiltersChange,
   sorting,
   onSortingChange,
   manualSorting = false,
@@ -123,6 +161,7 @@ export function DataTable<TData>({
   onPageChange,
   onPerPageChange,
   onRowClick,
+  getRowHref,
   rowActions,
   getRowId,
   isRowSelected,
@@ -131,6 +170,8 @@ export function DataTable<TData>({
   emptyDescription,
   className,
   containerClassName,
+  caption,
+  captionVisible = false,
   maxHeight,
   skeletonRows = 8,
   rowLabel = 'rows',
@@ -139,10 +180,23 @@ export function DataTable<TData>({
 }: DataTableProps<TData>) {
   const [internalSorting, setInternalSorting] = React.useState<SortingState>(defaultSorting);
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
-  const [columnFilters] = React.useState<ColumnFiltersState>([]);
+  const [internalColumnFilters, setInternalColumnFilters] = React.useState<ColumnFiltersState>([]);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   const resolvedSorting = sorting ?? internalSorting;
+  const columnFilters = controlledColumnFilters ?? internalColumnFilters;
+  const isServerPaginated = page !== undefined && total !== undefined;
+  const resolvedManualFiltering = manualFiltering ?? isServerPaginated;
+  const rowsClickable = Boolean(onRowClick || getRowHref);
+
+  const activateRow = React.useCallback(
+    (row: TData) => {
+      if (onRowClick) onRowClick(row);
+      else if (getRowHref) void navigate(getRowHref(row));
+    },
+    [onRowClick, getRowHref, navigate],
+  );
 
   const allColumns = React.useMemo<ColumnDef<TData>[]>(() => {
     if (!rowActions) return columns;
@@ -170,20 +224,27 @@ export function DataTable<TData>({
       sorting: resolvedSorting,
       columnVisibility,
       columnFilters,
-      globalFilter: onGlobalFilterChange ? undefined : globalFilter,
+      globalFilter: resolvedManualFiltering ? undefined : (globalFilter ?? ''),
     },
     manualSorting,
     manualPagination: true,
+    manualFiltering: resolvedManualFiltering,
     enableSortingRemoval: true,
+    globalFilterFn: 'includesString',
     onSortingChange: (updater) => {
       const next = typeof updater === 'function' ? updater(resolvedSorting) : updater;
       if (onSortingChange) onSortingChange(next);
       else setInternalSorting(next);
     },
+    onColumnFiltersChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(columnFilters) : updater;
+      if (onColumnFiltersChange) onColumnFiltersChange(next);
+      else setInternalColumnFilters(next);
+    },
     onColumnVisibilityChange: setColumnVisibility,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: manualSorting ? undefined : getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
+    getFilteredRowModel: resolvedManualFiltering ? undefined : getFilteredRowModel(),
     getRowId,
   });
 
@@ -230,6 +291,7 @@ export function DataTable<TData>({
                 placeholder={searchPlaceholder}
                 className="pl-8 pr-8"
                 aria-label={searchPlaceholder}
+                data-table-search=""
               />
               {globalFilter ? (
                 <button
@@ -244,10 +306,13 @@ export function DataTable<TData>({
             </div>
           ) : null}
           {toolbar}
+          {toolbarExtra ? (
+            <div className="ml-auto flex items-center gap-2">{toolbarExtra}</div>
+          ) : null}
           {enableColumnVisibility && hideableColumns.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="md" className="ml-auto">
+                <Button variant="outline" size="md" className={cn(!toolbarExtra && 'ml-auto')}>
                   <Columns3 /> Columns
                 </Button>
               </DropdownMenuTrigger>
@@ -281,6 +346,9 @@ export function DataTable<TData>({
         ) : (
           <div ref={containerRef} className="relative overflow-auto" style={bodyStyle}>
             <table className="w-full border-collapse text-sm">
+              {caption ? (
+                <TableCaption className={cn(!captionVisible && 'sr-only')}>{caption}</TableCaption>
+              ) : null}
               <TableHeader sticky={stickyHeader}>
                 {table.getHeaderGroups().map((headerGroup) => (
                   <TableRow key={headerGroup.id} className="hover:bg-transparent">
@@ -294,6 +362,15 @@ export function DataTable<TData>({
                           numeric={meta?.numeric}
                           className={cn(meta?.widthClass)}
                           style={{ width: header.getSize() !== 150 ? header.getSize() : undefined }}
+                          aria-sort={
+                            canSort
+                              ? sorted === 'asc'
+                                ? 'ascending'
+                                : sorted === 'desc'
+                                  ? 'descending'
+                                  : 'none'
+                              : undefined
+                          }
                         >
                           {header.isPlaceholder ? null : canSort ? (
                             <button
@@ -358,20 +435,63 @@ export function DataTable<TData>({
                       (row: Row<TData>) => (
                         <TableRow
                           key={row.id}
-                          clickable={Boolean(onRowClick)}
+                          clickable={rowsClickable}
+                          role={getRowHref ? 'link' : undefined}
                           selected={isRowSelected?.(row.original)}
                           style={shouldVirtualize ? { height: ROW_HEIGHT } : undefined}
-                          onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                          onClick={
+                            rowsClickable
+                              ? (e) => {
+                                  // Let the first-cell <Link> handle modified clicks (new tab).
+                                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                                  activateRow(row.original);
+                                }
+                              : undefined
+                          }
                         >
-                          {row.getVisibleCells().map((cell) => (
-                            <TableCell
-                              key={cell.id}
-                              numeric={cell.column.columnDef.meta?.numeric}
-                              className={cn(cell.column.columnDef.meta?.widthClass)}
-                            >
-                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                            </TableCell>
-                          ))}
+                          {row.getVisibleCells().map((cell, cellIndex) => {
+                            const cellMeta = cell.column.columnDef.meta;
+                            const content = flexRender(
+                              cell.column.columnDef.cell,
+                              cell.getContext(),
+                            );
+                            const href =
+                              getRowHref && cellIndex === 0 ? getRowHref(row.original) : null;
+                            return (
+                              <TableCell
+                                key={cell.id}
+                                numeric={cellMeta?.numeric}
+                                className={cn(cellMeta?.widthClass)}
+                                onClick={
+                                  cellMeta?.stopRowClick ? (e) => e.stopPropagation() : undefined
+                                }
+                                onKeyDown={
+                                  cellMeta?.stopRowClick ? (e) => e.stopPropagation() : undefined
+                                }
+                              >
+                                {href ? (
+                                  <Link
+                                    to={href}
+                                    tabIndex={-1}
+                                    className="block text-inherit no-underline"
+                                    onClick={(e) => {
+                                      // Plain clicks are handled by the row; keep the anchor for
+                                      // cmd/ctrl/middle-click and context menu semantics.
+                                      if (!(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) {
+                                        e.preventDefault();
+                                      } else {
+                                        e.stopPropagation();
+                                      }
+                                    }}
+                                  >
+                                    {content}
+                                  </Link>
+                                ) : (
+                                  content
+                                )}
+                              </TableCell>
+                            );
+                          })}
                         </TableRow>
                       ),
                     )}
@@ -387,6 +507,14 @@ export function DataTable<TData>({
           </div>
         )}
       </div>
+
+      <p aria-live="polite" className="sr-only">
+        {loading
+          ? 'Loading'
+          : `${showPagination ? total : rows.length} ${rowLabel}${
+              !loading && rows.length === 0 ? ', no results' : ''
+            }`}
+      </p>
 
       {showPagination ? (
         <Pagination
@@ -434,4 +562,4 @@ export function selectionColumn<TData>(): ColumnDef<TData, unknown> {
 }
 
 export { Table as RawTable };
-export type { ColumnDef, SortingState };
+export type { ColumnDef, ColumnFiltersState, SortingState };

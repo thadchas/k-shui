@@ -29,6 +29,9 @@ def browse_params(
     mode: str = Query("latest", pattern="^(latest|earliest|offset|timestamp)$"),
     partitions: str | None = Query(None, description="comma separated partition ids"),
     offset: int | None = Query(None),
+    startOffsets: str | None = Query(
+        None, description="per-partition seek for mode=offset, e.g. '0:100,1:250' (overrides offset)"
+    ),
     timestamp: int | None = Query(None, description="epoch millis"),
     limit: int = Query(100, ge=1, le=10000),
     keyFormat: str = Query("auto"),
@@ -44,11 +47,26 @@ def browse_params(
             parts = [int(p) for p in partitions.split(",") if p.strip() != ""]
         except ValueError as exc:
             raise BadRequest(f"invalid partitions '{partitions}'") from exc
+    start_offsets: dict[int, int] | None = None
+    if startOffsets:
+        start_offsets = {}
+        for pair in startOffsets.split(","):
+            if pair.strip() == "":
+                continue
+            try:
+                part_s, off_s = pair.split(":", 1)
+                part_id, off = int(part_s), int(off_s)
+            except ValueError as exc:
+                raise BadRequest(f"invalid startOffsets '{startOffsets}'") from exc
+            if off < 0:
+                raise BadRequest(f"startOffsets: offset for partition {part_id} must be >= 0")
+            start_offsets[part_id] = off
     return BrowseRequest(
         topic=topic,
         mode=mode,
         partitions=parts,
         offset=offset,
+        start_offsets=start_offsets,
         timestamp=timestamp,
         limit=limit,
         key_format=keyFormat,

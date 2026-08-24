@@ -125,6 +125,51 @@ async def test_compatibility_check(api, sr_mock):
     assert resp.json() == {"isCompatible": False, "messages": ["field removed"]}
 
 
+async def test_compatibility_check_passes_normalize(api, sr_mock):
+    route = sr_mock.post("/compatibility/subjects/orders-value/versions/latest").mock(
+        return_value=httpx.Response(200, json={"is_compatible": True})
+    )
+    resp = await api.post(
+        base("/schemas/subjects/orders-value/compatibility"),
+        json={"schema": AVRO_V2, "schemaType": "AVRO", "normalize": True},
+    )
+    assert resp.json()["isCompatible"] is True
+    query = route.calls.last.request.url.query
+    assert b"normalize=true" in query and b"verbose=true" in query
+
+
+async def test_subject_detail_passes_deleted_flag(api, sr_mock):
+    seen: list[str] = []
+
+    def versions(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url.query, "utf-8"))
+        if request.url.params.get("deleted") == "true":
+            return httpx.Response(200, json=[1, 2, 3])
+        return httpx.Response(200, json=[1, 2])
+
+    sr_mock.get("/subjects/orders-value/versions").mock(side_effect=versions)
+    sr_mock.get("/subjects/orders-value/versions/3").mock(
+        return_value=httpx.Response(200, json={**_version("orders-value", 3, AVRO_V2, 13), "deleted": True})
+    )
+    resp = await api.get(base("/schemas/subjects/orders-value"), params={"deleted": True})
+    assert resp.status_code == 200
+    assert seen == ["deleted=true"]
+    versions = {v["version"]: v for v in resp.json()["versions"]}
+    assert versions[3]["deleted"] is True
+    assert versions[1]["deleted"] is False
+
+
+async def test_reset_subject_config_deletes_override(api, sr_mock):
+    route = sr_mock.delete("/config/orders-value").mock(
+        return_value=httpx.Response(200, json={"compatibility": "FULL"})
+    )
+    resp = await api.delete(base("/schemas/subjects/orders-value/config"))
+    assert resp.status_code == 200
+    assert route.called
+    # falls back to the global level after the override is removed
+    assert resp.json() == {"compatibility": "BACKWARD", "explicit": False, "normalize": None}
+
+
 async def test_compatibility_on_unknown_subject_is_compatible(api, sr_mock):
     sr_mock.post("/compatibility/subjects/new-value/versions/latest").mock(
         return_value=httpx.Response(404, json={"error_code": 40401})

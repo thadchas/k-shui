@@ -88,6 +88,7 @@ class CompatibilityRequest(BaseModel):
     schemaType: str = "AVRO"
     references: list[dict[str, Any]] = []
     version: str = "latest"
+    normalize: bool = False
 
     def text(self) -> str:
         if isinstance(self.schemaText, dict | list):

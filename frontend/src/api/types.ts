@@ -186,6 +186,9 @@ export interface Broker {
   leaderCount: number;
   underReplicatedPartitions: number;
   logDirSizeBytes: number | null;
+  /** Disk capacity / free space summed over log dirs (null when the client cannot report it). */
+  logDirTotalBytes?: number | null;
+  logDirUsableBytes?: number | null;
   status: 'online' | 'offline';
   version: string | null;
 }
@@ -214,6 +217,11 @@ export interface LogDirPartition {
 export interface LogDir {
   path: string;
   sizeBytes: number;
+  /** DescribeLogDirs capacity fields (Kafka >= 3.3); null/undefined when unknown. */
+  totalBytes?: number | null;
+  usableBytes?: number | null;
+  /** Broker-reported error, e.g. KAFKA_STORAGE_ERROR for an offline directory. */
+  error?: string | null;
   partitions: LogDirPartition[];
 }
 
@@ -251,6 +259,25 @@ export interface PartitionDetail {
   sizeBytes: number;
 }
 
+export type UnhealthyPartitionReason = 'offline' | 'underReplicated' | 'nonPreferredLeader';
+
+export interface UnhealthyPartition {
+  topic: string;
+  partition: number;
+  leader: number | null;
+  replicas: number[];
+  isr: number[];
+  reasons: UnhealthyPartitionReason[];
+}
+
+export interface UnhealthyPartitionsResponse {
+  items: UnhealthyPartition[];
+  offline: number;
+  underReplicated: number;
+  nonPreferredLeader: number;
+  scannedPartitions: number;
+}
+
 export interface TopicDetail extends TopicSummary {
   partitionsDetail: PartitionDetail[];
   configs?: Record<string, string> | ConfigEntry[];
@@ -277,6 +304,7 @@ export interface AddPartitionsRequest {
 }
 
 export interface PurgeTopicRequest {
+  /** Omit (or empty) to purge every partition to its end offset. `beforeOffset` = -1 means "to end". */
   partitions?: { id: number; beforeOffset: number }[];
 }
 
@@ -342,6 +370,8 @@ export interface MessagesQuery {
   mode?: MessageMode;
   partitions?: number[] | string;
   offset?: number;
+  /** Per-partition seek for mode=offset; overrides `offset` for the listed partitions. */
+  startOffsets?: { partition: number; offset: number }[];
   timestamp?: number;
   limit?: number;
   keyFormat?: MessageFormat;
@@ -383,7 +413,13 @@ export type ExportFormat = 'json' | 'csv' | 'ndjson';
 /* ----------------------------- consumer groups ---------------------------- */
 
 export type ConsumerGroupState =
-  'Stable' | 'Empty' | 'PreparingRebalance' | 'CompletingRebalance' | 'Dead' | 'Unknown' | string;
+  | 'Stable'
+  | 'Empty'
+  | 'PreparingRebalance'
+  | 'CompletingRebalance'
+  | 'Dead'
+  | 'Unknown'
+  | string;
 
 export type GroupType = 'classic' | 'consumer' | 'share';
 
@@ -399,6 +435,8 @@ export interface ConsumerGroupSummary {
   partitionCount: number;
   totalLag: number;
   isSimple: boolean;
+  /** Worst per-partition time-lag estimate in ms (see backend `_TimeLag`); null when unknown. */
+  maxTimeLagMs?: number | null;
 }
 
 export interface ConsumerGroupMember {
@@ -417,6 +455,8 @@ export interface ConsumerGroupPartition {
   memberId: string | null;
   clientId: string | null;
   host: string | null;
+  /** Estimated time behind the log end (lag / produce rate), ms; null when the rate is unknown. */
+  timeLagMs?: number | null;
 }
 
 export interface ConsumerGroupTopicSummary {
@@ -456,7 +496,13 @@ export interface ShareGroupsResponse {
 /* --------------------------------- security ------------------------------- */
 
 export type AclResourceType =
-  'TOPIC' | 'GROUP' | 'CLUSTER' | 'TRANSACTIONAL_ID' | 'DELEGATION_TOKEN' | 'USER' | 'ANY';
+  | 'TOPIC'
+  | 'GROUP'
+  | 'CLUSTER'
+  | 'TRANSACTIONAL_ID'
+  | 'DELEGATION_TOKEN'
+  | 'USER'
+  | 'ANY';
 export type AclPatternType = 'LITERAL' | 'PREFIXED' | 'MATCH' | 'ANY';
 export type AclOperation =
   | 'ALL'
@@ -560,6 +606,8 @@ export interface SchemaVersion {
   schema: string;
   references: SchemaReference[];
   createdAt?: string | null;
+  /** Present when the subject was fetched with `?deleted=true`. */
+  deleted?: boolean;
 }
 
 export interface SchemaSubjectDetail {
@@ -573,6 +621,12 @@ export interface RegisterSchemaRequest {
   schemaType: SchemaType;
   references?: SchemaReference[];
   normalize?: boolean;
+}
+
+/** `POST .../subjects/{s}/compatibility` — same body as a registration plus a target version. */
+export interface CompatibilityCheckRequest extends RegisterSchemaRequest {
+  /** Version to compare against (`latest` by default). */
+  version?: string;
 }
 
 export interface CompatibilityCheckResponse {
@@ -608,7 +662,13 @@ export interface ConnectCluster {
 }
 
 export type ConnectorState =
-  'RUNNING' | 'PAUSED' | 'STOPPED' | 'FAILED' | 'UNASSIGNED' | 'RESTARTING' | string;
+  | 'RUNNING'
+  | 'PAUSED'
+  | 'STOPPED'
+  | 'FAILED'
+  | 'UNASSIGNED'
+  | 'RESTARTING'
+  | string;
 
 export interface ConnectorTask {
   id: number;
@@ -626,6 +686,8 @@ export interface Connector {
   tasks: ConnectorTask[];
   topics: string[];
   config: Record<string, string>;
+  /** Connector-level stack trace, present when the connector itself is FAILED. */
+  trace?: string | null;
 }
 
 export interface CreateConnectorRequest {
@@ -718,8 +780,15 @@ export interface KsqlHistoryEntry {
   id: string | number;
   sql: string;
   user: string | null;
-  ts: string;
+  /** ISO string or epoch seconds, depending on the server. */
+  ts: string | number;
   saved: boolean;
+}
+
+/** `POST /clusters/{c}/ksql/{k}/close-query` — closes a transient push query. */
+export interface KsqlCloseQueryResponse {
+  queryId: string;
+  closed: boolean;
 }
 
 /* ---------------------------------- flink --------------------------------- */
@@ -822,7 +891,27 @@ export interface FlinkJar {
 }
 
 export interface FlinkSavepointTrigger {
-  'request-id': string;
+  /** Raw Flink key; the k-shui backend normalises it to `triggerId`. */
+  'request-id'?: string;
+  triggerId?: string | null;
+  jid?: string;
+}
+
+/** `GET /jobs/{jid}/savepoints/{triggerId}` (camelised Flink async-operation result). */
+export interface FlinkSavepointStatus {
+  status: { id: 'IN_PROGRESS' | 'COMPLETED' | string };
+  operation?: {
+    location?: string | null;
+    failureCause?: { class?: string; stackTrace?: string; serializedThrowable?: string } | null;
+  } | null;
+}
+
+/** `DELETE .../sql/sessions/{s}/operations/{op}` — cancel + close a gateway operation. */
+export interface FlinkSqlOperationCancel {
+  operationHandle: string;
+  cancelled: boolean;
+  closed: boolean;
+  status: string;
 }
 
 export interface UnsupportedResponse {

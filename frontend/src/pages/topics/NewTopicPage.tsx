@@ -45,11 +45,7 @@ const schema = z.object({
   // explicitly. These fields are bound to <input type="number">, which hands react-hook-form
   // a string, so pin the input type to keep `z.input<typeof schema>` assignable to the DOM.
   partitions: z.coerce.number<string | number>().int().min(1, 'At least 1 partition').max(100_000),
-  replicationFactor: z.coerce
-    .number<string | number>()
-    .int()
-    .min(1, 'At least 1 replica')
-    .max(32),
+  replicationFactor: z.coerce.number<string | number>().int().min(1, 'At least 1 replica').max(32),
   cleanupPolicy: z.enum(['delete', 'compact', 'compact,delete']),
   retentionMs: z.coerce.number<string | number>().int(),
   minInsyncReplicas: z.coerce.number<string | number>().int().min(1).max(32),

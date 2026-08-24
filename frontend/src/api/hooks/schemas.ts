@@ -5,7 +5,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { qk } from '@/api/keys';
+import { useRefetchInterval } from '@/stores/ui';
 import type {
+  CompatibilityCheckRequest,
   CompatibilityCheckResponse,
   Compatibility,
   RegisterSchemaForSubject,
@@ -23,22 +25,39 @@ export function useSchemaSubjects(
   cluster: string | undefined,
   query: { search?: string; deleted?: boolean } = {},
 ) {
+  const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: qk.schemaSubjects(cluster ?? '', query),
     queryFn: () => api.get<SchemaSubjectSummary[]>(`/clusters/${cluster}/schemas/subjects`, query),
     enabled: Boolean(cluster),
+    refetchInterval,
     retry: false,
   });
 }
 
-export function useSchemaSubject(cluster: string | undefined, subject: string | undefined) {
+/**
+ * Subject detail (all versions). Pass `{ deleted: true }` to include soft-deleted
+ * versions — the registry is queried with `?deleted=true` and each version carries
+ * a `deleted` flag. The key extends `qk.schemaSubject` so prefix invalidation still hits it.
+ */
+export function useSchemaSubject(
+  cluster: string | undefined,
+  subject: string | undefined,
+  options: { deleted?: boolean } = {},
+) {
+  const refetchInterval = useRefetchInterval();
+  const deleted = Boolean(options.deleted);
   return useQuery({
-    queryKey: qk.schemaSubject(cluster ?? '', subject ?? ''),
+    queryKey: deleted
+      ? ([...qk.schemaSubject(cluster ?? '', subject ?? ''), { deleted: true }] as const)
+      : qk.schemaSubject(cluster ?? '', subject ?? ''),
     queryFn: () =>
       api.get<SchemaSubjectDetail>(
         `/clusters/${cluster}/schemas/subjects/${encodeURIComponent(subject!)}`,
+        deleted ? { deleted: true } : undefined,
       ),
     enabled: Boolean(cluster && subject),
+    refetchInterval,
     retry: false,
   });
 }
@@ -100,7 +119,7 @@ export function useRegisterSchema(cluster: string, subject: string) {
 
 export function useCheckCompatibility(cluster: string, subject: string) {
   return useMutation({
-    mutationFn: (body: Pick<RegisterSchemaRequest, 'schema' | 'schemaType'>) =>
+    mutationFn: (body: CompatibilityCheckRequest) =>
       api.post<CompatibilityCheckResponse>(
         `/clusters/${cluster}/schemas/subjects/${encodeURIComponent(subject)}/compatibility`,
         body,
@@ -197,13 +216,34 @@ export function useRegisterSchemaForSubject(cluster: string) {
   });
 }
 
-/** Compatibility check against a subject chosen at call time. */
+/**
+ * Reset the per-subject override (`DELETE .../subjects/{s}/config`) so the subject
+ * inherits the global compatibility level again.
+ */
+export function useResetSubjectConfig(cluster: string, subject: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api.delete<SchemaRegistryConfig>(
+        `/clusters/${cluster}/schemas/subjects/${encodeURIComponent(subject)}/config`,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({
+        queryKey: [...qk.schemaSubject(cluster, subject), 'config'] as const,
+      });
+      void qc.invalidateQueries({ queryKey: qk.schemaSubject(cluster, subject) });
+      void qc.invalidateQueries({ queryKey: qk.schemaSubjects(cluster, {}).slice(0, 4) });
+    },
+  });
+}
+
+/**
+ * Compatibility check against a subject chosen at call time. Sends references and
+ * `normalize` through so the check mirrors what a registration would do.
+ */
 export function useCheckCompatibilityForSubject(cluster: string) {
   return useMutation({
-    mutationFn: ({
-      subject,
-      ...body
-    }: Pick<RegisterSchemaRequest, 'schema' | 'schemaType'> & { subject: string }) =>
+    mutationFn: ({ subject, ...body }: CompatibilityCheckRequest & { subject: string }) =>
       api.post<CompatibilityCheckResponse>(
         `/clusters/${cluster}/schemas/subjects/${encodeURIComponent(subject)}/compatibility`,
         body,

@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Download, MessageSquare, Play, Send, Square } from 'lucide-react';
+import { Copy, Download, MessageSquare, MoreHorizontal, Play, Send, Square } from 'lucide-react';
 import { useExportMessages, useMessageStream } from '@/api/hooks/messages';
 import type {
   ExportFormat,
@@ -11,8 +11,8 @@ import type {
   MessagesQuery,
   PartitionDetail,
 } from '@/api/types';
-import { formatBytes, formatCompact, formatTimestamp, truncate } from '@/lib/format';
-import { cn } from '@/lib/utils';
+import { formatBytes, formatCompact, formatNumber, truncate } from '@/lib/format';
+import { cn, downloadBlob } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MultiCombobox } from '@/components/ui/combobox';
@@ -21,16 +21,32 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
 import { InlineError } from '@/components/ui/error-state';
 import { Input } from '@/components/ui/input';
+import { Kbd } from '@/components/ui/kbd';
 import { Label } from '@/components/ui/label';
 import { SimpleSelect } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { DateTimeInput } from '@/components/ui/time-range-picker';
-import { toastError } from '@/components/ui/toast';
+import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
+import { isCompacted } from './InternalTopicAck';
 import { MessageDetailDrawer } from './MessageDetailDrawer';
+import {
+  formatMessageTimestamp,
+  isTombstone,
+  readTimestampFormat,
+  serializeMessages,
+  stringifyField,
+  TIMESTAMP_FORMAT_OPTIONS,
+  type TimestampFormat,
+  writeTimestampFormat,
+} from './messageUtils';
 import { ProduceMessageSheet } from './ProduceMessageSheet';
 
 const MODE_OPTIONS: { label: string; value: MessageMode }[] = [
@@ -64,6 +80,8 @@ const LIMIT_OPTIONS = [50, 100, 250, 500, 1000].map((n) => ({
   value: String(n),
 }));
 
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+
 function renderPreview(value: unknown): string {
   if (value === null || value === undefined) return '—';
   if (typeof value === 'string') return value;
@@ -74,22 +92,51 @@ function renderPreview(value: unknown): string {
   }
 }
 
+async function copyText(label: string, text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(`${label} copied`);
+  } catch (e) {
+    toastError(`Failed to copy ${label.toLowerCase()}`, e);
+  }
+}
+
+function clampInt(raw: string, min: number, max: number): number | null {
+  if (raw.trim() === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(max, Math.max(min, Math.trunc(n)));
+}
+
+/** External request to focus the browser on one partition (e.g. from the partitions table). */
+export interface MessageSeek {
+  partition: number;
+  /** Bump to re-apply the same partition. */
+  nonce: number;
+}
+
 export interface MessagesTabProps {
   cluster: string;
   topic: string;
   partitions: PartitionDetail[];
+  cleanupPolicy?: string;
+  seek?: MessageSeek | null;
 }
 
-export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
+export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }: MessagesTabProps) {
   const [mode, setMode] = useState<MessageMode>('latest');
   const [selectedPartitions, setSelectedPartitions] = useState<string[]>([]);
   const [limit, setLimit] = useState(100);
   const [offset, setOffset] = useState('0');
+  const [perPartitionOffsets, setPerPartitionOffsets] = useState<Record<number, string>>({});
+  const [showPerPartition, setShowPerPartition] = useState(false);
   const [timestamp, setTimestamp] = useState<number | null>(Date.now() - 3_600_000);
   const [keyFormat, setKeyFormat] = useState<MessageFormat>('auto');
   const [valueFormat, setValueFormat] = useState<MessageFormat>('auto');
   const [filter, setFilter] = useState('');
   const [filterMode, setFilterMode] = useState<FilterMode>('contains');
+  const [hideTombstones, setHideTombstones] = useState(false);
+  const [tsFormat, setTsFormat] = useState<TimestampFormat>(() => readTimestampFormat());
   const [selected, setSelected] = useState<Message | null>(null);
   const [produceOpen, setProduceOpen] = useState(false);
   const [hasRun, setHasRun] = useState(false);
@@ -97,11 +144,50 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
   const stream = useMessageStream(cluster, topic);
   const exportMessages = useExportMessages(cluster, topic);
 
+  const compacted = isCompacted(cleanupPolicy);
+
+  /* ----------------------------- partition scope ----------------------------- */
+
+  const scopedPartitions = useMemo(() => {
+    if (selectedPartitions.length === 0) return partitions;
+    const wanted = new Set(selectedPartitions.map(Number));
+    return partitions.filter((p) => wanted.has(p.id));
+  }, [partitions, selectedPartitions]);
+
+  const offsetBounds = useMemo(() => {
+    if (scopedPartitions.length === 0) return null;
+    return {
+      min: Math.min(...scopedPartitions.map((p) => p.beginOffset)),
+      max: Math.max(...scopedPartitions.map((p) => p.endOffset)),
+    };
+  }, [scopedPartitions]);
+
+  const scalarOffset = clampInt(offset, 0, Number.MAX_SAFE_INTEGER) ?? 0;
+  const offsetOutOfRange =
+    mode === 'offset' &&
+    offsetBounds !== null &&
+    (scalarOffset < offsetBounds.min || scalarOffset > offsetBounds.max);
+
+  const startOffsets = useMemo(() => {
+    if (mode !== 'offset') return undefined;
+    const out: { partition: number; offset: number }[] = [];
+    for (const p of scopedPartitions) {
+      const raw = perPartitionOffsets[p.id];
+      if (raw === undefined || raw === '') continue;
+      const value = clampInt(raw, 0, Number.MAX_SAFE_INTEGER);
+      if (value !== null && value !== scalarOffset) out.push({ partition: p.id, offset: value });
+    }
+    return out.length > 0 ? out : undefined;
+  }, [mode, scopedPartitions, perPartitionOffsets, scalarOffset]);
+
+  /* --------------------------------- query --------------------------------- */
+
   const query = useMemo<MessagesQuery>(
     () => ({
       mode,
       partitions: selectedPartitions.length > 0 ? selectedPartitions.map(Number) : undefined,
-      offset: mode === 'offset' ? Number(offset) : undefined,
+      offset: mode === 'offset' ? scalarOffset : undefined,
+      startOffsets,
       timestamp: mode === 'timestamp' && timestamp ? timestamp : undefined,
       limit,
       keyFormat,
@@ -112,7 +198,8 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
     [
       mode,
       selectedPartitions,
-      offset,
+      scalarOffset,
+      startOffsets,
       timestamp,
       limit,
       keyFormat,
@@ -122,18 +209,85 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
     ],
   );
 
-  const run = () => {
+  const queryRef = useRef(query);
+  queryRef.current = query;
+
+  const run = useCallback(() => {
     setHasRun(true);
-    stream.start(query);
-  };
+    stream.start(queryRef.current);
+  }, [stream]);
+
+  // Seek requests from outside (partition row click) select the partition and fetch.
+  const lastSeek = useRef<number | null>(null);
+  useEffect(() => {
+    if (!seek || lastSeek.current === seek.nonce) return;
+    lastSeek.current = seek.nonce;
+    setSelectedPartitions([String(seek.partition)]);
+    setHasRun(true);
+    stream.start({ ...queryRef.current, partitions: [seek.partition] });
+  }, [seek, stream]);
+
+  /* ------------------------------- progress -------------------------------- */
+
+  const estimatedTotal = useMemo(() => {
+    const perPartitionShare = Math.max(
+      1,
+      Math.floor(limit / Math.max(scopedPartitions.length, 1)) + 1,
+    );
+    let total = 0;
+    for (const p of scopedPartitions) {
+      const size = Math.max(0, p.endOffset - p.beginOffset);
+      if (mode === 'earliest') total += size;
+      else if (mode === 'latest') total += Math.min(size, perPartitionShare);
+      else if (mode === 'offset') {
+        const override = startOffsets?.find((s) => s.partition === p.id)?.offset;
+        const start = Math.min(p.endOffset, Math.max(p.beginOffset, override ?? scalarOffset));
+        total += Math.max(0, p.endOffset - start);
+      } else total += size; // timestamp: unknown until resolved — worst case whole partition
+    }
+    // Without a filter the server stops at `limit` matches, so the scan cannot exceed it.
+    if (!filter) total = Math.min(total, limit);
+    return total;
+  }, [scopedPartitions, mode, limit, scalarOffset, startOffsets, filter]);
+
+  const progressPct = stream.progress.done
+    ? 100
+    : estimatedTotal > 0
+      ? Math.min(99, Math.round((stream.progress.scanned / estimatedTotal) * 100))
+      : stream.progress.scanned > 0
+        ? 99
+        : 0;
+
+  /* -------------------------------- export --------------------------------- */
+
+  const visibleMessages = useMemo(
+    () =>
+      hideTombstones && compacted
+        ? stream.messages.filter((m) => !isTombstone(m))
+        : stream.messages,
+    [stream.messages, hideTombstones, compacted],
+  );
 
   const doExport = async (format: ExportFormat) => {
+    if (stream.progress.done && visibleMessages.length > 0) {
+      const { blob, extension } = serializeMessages(visibleMessages, format);
+      downloadBlob(blob, `${topic}-messages.${extension}`);
+      toast.success(`Exported ${visibleMessages.length} on-screen messages`);
+      return;
+    }
     try {
       await exportMessages.mutateAsync({ format, query });
     } catch (e) {
       toastError('Export failed', e);
     }
   };
+
+  const changeTsFormat = (v: TimestampFormat) => {
+    setTsFormat(v);
+    writeTimestampFormat(v);
+  };
+
+  /* -------------------------------- columns -------------------------------- */
 
   const columns = useMemo<ColumnDef<Message>[]>(
     () => [
@@ -153,7 +307,7 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
         meta: { label: 'Timestamp', widthClass: 'w-44' },
         cell: ({ row }) => (
           <span className="font-mono text-[13px] tabular-nums text-[var(--muted)]">
-            {formatTimestamp(row.original.timestamp)}
+            {formatMessageTimestamp(row.original.timestamp, tsFormat)}
           </span>
         ),
       },
@@ -177,11 +331,18 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
         id: 'value',
         header: 'Value',
         meta: { label: 'Value' },
-        cell: ({ row }) => (
-          <span className="block max-w-[520px] truncate font-mono text-[13px] text-[var(--muted)]">
-            {truncate(renderPreview(row.original.value), 200)}
-          </span>
-        ),
+        cell: ({ row }) =>
+          isTombstone(row.original) ? (
+            <Tooltip content="Null value for a keyed record — a compaction delete marker.">
+              <Badge variant="warning" size="sm">
+                tombstone
+              </Badge>
+            </Tooltip>
+          ) : (
+            <span className="block max-w-[520px] truncate font-mono text-[13px] text-[var(--muted)]">
+              {truncate(renderPreview(row.original.value), 200)}
+            </span>
+          ),
       },
       {
         accessorKey: 'sizeBytes',
@@ -196,22 +357,64 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
         cell: ({ row }) => Object.keys(row.original.headers ?? {}).length,
       },
     ],
-    [],
+    [tsFormat],
+  );
+
+  const rowActions = (m: Message) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Actions for offset ${m.offset}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <MoreHorizontal />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+        <DropdownMenuLabel>
+          P{m.partition} · {m.offset}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={m.key === null || m.key === undefined}
+          onSelect={() => void copyText('Key', m.keyRaw ?? stringifyField(m.key))}
+        >
+          <Copy /> Copy key
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={m.value === null || m.value === undefined}
+          onSelect={() => void copyText('Value', m.valueRaw ?? stringifyField(m.value))}
+        >
+          <Copy /> Copy value
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => void copyText('Offset', String(m.offset))}>
+          <Copy /> Copy offset
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   const partitionOptions = partitions.map((p) => ({
     label: `Partition ${p.id}`,
     value: String(p.id),
   }));
-  const progressPct =
-    stream.progress.scanned > 0
-      ? Math.min(100, Math.round((stream.messages.length / Math.max(limit, 1)) * 100))
-      : 0;
+
+  const tombstoneCount = compacted ? stream.messages.filter(isTombstone).length : 0;
 
   return (
     <div className="space-y-4">
       {/* toolbar */}
-      <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-4">
+      <div
+        className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-4"
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (!stream.streaming) run();
+          }
+        }}
+      >
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1.5">
             <Label>Mode</Label>
@@ -226,15 +429,42 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
           {mode === 'offset' ? (
             <div className="space-y-1.5">
               <Label htmlFor="from-offset">Offset</Label>
-              <Input
-                id="from-offset"
-                mono
-                type="number"
-                min={0}
-                className="w-32"
-                value={offset}
-                onChange={(e) => setOffset(e.target.value)}
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  id="from-offset"
+                  mono
+                  type="number"
+                  min={offsetBounds?.min ?? 0}
+                  max={offsetBounds?.max}
+                  className="w-32"
+                  value={offset}
+                  aria-invalid={offsetOutOfRange}
+                  onChange={(e) => setOffset(e.target.value)}
+                  onBlur={() => {
+                    if (!offsetBounds) return;
+                    const clamped = clampInt(offset, offsetBounds.min, offsetBounds.max);
+                    if (clamped !== null) setOffset(String(clamped));
+                  }}
+                />
+                {offsetBounds ? (
+                  <Tooltip
+                    content={
+                      scopedPartitions.length === 1
+                        ? `Partition ${scopedPartitions[0].id}: begin ${formatNumber(offsetBounds.min)}, end ${formatNumber(offsetBounds.max)}`
+                        : `Across ${scopedPartitions.length} partitions: lowest begin ${formatNumber(offsetBounds.min)}, highest end ${formatNumber(offsetBounds.max)}`
+                    }
+                  >
+                    <span
+                      className={cn(
+                        'font-mono text-2xs tabular-nums whitespace-nowrap',
+                        offsetOutOfRange ? 'text-[var(--warning)]' : 'text-[var(--muted)]',
+                      )}
+                    >
+                      {formatNumber(offsetBounds.min)} – {formatNumber(offsetBounds.max)}
+                    </span>
+                  </Tooltip>
+                ) : null}
+              </div>
             </div>
           ) : null}
 
@@ -296,7 +526,7 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') run();
+                  if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) run();
                 }}
                 placeholder={
                   filterMode === 'jsonpath'
@@ -321,9 +551,18 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
                 <Square /> Stop
               </Button>
             ) : (
-              <Button onClick={run}>
-                <Play /> Fetch
-              </Button>
+              <Tooltip
+                content={
+                  <span className="flex items-center gap-1">
+                    Fetch <Kbd>{IS_MAC ? '⌘' : 'Ctrl'}</Kbd>
+                    <Kbd>↵</Kbd>
+                  </span>
+                }
+              >
+                <Button onClick={run}>
+                  <Play /> Fetch
+                </Button>
+              </Tooltip>
             )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -336,7 +575,13 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
                   <Download />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel className="font-normal text-[var(--muted)]">
+                  {stream.progress.done && visibleMessages.length > 0
+                    ? `${formatCompact(visibleMessages.length)} on-screen messages`
+                    : 'Re-runs the query on the server'}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => void doExport('json')}>
                   Export JSON
                 </DropdownMenuItem>
@@ -354,6 +599,100 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
           </div>
         </div>
 
+        {/* per-partition seek */}
+        {mode === 'offset' && scopedPartitions.length > 0 ? (
+          <div className="mt-3 space-y-2">
+            <button
+              type="button"
+              className="text-2xs text-[var(--primary)] hover:underline"
+              onClick={() => setShowPerPartition((v) => !v)}
+            >
+              {showPerPartition ? 'Hide' : 'Edit'} per-partition offsets
+              {startOffsets ? ` (${startOffsets.length} overridden)` : ''}
+            </button>
+            {showPerPartition ? (
+              <div className="flex flex-wrap gap-2">
+                {scopedPartitions.map((p) => {
+                  const raw = perPartitionOffsets[p.id] ?? '';
+                  const value =
+                    raw === ''
+                      ? scalarOffset
+                      : (clampInt(raw, 0, Number.MAX_SAFE_INTEGER) ?? scalarOffset);
+                  const outOfRange = value < p.beginOffset || value > p.endOffset;
+                  return (
+                    <label
+                      key={p.id}
+                      className="flex items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--border)] px-2 py-1"
+                    >
+                      <span className="font-mono text-2xs tabular-nums text-[var(--muted)]">
+                        P{p.id}
+                      </span>
+                      <Input
+                        mono
+                        type="number"
+                        min={p.beginOffset}
+                        max={p.endOffset}
+                        className="h-7 w-28 text-[13px]"
+                        placeholder={String(scalarOffset)}
+                        value={raw}
+                        aria-invalid={raw !== '' && outOfRange}
+                        aria-label={`Start offset for partition ${p.id}`}
+                        onChange={(e) =>
+                          setPerPartitionOffsets((prev) => ({ ...prev, [p.id]: e.target.value }))
+                        }
+                        onBlur={() => {
+                          if (raw === '') return;
+                          const clamped = clampInt(raw, p.beginOffset, p.endOffset);
+                          setPerPartitionOffsets((prev) => ({
+                            ...prev,
+                            [p.id]: clamped === null ? '' : String(clamped),
+                          }));
+                        }}
+                      />
+                      <span className="font-mono text-2xs tabular-nums text-[var(--muted)]">
+                        {formatNumber(p.beginOffset)}–{formatNumber(p.endOffset)}
+                      </span>
+                    </label>
+                  );
+                })}
+                {Object.keys(perPartitionOffsets).length > 0 ? (
+                  <Button variant="ghost" size="sm" onClick={() => setPerPartitionOffsets({})}>
+                    Reset to {formatNumber(scalarOffset)}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* display options */}
+        <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-[var(--muted)]">
+          <div className="flex items-center gap-2">
+            <span>Timestamps</span>
+            <SimpleSelect
+              className="h-7 w-[92px]"
+              value={tsFormat}
+              onValueChange={(v) => changeTsFormat(v as TimestampFormat)}
+              options={TIMESTAMP_FORMAT_OPTIONS}
+            />
+          </div>
+          {compacted ? (
+            <label className="flex items-center gap-2 whitespace-nowrap">
+              <Switch
+                checked={hideTombstones}
+                onCheckedChange={setHideTombstones}
+                aria-label="Hide tombstones"
+              />
+              Hide tombstones
+              {tombstoneCount > 0 ? (
+                <Badge variant="secondary" size="sm">
+                  {formatCompact(tombstoneCount)}
+                </Badge>
+              ) : null}
+            </label>
+          ) : null}
+        </div>
+
         {/* progress */}
         {hasRun ? (
           <div className="mt-4 space-y-1.5">
@@ -365,8 +704,9 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
                   <Badge variant="secondary">{stream.progress.done ? 'done' : 'idle'}</Badge>
                 )}
                 <span className="font-mono tabular-nums">
-                  {formatCompact(stream.messages.length)} shown ·{' '}
-                  {formatCompact(stream.progress.scanned)} scanned ·{' '}
+                  {formatCompact(visibleMessages.length)} shown ·{' '}
+                  {formatCompact(stream.progress.scanned)} scanned
+                  {estimatedTotal > 0 ? ` of ~${formatCompact(estimatedTotal)}` : ''} ·{' '}
                   {formatCompact(stream.progress.matched)} matched
                 </span>
               </span>
@@ -389,20 +729,29 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
 
       <DataTable
         columns={columns}
-        data={stream.messages}
+        data={visibleMessages}
         loading={stream.streaming && stream.messages.length === 0}
         hideToolbar
         onRowClick={setSelected}
+        rowActions={rowActions}
         maxHeight="60vh"
         rowLabel="messages"
         skeletonRows={10}
         emptyState={
           <EmptyState
             icon={MessageSquare}
-            title={hasRun ? 'No messages matched' : 'Ready to browse'}
+            title={
+              hasRun
+                ? hideTombstones && stream.messages.length > 0
+                  ? 'Only tombstones matched'
+                  : 'No messages matched'
+                : 'Ready to browse'
+            }
             description={
               hasRun
-                ? 'Try a wider time window, a different mode, or clear the filter.'
+                ? hideTombstones && stream.messages.length > 0
+                  ? 'Turn off "Hide tombstones" to see them.'
+                  : 'Try a wider time window, a different mode, or clear the filter.'
                 : 'Pick a mode and hit Fetch to stream records from this topic.'
             }
             action={
@@ -416,7 +765,11 @@ export function MessagesTab({ cluster, topic, partitions }: MessagesTabProps) {
         }
       />
 
-      <MessageDetailDrawer message={selected} onOpenChange={(open) => !open && setSelected(null)} />
+      <MessageDetailDrawer
+        message={selected}
+        onOpenChange={(open) => !open && setSelected(null)}
+        timestampFormat={tsFormat}
+      />
       <ProduceMessageSheet
         open={produceOpen}
         onOpenChange={setProduceOpen}

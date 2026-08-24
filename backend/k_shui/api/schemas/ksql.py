@@ -28,6 +28,12 @@ class KsqlRequest(BaseModel):
     properties: dict[str, Any] = {}
 
 
+class KsqlCloseQueryRequest(BaseModel):
+    model_config = LOOSE
+
+    queryId: str
+
+
 class KsqlSource(BaseModel):
     model_config = LOOSE
 

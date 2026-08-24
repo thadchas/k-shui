@@ -110,10 +110,12 @@ export function useExportConsumerGroups(cluster: string) {
 }
 
 export function useShareGroups(cluster: string | undefined) {
+  const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: qk.shareGroups(cluster ?? ''),
     queryFn: () => api.get<ShareGroupsResponse>(`/clusters/${cluster}/share-groups`),
     enabled: Boolean(cluster),
+    refetchInterval,
     retry: false,
   });
 }

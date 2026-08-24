@@ -1,13 +1,25 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import type { ColumnDef } from '@tanstack/react-table';
-import { ArrowLeft, Cable, Pause, Play, Plus, Puzzle, RotateCcw, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  Cable,
+  Pause,
+  Play,
+  Plus,
+  Puzzle,
+  RefreshCw,
+  RotateCcw,
+  Square,
+  Trash2,
+} from 'lucide-react';
 import {
   useConnectCluster,
   useConnectClusters,
   useConnectorAction,
   useConnectors,
   useDeleteConnector,
+  type ConnectorAction,
 } from '@/api/hooks/connect';
 import type { Connector } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
@@ -19,13 +31,23 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DataTable } from '@/components/ui/data-table';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PageHeader } from '@/components/ui/page-header';
+import { RefreshPicker } from '@/components/ui/refresh-picker';
 import { SimpleSelect } from '@/components/ui/select';
 import { StatusPill } from '@/components/ui/status-pill';
 import { toast, toastError } from '@/components/ui/toast';
 import { Tooltip } from '@/components/ui/tooltip';
-import { ConnectorActionsMenu } from './components/ConnectorActions';
+import {
+  ACTION_PAST_TENSE,
+  ConnectorActionsMenu,
+  StopConnectorDialog,
+} from './components/ConnectorActions';
 import { TasksMiniBar } from './components/TasksMiniBar';
-import { CONNECTOR_STATES, connectorStateTone, shortClass } from './components/connectUtils';
+import {
+  CONNECTOR_STATES,
+  connectorStateTone,
+  shortClass,
+  taskCounts,
+} from './components/connectUtils';
 
 export function ConnectClusterPage() {
   const cluster = useClusterId();
@@ -39,6 +61,7 @@ export function ConnectClusterPage() {
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDelete, setBulkDelete] = useState(false);
+  const [bulkStop, setBulkStop] = useState(false);
 
   const query = useMemo(
     () => ({
@@ -193,7 +216,11 @@ export function ConnectClusterPage() {
     [allSelected, someSelected, rows, selected, cluster],
   );
 
-  const runBulk = async (kind: 'pause' | 'resume' | 'restart') => {
+  const selectedFailedTasks = rows
+    .filter((r) => selected.has(r.name))
+    .reduce((sum, r) => sum + taskCounts(r.tasks).failed, 0);
+
+  const runBulk = async (kind: ConnectorAction, options?: { onlyFailed?: boolean }) => {
     const names = Array.from(selected);
     const results = await Promise.allSettled(
       names.map((name) =>
@@ -201,13 +228,23 @@ export function ConnectClusterPage() {
           name,
           action: kind,
           includeTasks: kind === 'restart' ? true : undefined,
+          onlyFailed: options?.onlyFailed,
         }),
       ),
     );
     const failed = results.filter((r) => r.status === 'rejected').length;
-    if (failed === 0) toast.success(`${names.length} connector(s) ${kind}d`);
-    else toast.error(`${failed} of ${names.length} connectors failed to ${kind}`);
+    const noun = `${names.length} connector${names.length === 1 ? '' : 's'}`;
+    if (failed === 0) {
+      toast.success(
+        options?.onlyFailed
+          ? `Restarted failed tasks on ${noun}`
+          : `${noun} ${ACTION_PAST_TENSE[kind]}`,
+      );
+    } else {
+      toast.error(`${failed} of ${names.length} connectors failed to ${kind}`);
+    }
     void connectors.refetch();
+    return failed === 0;
   };
 
   const clusterMissing =
@@ -243,6 +280,13 @@ export function ConnectClusterPage() {
                 <Plus /> New connector
               </Link>
             </Button>
+            <RefreshPicker
+              onRefresh={() => {
+                void connectors.refetch();
+                void connectClusters.refetch();
+              }}
+              refreshing={connectors.isFetching}
+            />
           </>
         }
       />
@@ -272,9 +316,28 @@ export function ConnectClusterPage() {
           <Button size="sm" variant="outline" onClick={() => void runBulk('pause')}>
             <Pause /> Pause
           </Button>
+          <Button size="sm" variant="outline" onClick={() => setBulkStop(true)}>
+            <Square /> Stop
+          </Button>
           <Button size="sm" variant="outline" onClick={() => void runBulk('restart')}>
             <RotateCcw /> Restart
           </Button>
+          <Tooltip
+            content={
+              selectedFailedTasks === 0
+                ? 'No failed tasks in the selection'
+                : `Restart ${selectedFailedTasks} failed task${selectedFailedTasks === 1 ? '' : 's'} only`
+            }
+          >
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={selectedFailedTasks === 0}
+              onClick={() => void runBulk('restart', { onlyFailed: true })}
+            >
+              <RefreshCw /> Restart failed tasks
+            </Button>
+          </Tooltip>
           <Button size="sm" variant="destructive" onClick={() => setBulkDelete(true)}>
             <Trash2 /> Delete
           </Button>
@@ -359,6 +422,20 @@ export function ConnectClusterPage() {
             }
           />
         }
+      />
+
+      <StopConnectorDialog
+        open={bulkStop}
+        onOpenChange={setBulkStop}
+        connectorName={
+          selected.size === 1
+            ? Array.from(selected)[0]
+            : `${selected.size} selected connector${selected.size === 1 ? '' : 's'}`
+        }
+        loading={action.isPending}
+        onConfirm={async () => {
+          if (await runBulk('stop')) setBulkStop(false);
+        }}
       />
 
       <ConfirmDestructiveDialog

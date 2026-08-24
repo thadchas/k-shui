@@ -25,12 +25,14 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
 
   const authType = info?.auth?.type ?? 'none';
+  // A cookie/OIDC session shows up as `auth.user` on /info without any local token.
+  const hasServerSession = Boolean(info?.auth?.user);
 
   useEffect(() => {
-    if (!isLoading && (authType === 'none' || token)) {
+    if (!isLoading && (authType === 'none' || token || hasServerSession)) {
       void navigate(destination, { replace: true });
     }
-  }, [isLoading, authType, token, navigate, destination]);
+  }, [isLoading, authType, token, hasServerSession, navigate, destination]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();

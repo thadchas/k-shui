@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   ArrowLeft,
+  Copy,
   Database,
   Eraser,
   ExternalLink,
@@ -10,10 +11,9 @@ import {
   Trash2,
   Users,
 } from 'lucide-react';
+import { ApiError } from '@/api/client';
 import {
-  useAddPartitions,
   useDeleteTopic,
-  usePurgeTopic,
   useTopic,
   useTopicConfigs,
   useTopicConsumers,
@@ -41,15 +41,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardToolbarHeader } from '@/components/ui/card';
 import { CopyButton } from '@/components/ui/copy-button';
 import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -58,9 +49,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { PageHeader } from '@/components/ui/page-header';
+import { Skeleton } from '@/components/ui/skeleton';
 import { StatusPill } from '@/components/ui/status-pill';
 import {
   Table,
@@ -73,7 +63,11 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TimeRangePicker } from '@/components/ui/time-range-picker';
 import { toast, toastError } from '@/components/ui/toast';
-import { MessagesTab } from './components/MessagesTab';
+import { AddPartitionsDialog } from './components/AddPartitionsDialog';
+import { CloneTopicDialog } from './components/CloneTopicDialog';
+import { InternalTopicAck } from './components/InternalTopicAck';
+import { type MessageSeek, MessagesTab } from './components/MessagesTab';
+import { PurgeTopicDialog } from './components/PurgeTopicDialog';
 
 const TABS = [
   'overview',
@@ -99,18 +93,18 @@ export function TopicDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [purgeOpen, setPurgeOpen] = useState(false);
   const [partitionsOpen, setPartitionsOpen] = useState(false);
-  const [newPartitions, setNewPartitions] = useState(1);
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [deleteAck, setDeleteAck] = useState(false);
+  const [seek, setSeek] = useState<MessageSeek | null>(null);
 
   const detail = useTopic(cluster, topic);
   const configs = useTopicConfigs(cluster, topic);
-  const consumers = useTopicConsumers(cluster, topic);
+  const consumers = useTopicConsumers(cluster, topic, tab === 'consumers');
   const schema = useTopicSchema(cluster, topic, tab === 'schema' || tab === 'overview');
   const metrics = useTopicMetrics(cluster, topic, { range });
 
   const updateConfigs = useUpdateTopicConfigs(cluster, topic);
   const deleteTopic = useDeleteTopic(cluster);
-  const purgeTopic = usePurgeTopic(cluster, topic);
-  const addPartitions = useAddPartitions(cluster, topic);
 
   const setTab = (value: string) => {
     const next = new URLSearchParams(searchParams);
@@ -130,6 +124,15 @@ export function TopicDetailPage() {
   const data = detail.data;
   const series = metrics.data?.series;
   const partitions = data?.partitionsDetail ?? [];
+  const isInternal = Boolean(data?.isInternal);
+
+  const openPartitionInMessages = (partitionId: number) => {
+    setSeek((prev) => ({ partition: partitionId, nonce: (prev?.nonce ?? 0) + 1 }));
+    setTab('messages');
+  };
+
+  const schemaUnavailable =
+    schema.error instanceof ApiError && schema.error.isIntegrationUnavailable;
 
   return (
     <div>
@@ -160,20 +163,25 @@ export function TopicDetailPage() {
                   <MoreHorizontal />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setNewPartitions((data?.partitions ?? 0) + 1);
-                    setPartitionsOpen(true);
-                  }}
-                >
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem disabled={!data} onSelect={() => setPartitionsOpen(true)}>
                   <SplitSquareHorizontal /> Add partitions
                 </DropdownMenuItem>
+                <DropdownMenuItem disabled={!data} onSelect={() => setCloneOpen(true)}>
+                  <Copy /> Clone topic
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem destructive onSelect={() => setPurgeOpen(true)}>
+                <DropdownMenuItem destructive disabled={!data} onSelect={() => setPurgeOpen(true)}>
                   <Eraser /> Purge records
                 </DropdownMenuItem>
-                <DropdownMenuItem destructive onSelect={() => setDeleteOpen(true)}>
+                <DropdownMenuItem
+                  destructive
+                  disabled={!data}
+                  onSelect={() => {
+                    setDeleteAck(false);
+                    setDeleteOpen(true);
+                  }}
+                >
                   <Trash2 /> Delete topic
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -246,13 +254,23 @@ export function TopicDetailPage() {
               description="Leaders, replicas and in-sync sets"
             />
             <CardContent>
-              <PartitionsTable partitions={partitions} loading={detail.isLoading} />
+              <PartitionsTable
+                partitions={partitions}
+                loading={detail.isLoading}
+                onRowClick={(p) => openPartitionInMessages(p.id)}
+              />
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="messages">
-          <MessagesTab cluster={cluster} topic={topic} partitions={partitions} />
+          <MessagesTab
+            cluster={cluster}
+            topic={topic}
+            partitions={partitions}
+            cleanupPolicy={data?.cleanupPolicy}
+            seek={seek}
+          />
         </TabsContent>
 
         <TabsContent value="partitions">
@@ -261,6 +279,7 @@ export function TopicDetailPage() {
             loading={detail.isLoading}
             error={detail.error}
             onRetry={() => void detail.refetch()}
+            onRowClick={(p) => openPartitionInMessages(p.id)}
           />
         </TabsContent>
 
@@ -286,7 +305,20 @@ export function TopicDetailPage() {
         <TabsContent value="consumers">
           {consumers.error ? (
             <ErrorState error={consumers.error} onRetry={() => void consumers.refetch()} />
-          ) : !consumers.isLoading && (!consumers.data || consumers.data.length === 0) ? (
+          ) : consumers.isLoading ? (
+            <Card>
+              <div className="space-y-3 p-4" aria-busy="true" aria-label="Loading consumer groups">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-4">
+                    <Skeleton className="h-4 flex-1" />
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-12" />
+                    <Skeleton className="h-4 w-16" />
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ) : !consumers.data || consumers.data.length === 0 ? (
             <Card>
               <EmptyState
                 icon={Users}
@@ -336,14 +368,20 @@ export function TopicDetailPage() {
         </TabsContent>
 
         <TabsContent value="schema">
-          {schema.error ? (
+          {schema.error && schemaUnavailable ? (
             <Card>
               <EmptyState
                 icon={Database}
-                title="Schema Registry unavailable"
-                description="No Schema Registry is configured for this cluster, or it could not be reached."
+                title="Schema Registry not configured"
+                description="No Schema Registry is configured for this cluster. Add one to the cluster config to see key and value schemas."
               />
             </Card>
+          ) : schema.error ? (
+            <ErrorState
+              title="Schema Registry unreachable"
+              error={schema.error}
+              onRetry={() => void schema.refetch()}
+            />
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               {(['key', 'value'] as const).map((part) => {
@@ -458,6 +496,7 @@ export function TopicDetailPage() {
         confirmLabel="Delete topic"
         loading={deleteTopic.isPending}
         onConfirm={async () => {
+          if (isInternal && !deleteAck) return;
           try {
             await deleteTopic.mutateAsync(topic);
             toast.success(`Topic ${topic} deleted`);
@@ -466,74 +505,50 @@ export function TopicDetailPage() {
             toastError('Failed to delete topic', e);
           }
         }}
-      />
+      >
+        {isInternal ? (
+          <InternalTopicAck checked={deleteAck} onCheckedChange={setDeleteAck} />
+        ) : null}
+        {isInternal && !deleteAck ? (
+          <p className="text-2xs text-[var(--danger)]">
+            Acknowledge the warning above to continue.
+          </p>
+        ) : null}
+      </ConfirmDestructiveDialog>
 
-      <ConfirmDestructiveDialog
+      <PurgeTopicDialog
         open={purgeOpen}
         onOpenChange={setPurgeOpen}
-        title="Purge all records"
-        description={
-          <>
-            Deletes every record in <span className="font-mono">{topic}</span>. The topic is kept.
-          </>
-        }
-        confirmText={topic}
-        confirmLabel="Purge records"
-        loading={purgeTopic.isPending}
-        onConfirm={async () => {
-          try {
-            await purgeTopic.mutateAsync(undefined);
-            toast.success('Records purged');
-            setPurgeOpen(false);
-          } catch (e) {
-            toastError('Failed to purge topic', e);
-          }
-        }}
+        cluster={cluster}
+        topic={data ? { name: topic, isInternal } : null}
+        partitions={partitions}
+        requireInternalAck
       />
 
-      <Dialog open={partitionsOpen} onOpenChange={setPartitionsOpen}>
-        <DialogContent size="sm">
-          <DialogHeader>
-            <DialogTitle>Add partitions</DialogTitle>
-            <DialogDescription>
-              Partition count can only increase and cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogBody className="space-y-2">
-            <Label htmlFor="new-partitions">New partition count</Label>
-            <Input
-              id="new-partitions"
-              type="number"
-              min={(data?.partitions ?? 0) + 1}
-              value={newPartitions}
-              onChange={(e) => setNewPartitions(Number(e.target.value))}
-            />
-            <p className="text-2xs text-[var(--muted)]">
-              Currently {data?.partitions ?? '—'} partitions.
-            </p>
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPartitionsOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              loading={addPartitions.isPending}
-              disabled={newPartitions <= (data?.partitions ?? 0)}
-              onClick={async () => {
-                try {
-                  await addPartitions.mutateAsync({ count: newPartitions });
-                  toast.success('Partitions added');
-                  setPartitionsOpen(false);
-                } catch (e) {
-                  toastError('Failed to add partitions', e);
-                }
-              }}
-            >
-              Add partitions
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AddPartitionsDialog
+        open={partitionsOpen}
+        onOpenChange={setPartitionsOpen}
+        cluster={cluster}
+        topic={
+          data
+            ? {
+                name: topic,
+                partitions: data.partitions,
+                cleanupPolicy: data.cleanupPolicy,
+                isInternal,
+              }
+            : null
+        }
+        requireInternalAck
+      />
+
+      <CloneTopicDialog
+        open={cloneOpen}
+        onOpenChange={setCloneOpen}
+        cluster={cluster}
+        topic={topic}
+        onCloned={(name) => void navigate(`/c/${cluster}/topics/${encodeURIComponent(name)}`)}
+      />
     </div>
   );
 }

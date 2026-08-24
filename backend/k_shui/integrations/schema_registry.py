@@ -200,15 +200,19 @@ class SchemaRegistryClient:
         schema_type: str = "AVRO",
         references: list[dict[str, Any]] | None = None,
         version: str = "latest",
+        normalize: bool = False,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"schema": schema, "schemaType": _schema_type(schema_type)}
         if references:
             body["references"] = references
+        params = {"verbose": "true"}
+        if normalize:
+            params["normalize"] = "true"
         resp = await self.http.request(
             "POST",
             f"/compatibility/subjects/{subject}/versions/{version}",
             json=body,
-            params={"verbose": "true"},
+            params=params,
             headers={"Content-Type": "application/vnd.schemaregistry.v1+json"},
         )
         if resp.status_code == 404:  # brand new subject → nothing to be incompatible with
@@ -269,8 +273,14 @@ class SchemaRegistryClient:
         return {"compatibility": (data or {}).get("compatibility", compatibility.upper()), "explicit": True}
 
     async def delete_subject_config(self, subject: str) -> dict[str, Any]:
-        await self.http.request("DELETE", f"/config/{subject}")
-        return await self.get_global_config()
+        """Drop the per-subject override so the subject inherits the global level again."""
+        resp = await self.http.request("DELETE", f"/config/{subject}")
+        if not resp.is_success and resp.status_code != 404:
+            from k_shui.integrations.http import raise_upstream
+
+            raise_upstream(resp, component=COMPONENT)
+        global_config = await self.get_global_config()
+        return {**global_config, "explicit": False}
 
     # ------------------------------------------------------------------- misc
 

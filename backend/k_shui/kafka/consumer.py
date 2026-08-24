@@ -35,6 +35,7 @@ class BrowseRequest:
     mode: str = "latest"  # latest | earliest | offset | timestamp
     partitions: list[int] | None = None
     offset: int | None = None
+    start_offsets: dict[int, int] | None = None  # per-partition override for mode=offset
     timestamp: int | None = None
     limit: int = 100
     key_format: str = "auto"
@@ -90,7 +91,7 @@ class MessageFilter:
             return True
         if self._jsonpath is not None:
             for candidate in (message.get("value"), message.get("key")):
-                if not isinstance(candidate, (dict, list)):
+                if not isinstance(candidate, dict | list):
                     continue
                 # try the document itself and wrapped in a list, so root filters
                 # like `$[?(@.region=='emea')]` work on single objects too
@@ -159,9 +160,10 @@ class MessageBrowser:
             if req.mode == "earliest":
                 start = low
             elif req.mode == "offset":
-                if req.offset is None:
-                    raise BadRequest("mode=offset requires an offset")
-                start = max(low, min(int(req.offset), high))
+                wanted_offset = (req.start_offsets or {}).get(part, req.offset)
+                if wanted_offset is None:
+                    raise BadRequest("mode=offset requires an offset or startOffsets")
+                start = max(low, min(int(wanted_offset), high))
             elif req.mode == "timestamp":
                 resolved = ts_offsets.get((req.topic, part), -1)
                 start = high if resolved < 0 else max(low, resolved)
@@ -293,7 +295,7 @@ class MessageBrowser:
         ts_type, ts = msg.timestamp()
         headers: dict[str, Any] = {}
         for name, raw in msg.headers() or []:
-            headers[name] = raw.decode("utf-8", "replace") if isinstance(raw, (bytes, bytearray)) else raw
+            headers[name] = raw.decode("utf-8", "replace") if isinstance(raw, bytes | bytearray) else raw
         out: dict[str, Any] = {
             "partition": msg.partition(),
             "offset": msg.offset(),

@@ -154,6 +154,7 @@ async def check_compatibility(
         schema_type=body.schemaType,
         references=body.references,
         version=body.version,
+        normalize=body.normalize,
     )
 
 

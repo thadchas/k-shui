@@ -12,13 +12,7 @@ import {
   SplitSquareHorizontal,
   Trash2,
 } from 'lucide-react';
-import {
-  useAddPartitions,
-  useCloneTopic,
-  useDeleteTopic,
-  usePurgeTopic,
-  useTopics,
-} from '@/api/hooks/topics';
+import { useDeleteTopic, useTopics } from '@/api/hooks/topics';
 import type { TopicSummary } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
 import { useDebounced } from '@/hooks/useDebounced';
@@ -33,15 +27,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -49,12 +34,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { PageHeader } from '@/components/ui/page-header';
 import { Switch } from '@/components/ui/switch';
 import { toast, toastError } from '@/components/ui/toast';
 import { Tooltip } from '@/components/ui/tooltip';
+import { AddPartitionsDialog } from './components/AddPartitionsDialog';
+import { CloneTopicDialog } from './components/CloneTopicDialog';
+import { PurgeTopicDialog } from './components/PurgeTopicDialog';
+
+const INTERNAL_LOCKED = 'Internal Kafka topic — open the topic page to change it deliberately.';
 
 type DialogState =
   | { kind: 'none' }
@@ -74,8 +62,6 @@ export function TopicsPage() {
   const [perPage, setPerPage] = useState(50);
   const [sorting, setSorting] = useState<SortingState>([{ id: 'name', desc: false }]);
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
-  const [partitionCount, setPartitionCount] = useState(1);
-  const [cloneName, setCloneName] = useState('');
 
   const query = useMemo(
     () => ({
@@ -93,9 +79,6 @@ export function TopicsPage() {
 
   const activeTopic = dialog.kind !== 'none' ? dialog.topic : null;
   const deleteTopic = useDeleteTopic(cluster);
-  const purgeTopic = usePurgeTopic(cluster, activeTopic?.name ?? '');
-  const addPartitions = useAddPartitions(cluster, activeTopic?.name ?? '');
-  const cloneTopic = useCloneTopic(cluster, activeTopic?.name ?? '');
 
   const closeDialog = () => setDialog({ kind: 'none' });
 
@@ -204,54 +187,72 @@ export function TopicsPage() {
     [],
   );
 
-  const rowActions = (topic: TopicSummary) => (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${topic.name}`}>
-          <MoreHorizontal />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuItem
-          onSelect={() =>
-            void navigate(`/c/${cluster}/topics/${encodeURIComponent(topic.name)}?tab=messages`)
-          }
-        >
-          <MessageSquare /> Browse messages
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() =>
-            void navigate(`/c/${cluster}/topics/${encodeURIComponent(topic.name)}?tab=configs`)
-          }
-        >
-          <Settings2 /> Edit configs
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => {
-            setPartitionCount(topic.partitions + 1);
-            setDialog({ kind: 'partitions', topic });
-          }}
-        >
-          <SplitSquareHorizontal /> Add partitions
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => {
-            setCloneName(`${topic.name}-copy`);
-            setDialog({ kind: 'clone', topic });
-          }}
-        >
-          <Copy /> Clone topic
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem destructive onSelect={() => setDialog({ kind: 'purge', topic })}>
-          <Eraser /> Purge records
-        </DropdownMenuItem>
-        <DropdownMenuItem destructive onSelect={() => setDialog({ kind: 'delete', topic })}>
-          <Trash2 /> Delete topic
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+  const rowActions = (topic: TopicSummary) => {
+    const locked = topic.isInternal;
+    const lockedItem = (node: React.ReactElement) =>
+      locked ? (
+        <Tooltip content={INTERNAL_LOCKED} side="left">
+          <span className="block">{node}</span>
+        </Tooltip>
+      ) : (
+        node
+      );
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${topic.name}`}>
+            <MoreHorizontal />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem
+            onSelect={() =>
+              void navigate(`/c/${cluster}/topics/${encodeURIComponent(topic.name)}?tab=messages`)
+            }
+          >
+            <MessageSquare /> Browse messages
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() =>
+              void navigate(`/c/${cluster}/topics/${encodeURIComponent(topic.name)}?tab=configs`)
+            }
+          >
+            <Settings2 /> Edit configs
+          </DropdownMenuItem>
+          {lockedItem(
+            <DropdownMenuItem
+              disabled={locked}
+              onSelect={() => setDialog({ kind: 'partitions', topic })}
+            >
+              <SplitSquareHorizontal /> Add partitions
+            </DropdownMenuItem>,
+          )}
+          <DropdownMenuItem onSelect={() => setDialog({ kind: 'clone', topic })}>
+            <Copy /> Clone topic
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {lockedItem(
+            <DropdownMenuItem
+              destructive
+              disabled={locked}
+              onSelect={() => setDialog({ kind: 'purge', topic })}
+            >
+              <Eraser /> Purge records
+            </DropdownMenuItem>,
+          )}
+          {lockedItem(
+            <DropdownMenuItem
+              destructive
+              disabled={locked}
+              onSelect={() => setDialog({ kind: 'delete', topic })}
+            >
+              <Trash2 /> Delete topic
+            </DropdownMenuItem>,
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  };
 
   return (
     <div>
@@ -361,118 +362,28 @@ export function TopicsPage() {
       />
 
       {/* purge */}
-      <ConfirmDestructiveDialog
+      <PurgeTopicDialog
         open={dialog.kind === 'purge'}
         onOpenChange={(open) => !open && closeDialog()}
-        title="Purge all records"
-        description={
-          <>
-            Deletes every record in <span className="font-mono">{activeTopic?.name}</span> by
-            advancing the start offsets to the end. The topic itself is kept.
-          </>
-        }
-        confirmText={activeTopic?.name}
-        confirmLabel="Purge records"
-        loading={purgeTopic.isPending}
-        onConfirm={async () => {
-          if (!activeTopic) return;
-          try {
-            await purgeTopic.mutateAsync(undefined);
-            toast.success(`Purged ${activeTopic.name}`);
-            closeDialog();
-          } catch (e) {
-            toastError('Failed to purge topic', e);
-          }
-        }}
+        cluster={cluster}
+        topic={activeTopic}
       />
 
       {/* add partitions */}
-      <Dialog open={dialog.kind === 'partitions'} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent size="sm">
-          <DialogHeader>
-            <DialogTitle>Add partitions</DialogTitle>
-            <DialogDescription>
-              Partition count can only increase. Increasing partitions changes key-to-partition
-              mapping for new records.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogBody className="space-y-2">
-            <Label htmlFor="partition-count">New partition count</Label>
-            <Input
-              id="partition-count"
-              type="number"
-              min={(activeTopic?.partitions ?? 0) + 1}
-              value={partitionCount}
-              onChange={(e) => setPartitionCount(Number(e.target.value))}
-            />
-            <p className="text-2xs text-[var(--muted)]">
-              Currently {activeTopic?.partitions} partitions.
-            </p>
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog}>
-              Cancel
-            </Button>
-            <Button
-              loading={addPartitions.isPending}
-              disabled={partitionCount <= (activeTopic?.partitions ?? 0)}
-              onClick={async () => {
-                try {
-                  await addPartitions.mutateAsync({ count: partitionCount });
-                  toast.success('Partitions added');
-                  closeDialog();
-                } catch (e) {
-                  toastError('Failed to add partitions', e);
-                }
-              }}
-            >
-              Add partitions
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AddPartitionsDialog
+        open={dialog.kind === 'partitions'}
+        onOpenChange={(open) => !open && closeDialog()}
+        cluster={cluster}
+        topic={activeTopic}
+      />
 
       {/* clone */}
-      <Dialog open={dialog.kind === 'clone'} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent size="sm">
-          <DialogHeader>
-            <DialogTitle>Clone topic</DialogTitle>
-            <DialogDescription>
-              Creates a new topic with the same partition count, replication factor and configs.
-              Records are not copied.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogBody className="space-y-2">
-            <Label htmlFor="clone-name">New topic name</Label>
-            <Input
-              id="clone-name"
-              mono
-              value={cloneName}
-              onChange={(e) => setCloneName(e.target.value)}
-            />
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog}>
-              Cancel
-            </Button>
-            <Button
-              loading={cloneTopic.isPending}
-              disabled={!cloneName.trim()}
-              onClick={async () => {
-                try {
-                  await cloneTopic.mutateAsync({ name: cloneName.trim() });
-                  toast.success(`Cloned to ${cloneName.trim()}`);
-                  closeDialog();
-                } catch (e) {
-                  toastError('Failed to clone topic', e);
-                }
-              }}
-            >
-              Clone
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CloneTopicDialog
+        open={dialog.kind === 'clone'}
+        onOpenChange={(open) => !open && closeDialog()}
+        cluster={cluster}
+        topic={activeTopic?.name ?? null}
+      />
     </div>
   );
 }

@@ -24,7 +24,7 @@ _SPLIT = re.compile(r"[-_]+")
 def _camel_key(key: str) -> str:
     if "." in key or not _SPLIT.search(key):
         return key
-    head, *rest = [p for p in _SPLIT.split(key) if p]
+    head, *rest = (p for p in _SPLIT.split(key) if p)
     if not head:
         return key
     return head[0].lower() + head[1:] + "".join(p[:1].upper() + p[1:] for p in rest)
@@ -296,6 +296,17 @@ class FlinkClient:
     async def sql_result(self, session: str, operation: str, token: int = 0) -> dict[str, Any]:
         data = await self.sql.get_json(f"/v1/sessions/{session}/operations/{operation}/result/{token}")
         return camelize(data or {})
+
+    async def sql_cancel_operation(self, session: str, operation: str) -> dict[str, Any]:
+        """Cancel a running gateway operation, then release it (``cancel`` + ``close``)."""
+        cancelled = await self.sql.request("POST", f"/v1/sessions/{session}/operations/{operation}/cancel")
+        closed = await self.sql.request("DELETE", f"/v1/sessions/{session}/operations/{operation}/close")
+        return {
+            "operationHandle": operation,
+            "cancelled": cancelled.is_success,
+            "closed": closed.is_success,
+            "status": "CANCELED" if cancelled.is_success else "UNKNOWN",
+        }
 
     async def sql_close_session(self, session: str) -> dict[str, Any]:
         data = await self.sql.delete_json(f"/v1/sessions/{session}")

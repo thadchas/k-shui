@@ -7,7 +7,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 
 from k_shui.api.routers._common import cluster_summary, sampler_for
-from k_shui.api.schemas.cluster import ClusterDetail, ClusterSummary
+from k_shui.api.schemas.cluster import (
+    ClusterDetail,
+    ClusterSummary,
+    UnhealthyPartition,
+    UnhealthyPartitionsResponse,
+)
 from k_shui.api.schemas.common import HealthCheck, HealthResponse, SeriesResponse
 from k_shui.core.auth import Principal, require_viewer
 from k_shui.core.deps import TimeRange, time_range
@@ -108,6 +113,56 @@ def _integration_checks(ctx: ClusterContext) -> dict[str, str]:
     if cfg.lineage and cfg.lineage.type != "none":
         out["lineage"] = cfg.lineage.url or cfg.lineage.type
     return out
+
+
+@router.get("/{cluster_id}/partitions/unhealthy", response_model=UnhealthyPartitionsResponse)
+async def unhealthy_partitions(
+    ctx: ClusterContext = Depends(get_cluster),
+    principal: Principal = Depends(require_viewer),
+) -> UnhealthyPartitionsResponse:
+    """Cluster-wide list of partitions that are offline, under-replicated or led by a non-preferred replica.
+
+    Built from one metadata round-trip; ``offline`` means no live leader (``leader < 0``),
+    ``underReplicated`` means ``|isr| < |replicas|`` and ``nonPreferredLeader`` means the leader is not
+    the first replica in the assignment (a partition still needs a preferred-leader election).
+    """
+    md = await KafkaAdmin.get(ctx).metadata(force=True)
+    items: list[UnhealthyPartition] = []
+    scanned = offline = urp = non_preferred = 0
+    for name, topic in md.topics.items():
+        for p in topic.partitions.values():
+            scanned += 1
+            replicas = list(p.replicas)
+            isr = list(p.isrs)
+            leader = p.leader if p.leader is not None and p.leader >= 0 else None
+            reasons: list[str] = []
+            if leader is None:
+                reasons.append("offline")
+            if len(isr) < len(replicas):
+                reasons.append("underReplicated")
+            if leader is not None and replicas and leader != replicas[0]:
+                reasons.append("nonPreferredLeader")
+            if not reasons:
+                continue
+            offline += "offline" in reasons
+            urp += "underReplicated" in reasons
+            non_preferred += "nonPreferredLeader" in reasons
+            items.append(
+                UnhealthyPartition(
+                    topic=name, partition=p.id, leader=leader, replicas=replicas, isr=isr, reasons=reasons
+                )
+            )
+    # Offline first, then under-replicated, then by topic/partition so the worst rows lead.
+    items.sort(
+        key=lambda i: ("offline" not in i.reasons, "underReplicated" not in i.reasons, i.topic, i.partition)
+    )
+    return UnhealthyPartitionsResponse(
+        items=items,
+        offline=offline,
+        underReplicated=urp,
+        nonPreferredLeader=non_preferred,
+        scannedPartitions=scanned,
+    )
 
 
 @router.get("/{cluster_id}/overview/metrics", response_model=SeriesResponse)

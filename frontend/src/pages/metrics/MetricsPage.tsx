@@ -21,6 +21,8 @@ import {
 } from '@/api/hooks/metrics';
 import type { DashboardSummaryFull } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { useSearchParamState } from '@/hooks/useUrlState';
 import { formatRelative } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { CodeEditor } from '@/components';
@@ -50,6 +52,7 @@ import { Label } from '@/components/ui/label';
 import { PageHeader } from '@/components/ui/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 
 function StatusBanner({ cluster }: { cluster: string }) {
   const { data, isLoading, error, refetch } = useMetricsStatusFull(cluster);
@@ -125,7 +128,9 @@ function StatusBanner({ cluster }: { cluster: string }) {
         {Array.from(byJob.entries()).map(([job, counts]) => (
           <Badge
             key={job}
-            variant={counts.up === counts.total ? 'success' : counts.up === 0 ? 'danger' : 'warning'}
+            variant={
+              counts.up === counts.total ? 'success' : counts.up === 0 ? 'danger' : 'warning'
+            }
             title={`${counts.up}/${counts.total} targets up`}
           >
             {job} {counts.up}/{counts.total}
@@ -153,10 +158,12 @@ function DashboardCard({
   cluster,
   item,
   onDelete,
+  canEdit,
 }: {
   cluster: string;
   item: DashboardSummaryFull;
   onDelete: (d: DashboardSummaryFull) => void;
+  canEdit: boolean;
 }) {
   return (
     <Card className="group flex flex-col gap-3 p-4 transition-colors hover:border-[color-mix(in_srgb,var(--primary)_45%,var(--border))]">
@@ -191,8 +198,18 @@ function DashboardCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem destructive onSelect={() => onDelete(item)}>
+              <DropdownMenuItem
+                destructive
+                disabled={!canEdit}
+                title={canEdit ? undefined : REQUIRES_EDITOR}
+                onSelect={() => onDelete(item)}
+              >
                 <Trash2 /> Delete dashboard
+                {!canEdit ? (
+                  <span className="ml-auto pl-3 text-2xs text-[var(--muted)]">
+                    {REQUIRES_EDITOR}
+                  </span>
+                ) : null}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -220,8 +237,9 @@ export function MetricsPage() {
   const create = useCreateDashboard(cluster);
   const importDashboard = useImportDashboard(cluster);
   const remove = useDeleteDashboard(cluster);
+  const { canEdit } = usePermissions();
 
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useSearchParamState<string>('q', '');
   const [newOpen, setNewOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [title, setTitle] = useState('');
@@ -257,12 +275,25 @@ export function MetricsPage() {
                 <Compass /> Explore
               </Link>
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
-              <Download /> Import Grafana JSON
-            </Button>
-            <Button size="sm" onClick={() => setNewOpen(true)}>
-              <Plus /> New dashboard
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!canEdit}
+                  onClick={() => setImportOpen(true)}
+                >
+                  <Download /> Import Grafana JSON
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button size="sm" disabled={!canEdit} onClick={() => setNewOpen(true)}>
+                  <Plus /> New dashboard
+                </Button>
+              </span>
+            </Tooltip>
           </>
         }
       />
@@ -276,6 +307,7 @@ export function MetricsPage() {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search dashboards…"
           className="pl-8"
+          data-table-search=""
           aria-label="Search dashboards"
         />
       </div>
@@ -321,6 +353,7 @@ export function MetricsPage() {
                     cluster={cluster}
                     item={d}
                     onDelete={setDeleteTarget}
+                    canEdit={canEdit}
                   />
                 ))}
               </div>
@@ -339,6 +372,7 @@ export function MetricsPage() {
                     cluster={cluster}
                     item={d}
                     onDelete={setDeleteTarget}
+                    canEdit={canEdit}
                   />
                 ))}
               </div>
@@ -430,7 +464,13 @@ export function MetricsPage() {
                 className="font-mono"
               />
             </div>
-            <CodeEditor value={json} onChange={setJson} language="json" height={320} minimal={false} />
+            <CodeEditor
+              value={json}
+              onChange={setJson}
+              language="json"
+              height={320}
+              minimal={false}
+            />
           </DialogBody>
           <DialogFooter>
             <Button variant="outline" onClick={() => setImportOpen(false)}>
@@ -474,6 +514,7 @@ export function MetricsPage() {
             Permanently removes <span className="font-mono">{deleteTarget?.title}</span>.
           </>
         }
+        confirmText={deleteTarget?.id}
         confirmLabel="Delete dashboard"
         loading={remove.isPending}
         onConfirm={() => {

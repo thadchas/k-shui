@@ -1,4 +1,6 @@
+import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
 import { Toaster as SonnerToaster, toast } from 'sonner';
+import { ApiError } from '@/api/client';
 import { useThemeStore, resolveTheme } from '@/stores/theme';
 
 export { toast };
@@ -10,7 +12,13 @@ export function Toaster() {
       theme={mode === 'system' ? 'system' : resolveTheme(mode)}
       position="bottom-right"
       closeButton
-      richColors={false}
+      richColors
+      icons={{
+        success: <CheckCircle2 className="size-4" />,
+        error: <XCircle className="size-4" />,
+        warning: <AlertTriangle className="size-4" />,
+        info: <Info className="size-4" />,
+      }}
       toastOptions={{
         classNames: {
           toast:
@@ -28,11 +36,18 @@ export function Toaster() {
   );
 }
 
-/** Consistent error toast for ApiError / unknown throwables. */
+/** Consistent error toast for ApiError / unknown throwables (includes problem status/type). */
 export function toastError(title: string, error: unknown) {
-  const description =
+  let description =
     error && typeof error === 'object' && 'message' in error
       ? String((error as Error).message)
       : String(error ?? '');
+  if (error instanceof ApiError) {
+    const meta: string[] = [];
+    if (error.status) meta.push(`HTTP ${error.status}`);
+    if (error.type && error.type !== 'about:blank')
+      meta.push(error.type.split('/').pop() ?? error.type);
+    if (meta.length) description = `${description}${description ? ' — ' : ''}${meta.join(' · ')}`;
+  }
   toast.error(title, { description });
 }

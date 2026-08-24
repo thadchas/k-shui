@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { ArrowLeft, Crown, HardDrive } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import type { ColumnDef } from '@tanstack/react-table';
+import { AlertTriangle, ArrowLeft, Crown, HardDrive } from 'lucide-react';
 import {
   useBroker,
   useBrokerConfigs,
@@ -8,7 +9,7 @@ import {
   useBrokerMetrics,
   useUpdateBrokerConfigs,
 } from '@/api/hooks/brokers';
-import type { TimeRange } from '@/api/types';
+import type { LogDir, LogDirPartition, TimeRange } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
 import { pickSeries } from '@/lib/charts';
 import { formatBytes, formatNumber } from '@/lib/format';
@@ -18,22 +19,127 @@ import { TimeSeriesChart } from '@/components/TimeSeriesChart';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardToolbarHeader } from '@/components/ui/card';
+import { DataTable } from '@/components/ui/data-table';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
 import { PageHeader } from '@/components/ui/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusPill } from '@/components/ui/status-pill';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TimeRangePicker } from '@/components/ui/time-range-picker';
 import { toast, toastError } from '@/components/ui/toast';
+import { DiskUsageBar, diskPercent, diskTone } from './DiskUsageBar';
+
+/** One log directory: capacity header (or offline flag) + sortable, searchable partition table. */
+function LogDirCard({ dir, cluster }: { dir: LogDir; cluster: string }) {
+  const [search, setSearch] = useState('');
+  const pct = diskPercent(dir.totalBytes, dir.usableBytes);
+  const tone = diskTone(pct);
+  const offline = Boolean(dir.error);
+
+  const columns = useMemo<ColumnDef<LogDirPartition>[]>(
+    () => [
+      {
+        accessorKey: 'topic',
+        header: 'Topic',
+        meta: { label: 'Topic' },
+        cell: ({ row }) => (
+          <Link
+            to={`/c/${cluster}/topics/${encodeURIComponent(row.original.topic)}`}
+            className="font-mono text-[13px] hover:text-[var(--primary)]"
+          >
+            {row.original.topic}
+          </Link>
+        ),
+      },
+      {
+        accessorKey: 'partition',
+        header: 'Partition',
+        meta: { numeric: true, label: 'Partition', widthClass: 'w-24' },
+      },
+      {
+        accessorKey: 'sizeBytes',
+        header: 'Size',
+        meta: { numeric: true, label: 'Size' },
+        sortUndefined: 'last',
+        cell: ({ row }) => formatBytes(row.original.sizeBytes),
+      },
+      {
+        accessorKey: 'offsetLag',
+        header: 'Offset lag',
+        meta: { numeric: true, label: 'Offset lag' },
+        sortUndefined: 'last',
+        cell: ({ row }) => (
+          <span className={(row.original.offsetLag ?? 0) > 0 ? 'text-[var(--warning)]' : undefined}>
+            {formatNumber(row.original.offsetLag)}
+          </span>
+        ),
+      },
+    ],
+    [cluster],
+  );
+
+  return (
+    <Card
+      className={
+        offline ? 'border-[color-mix(in_srgb,var(--danger)_50%,var(--border))]' : undefined
+      }
+    >
+      <CardToolbarHeader
+        title={
+          <span className="flex items-center gap-2">
+            <span className="font-mono text-sm">{dir.path}</span>
+            {offline ? (
+              <Badge variant="danger">
+                <AlertTriangle className="size-3" /> offline
+              </Badge>
+            ) : null}
+          </span>
+        }
+        description={
+          offline
+            ? `Broker reported ${dir.error} for this directory — its replicas are unavailable.`
+            : `${formatNumber(dir.partitions.length)} partitions · ${formatBytes(dir.sizeBytes)} of logs${
+                pct !== null ? ` · ${formatBytes(dir.usableBytes)} free` : ''
+              }`
+        }
+        actions={
+          pct !== null ? (
+            <DiskUsageBar
+              totalBytes={dir.totalBytes}
+              usableBytes={dir.usableBytes}
+              fallbackBytes={dir.sizeBytes}
+            />
+          ) : (
+            <Badge variant={tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'info'}>
+              {formatBytes(dir.sizeBytes)}
+            </Badge>
+          )
+        }
+      />
+      <CardContent>
+        <DataTable
+          columns={columns}
+          data={dir.partitions}
+          globalFilter={search}
+          onGlobalFilterChange={setSearch}
+          searchPlaceholder="Search topics…"
+          defaultSorting={[{ id: 'sizeBytes', desc: true }]}
+          getRowId={(row) => `${row.topic}-${row.partition}`}
+          maxHeight={384}
+          rowLabel="partitions"
+          emptyState={
+            <EmptyState
+              compact
+              icon={HardDrive}
+              title={search ? 'No partitions match' : 'No partitions in this directory'}
+            />
+          }
+        />
+      </CardContent>
+    </Card>
+  );
+}
 
 export function BrokerDetailPage() {
   const cluster = useClusterId();
@@ -66,6 +172,8 @@ export function BrokerDetailPage() {
 
   const data = broker.data;
   const series = metrics.data?.series;
+  const diskPct = diskPercent(data?.logDirTotalBytes, data?.logDirUsableBytes);
+  const offlineDirs = (logdirs.data ?? []).filter((d) => d.error).length;
 
   return (
     <div>
@@ -122,10 +230,21 @@ export function BrokerDetailPage() {
               tone={(data?.underReplicatedPartitions ?? 0) > 0 ? 'warning' : 'success'}
             />
             <StatTile
-              label="Log dir size"
+              label={diskPct !== null ? 'Disk used' : 'Log dir size'}
               loading={broker.isLoading}
-              value={formatBytes(data?.logDirSizeBytes)}
+              value={
+                diskPct !== null ? `${diskPct.toFixed(0)}%` : formatBytes(data?.logDirSizeBytes)
+              }
+              tone={offlineDirs > 0 ? 'danger' : diskTone(diskPct)}
+              hint={
+                offlineDirs > 0
+                  ? `${offlineDirs} log dir${offlineDirs === 1 ? '' : 's'} offline`
+                  : diskPct !== null
+                    ? `${formatBytes(data?.logDirSizeBytes)} logs · ${formatBytes(data?.logDirUsableBytes)} free of ${formatBytes(data?.logDirTotalBytes)}`
+                    : 'Capacity not reported by this broker'
+              }
               icon={HardDrive}
+              onClick={() => setTab('logdirs')}
             />
           </StatTileRow>
 
@@ -175,39 +294,10 @@ export function BrokerDetailPage() {
               <EmptyState icon={HardDrive} title="No log directories reported" />
             </Card>
           ) : (
-            logdirs.data.map((dir) => (
-              <Card key={dir.path}>
-                <CardToolbarHeader
-                  title={<span className="font-mono text-sm">{dir.path}</span>}
-                  description={`${formatNumber(dir.partitions.length)} partitions`}
-                  actions={<Badge variant="info">{formatBytes(dir.sizeBytes)}</Badge>}
-                />
-                <CardContent>
-                  <div className="max-h-96 overflow-auto rounded-[var(--radius-control)] border border-[var(--border)]">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="hover:bg-transparent">
-                          <TableHead>Topic</TableHead>
-                          <TableHead numeric>Partition</TableHead>
-                          <TableHead numeric>Size</TableHead>
-                          <TableHead numeric>Offset lag</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {dir.partitions.map((p) => (
-                          <TableRow key={`${p.topic}-${p.partition}`}>
-                            <TableCell className="font-mono text-[13px]">{p.topic}</TableCell>
-                            <TableCell numeric>{p.partition}</TableCell>
-                            <TableCell numeric>{formatBytes(p.sizeBytes)}</TableCell>
-                            <TableCell numeric>{formatNumber(p.offsetLag)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+            // Offline directories first so a failed disk is never hidden below healthy ones.
+            [...logdirs.data]
+              .sort((a, b) => Number(Boolean(b.error)) - Number(Boolean(a.error)))
+              .map((dir) => <LogDirCard key={dir.path} dir={dir} cluster={cluster} />)
           )}
         </TabsContent>
 

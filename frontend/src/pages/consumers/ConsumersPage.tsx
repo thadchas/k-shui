@@ -26,6 +26,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { SimpleSelect } from '@/components/ui/select';
 import { StatusPill } from '@/components/ui/status-pill';
 import { toast, toastError } from '@/components/ui/toast';
+import { TIME_LAG_WARN_MS, formatTimeLag } from './lag';
 
 const STATES = [
   { label: 'All states', value: 'all' },
@@ -106,6 +107,24 @@ export function ConsumersPage() {
         cell: ({ row }) => (
           <span className={row.original.totalLag > 0 ? 'text-[var(--warning)]' : undefined}>
             {formatCompact(row.original.totalLag)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'maxTimeLagMs',
+        header: 'Lag (time)',
+        meta: { numeric: true, label: 'Lag (time)' },
+        sortUndefined: 'last',
+        cell: ({ row }) => (
+          <span
+            title="Estimated time behind the log end for the slowest partition (lag ÷ produce rate)"
+            className={
+              (row.original.maxTimeLagMs ?? 0) >= TIME_LAG_WARN_MS
+                ? 'text-[var(--warning)]'
+                : 'text-[var(--muted)]'
+            }
+          >
+            {formatTimeLag(row.original.maxTimeLagMs)}
           </span>
         ),
       },

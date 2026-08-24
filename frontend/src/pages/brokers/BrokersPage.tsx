@@ -5,12 +5,13 @@ import { Crown, Server } from 'lucide-react';
 import { useBrokers } from '@/api/hooks/brokers';
 import type { Broker } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
-import { formatBytes, formatNumber } from '@/lib/format';
+import { formatNumber } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/ui/data-table';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatusPill } from '@/components/ui/status-pill';
+import { DiskUsageBar, diskPercent } from './DiskUsageBar';
 
 export function BrokersPage() {
   const cluster = useClusterId();
@@ -88,10 +89,19 @@ export function BrokersPage() {
         ),
       },
       {
-        accessorKey: 'logDirSizeBytes',
+        id: 'disk',
         header: 'Disk',
-        meta: { numeric: true, label: 'Disk' },
-        cell: ({ row }) => formatBytes(row.original.logDirSizeBytes),
+        meta: { numeric: true, label: 'Disk', widthClass: 'w-40' },
+        // Sort by % full when known, else by log size (so mixed clusters still order sensibly).
+        accessorFn: (row) =>
+          diskPercent(row.logDirTotalBytes, row.logDirUsableBytes) ?? row.logDirSizeBytes ?? -1,
+        cell: ({ row }) => (
+          <DiskUsageBar
+            totalBytes={row.original.logDirTotalBytes}
+            usableBytes={row.original.logDirUsableBytes}
+            fallbackBytes={row.original.logDirSizeBytes}
+          />
+        ),
       },
       {
         accessorKey: 'version',

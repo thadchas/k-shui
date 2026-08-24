@@ -174,6 +174,21 @@ async def test_queries_and_terminate(api, ksql_mock):
     assert resp.json()["terminated"] is True
 
 
+async def test_close_query_posts_query_id(api, ksql_mock):
+    route = ksql_mock.post("/close-query").mock(return_value=httpx.Response(200, json={}))
+    resp = await api.post(f"{KS}/close-query", json={"queryId": "transient_123"})
+    assert resp.status_code == 200
+    assert resp.json() == {"queryId": "transient_123", "closed": True}
+    assert json.loads(route.calls.last.request.content) == {"queryId": "transient_123"}
+
+
+async def test_close_query_error_is_upstream_problem(api, ksql_mock):
+    ksql_mock.post("/close-query").mock(return_value=httpx.Response(400, json={"message": "no such query"}))
+    resp = await api.post(f"{KS}/close-query", json={"queryId": "nope"})
+    assert resp.status_code >= 400
+    assert "no such query" in resp.text
+
+
 async def test_describe(api, ksql_mock):
     ksql_mock.post("/ksql").mock(
         return_value=httpx.Response(

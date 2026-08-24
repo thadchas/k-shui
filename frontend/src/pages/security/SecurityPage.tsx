@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router';
 import type { ColumnDef } from '@tanstack/react-table';
 import { KeyRound, Plus, Shield, Trash2, Gauge } from 'lucide-react';
 import {
@@ -24,6 +23,8 @@ import type {
   ScramUser,
 } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { enumCodec, useSearchParamState, useUrlState } from '@/hooks/useUrlState';
 import { formatBytes } from '@/lib/format';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { Badge } from '@/components/ui/badge';
@@ -45,6 +46,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { SimpleSelect } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 
 const RESOURCE_TYPES: AclResourceType[] = [
   'TOPIC',
@@ -86,7 +88,9 @@ function AclsTab({ cluster }: { cluster: string }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [draft, setDraft] = useState<Acl>(EMPTY_ACL);
   const [deleteTarget, setDeleteTarget] = useState<Acl | null>(null);
-  const [search, setSearch] = useState('');
+  const [{ q: search }, setUrl] = useUrlState<{ q: string }>({ q: '' });
+  const setSearch = (q: string) => setUrl({ q });
+  const { canEdit } = usePermissions();
 
   const acls = useAcls(cluster);
   const createAcl = useCreateAcl(cluster);
@@ -155,25 +159,35 @@ function AclsTab({ cluster }: { cluster: string }) {
         searchPlaceholder="Search principals or resources…"
         rowLabel="ACLs"
         toolbar={
-          <Button
-            onClick={() => {
-              setDraft(EMPTY_ACL);
-              setCreateOpen(true);
-            }}
-          >
-            <Plus /> New ACL
-          </Button>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                disabled={!canEdit}
+                onClick={() => {
+                  setDraft(EMPTY_ACL);
+                  setCreateOpen(true);
+                }}
+              >
+                <Plus /> New ACL
+              </Button>
+            </span>
+          </Tooltip>
         }
         rowActions={(acl) => (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Delete ACL"
-            className="text-[var(--muted)] hover:text-[var(--danger)]"
-            onClick={() => setDeleteTarget(acl)}
-          >
-            <Trash2 />
-          </Button>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Delete ACL"
+                disabled={!canEdit}
+                className="text-[var(--muted)] hover:text-[var(--danger)]"
+                onClick={() => setDeleteTarget(acl)}
+              >
+                <Trash2 />
+              </Button>
+            </span>
+          </Tooltip>
         )}
         emptyState={
           <EmptyState
@@ -291,6 +305,7 @@ function AclsTab({ cluster }: { cluster: string }) {
             <span className="font-mono">{deleteTarget?.principal}</span>.
           </>
         }
+        confirmText={deleteTarget?.principal}
         confirmLabel="Delete ACL"
         loading={deleteAcl.isPending}
         onConfirm={async () => {
@@ -309,6 +324,7 @@ function AclsTab({ cluster }: { cluster: string }) {
 }
 
 function QuotasTab({ cluster }: { cluster: string }) {
+  const { canEdit } = usePermissions();
   const quotas = useQuotas(cluster);
   const upsert = useUpsertQuota(cluster);
   const remove = useDeleteQuota(cluster);
@@ -375,23 +391,33 @@ function QuotasTab({ cluster }: { cluster: string }) {
         enableColumnVisibility={false}
         rowLabel="quotas"
         toolbar={
-          <Button
-            onClick={() => setEditing({ entityType: 'client-id', entityName: '', quotas: {} })}
-          >
-            <Plus /> New quota
-          </Button>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                disabled={!canEdit}
+                onClick={() => setEditing({ entityType: 'client-id', entityName: '', quotas: {} })}
+              >
+                <Plus /> New quota
+              </Button>
+            </span>
+          </Tooltip>
         }
         onRowClick={(quota) => setEditing(quota)}
         rowActions={(quota) => (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Delete quota"
-            className="text-[var(--muted)] hover:text-[var(--danger)]"
-            onClick={() => setDeleteTarget(quota)}
-          >
-            <Trash2 />
-          </Button>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Delete quota"
+                disabled={!canEdit}
+                className="text-[var(--muted)] hover:text-[var(--danger)]"
+                onClick={() => setDeleteTarget(quota)}
+              >
+                <Trash2 />
+              </Button>
+            </span>
+          </Tooltip>
         )}
         emptyState={
           <EmptyState
@@ -515,6 +541,7 @@ function QuotasTab({ cluster }: { cluster: string }) {
             <span className="font-mono">{deleteTarget?.entityName ?? '<default>'}</span>.
           </>
         }
+        confirmText={deleteTarget?.entityName ?? 'default'}
         confirmLabel="Delete quota"
         loading={remove.isPending}
         onConfirm={async () => {
@@ -533,6 +560,7 @@ function QuotasTab({ cluster }: { cluster: string }) {
 }
 
 function ScramTab({ cluster }: { cluster: string }) {
+  const { canEdit } = usePermissions();
   const users = useScramUsers(cluster);
   const create = useCreateScramUser(cluster);
   const remove = useDeleteScramUser(cluster);
@@ -579,26 +607,36 @@ function ScramTab({ cluster }: { cluster: string }) {
         enableColumnVisibility={false}
         rowLabel="users"
         toolbar={
-          <Button
-            onClick={() => {
-              setName('');
-              setPassword('');
-              setCreateOpen(true);
-            }}
-          >
-            <Plus /> New SCRAM user
-          </Button>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                disabled={!canEdit}
+                onClick={() => {
+                  setName('');
+                  setPassword('');
+                  setCreateOpen(true);
+                }}
+              >
+                <Plus /> New SCRAM user
+              </Button>
+            </span>
+          </Tooltip>
         }
         rowActions={(user) => (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Delete user"
-            className="text-[var(--muted)] hover:text-[var(--danger)]"
-            onClick={() => setDeleteTarget(user)}
-          >
-            <Trash2 />
-          </Button>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Delete user"
+                disabled={!canEdit}
+                className="text-[var(--muted)] hover:text-[var(--danger)]"
+                onClick={() => setDeleteTarget(user)}
+              >
+                <Trash2 />
+              </Button>
+            </span>
+          </Tooltip>
         )}
         emptyState={
           <EmptyState
@@ -695,10 +733,13 @@ function ScramTab({ cluster }: { cluster: string }) {
   );
 }
 
+const SECURITY_TABS = ['acls', 'quotas', 'scram'] as const;
+type SecurityTab = (typeof SECURITY_TABS)[number];
+const tabCodec = enumCodec<SecurityTab>(SECURITY_TABS, 'acls');
+
 export function SecurityPage() {
   const cluster = useClusterId();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const tab = searchParams.get('tab') ?? 'acls';
+  const [tab, setTab] = useSearchParamState<SecurityTab>('tab', 'acls', tabCodec);
 
   return (
     <div>
@@ -706,14 +747,7 @@ export function SecurityPage() {
         title="Security"
         description="Authorization rules, client quotas and SCRAM credentials."
       />
-      <Tabs
-        value={tab}
-        onValueChange={(v) => {
-          const next = new URLSearchParams(searchParams);
-          next.set('tab', v);
-          setSearchParams(next, { replace: true });
-        }}
-      >
+      <Tabs value={tab} onValueChange={(v) => setTab(tabCodec.parse(v))}>
         <TabsList>
           <TabsTrigger value="acls">ACLs</TabsTrigger>
           <TabsTrigger value="quotas">Quotas</TabsTrigger>

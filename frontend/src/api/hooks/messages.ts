@@ -21,6 +21,10 @@ function queryParams(query: MessagesQuery) {
     mode: query.mode,
     partitions: Array.isArray(query.partitions) ? query.partitions : query.partitions,
     offset: query.offset,
+    startOffsets:
+      query.startOffsets && query.startOffsets.length > 0
+        ? query.startOffsets.map((s) => `${s.partition}:${s.offset}`).join(',')
+        : undefined,
     timestamp: query.timestamp,
     limit: query.limit,
     keyFormat: query.keyFormat,

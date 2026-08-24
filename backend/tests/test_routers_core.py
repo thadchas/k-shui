@@ -92,6 +92,8 @@ async def test_brokers(client: AsyncClient) -> None:
     assert [b["id"] for b in brokers] == [0, 1]
     assert brokers[0]["isController"] is True
     assert brokers[0]["logDirSizeBytes"] == 1024
+    assert brokers[0]["logDirTotalBytes"] == 10240
+    assert brokers[0]["logDirUsableBytes"] == 5120
 
     one = (await client.get(f"{C}/brokers/0")).json()
     assert one["host"] == "broker-0"
@@ -102,6 +104,9 @@ async def test_brokers(client: AsyncClient) -> None:
 
     logdirs = (await client.get(f"{C}/brokers/0/logdirs")).json()
     assert logdirs[0]["path"] == "/var/lib/kafka"
+    assert logdirs[0]["totalBytes"] == 10240
+    assert logdirs[0]["usableBytes"] == 5120
+    assert logdirs[0]["error"] is None
 
     series = (await client.get(f"{C}/brokers/0/metrics?range=6h")).json()["series"]
     assert {s["name"] for s in series} >= {"bytesIn", "bytesOut"}
@@ -208,6 +213,42 @@ async def test_messages_bad_params(client: AsyncClient) -> None:
     assert (await client.get(f"{C}/topics/orders/messages?partitions=a,b&stream=false")).status_code == 400
 
 
+async def test_messages_start_offsets_param(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.fakes import FakeMessageBrowser
+
+    seen: list[Any] = []
+    original = FakeMessageBrowser.collect
+
+    async def spy(self: Any, req: Any) -> dict[str, Any]:
+        seen.append(req)
+        return await original(self, req)
+
+    monkeypatch.setattr(FakeMessageBrowser, "collect", spy)
+    resp = await client.get(
+        f"{C}/topics/orders/messages?mode=offset&offset=5&startOffsets=0:10,%201:20&stream=false&limit=2"
+    )
+    assert resp.status_code == 200
+    assert seen[-1].start_offsets == {0: 10, 1: 20}
+    assert seen[-1].offset == 5
+
+    for bad in ("0:x", "0:-1", "nope"):
+        r = await client.get(f"{C}/topics/orders/messages?mode=offset&startOffsets={bad}&stream=false")
+        assert r.status_code == 400, bad
+
+
+async def test_purge_specific_partitions(client: AsyncClient, admin: Any) -> None:
+    resp = await client.post(
+        f"{C}/topics/orders/purge",
+        json={"partitions": [{"id": 1, "beforeOffset": 40}]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [p["partition"] for p in body["partitions"]] == [1]
+    assert body["partitions"][0]["lowWatermark"] == 40
+    assert admin.topics["orders"].partitions[1].begin == 40
+    assert admin.topics["orders"].partitions[0].begin == 0  # untouched
+
+
 async def test_message_export_formats(client: AsyncClient) -> None:
     csv_resp = await client.get(f"{C}/topics/orders/messages/export?format=csv&limit=2")
     assert csv_resp.headers["content-type"].startswith("text/csv")
@@ -243,6 +284,65 @@ async def test_consumer_groups_list_detail_and_404(client: AsyncClient) -> None:
     assert detail["topicsSummary"] == [{"topic": "orders", "lag": 10, "partitions": 1}]
 
     assert (await client.get(f"{C}/consumer-groups/ghost")).status_code == 404
+
+
+async def test_consumer_group_time_lag_estimate(client: AsyncClient) -> None:
+    """timeLagMs = lag / (topic produce rate / partitions), from the sampler's last two samples."""
+    from k_shui.core.sampler import Sample
+
+    sampler = client.app.state.samplers.get("test")  # type: ignore[attr-defined]
+    # No usable rate yet (sampler may hold at most one real sample) -> estimate is unknown, not 0.
+    sampler.samples.clear()
+    detail = (await client.get(f"{C}/consumer-groups/app-consumers")).json()
+    assert detail["partitions"][0]["lag"] == 10
+    assert detail["partitions"][0]["timeLagMs"] is None
+    assert detail["maxTimeLagMs"] is None
+
+    # "orders" (3 partitions) grew by 300 messages in 10s -> 30 msg/s topic-wide, 10 msg/s per partition.
+    sampler.samples.append(Sample(ts=1000.0, per_topic={"orders": 300}))
+    sampler.samples.append(Sample(ts=1010.0, per_topic={"orders": 600}))
+    detail = (await client.get(f"{C}/consumer-groups/app-consumers")).json()
+    assert detail["partitions"][0]["timeLagMs"] == 1000
+    assert detail["maxTimeLagMs"] == 1000
+    groups = (await client.get(f"{C}/consumer-groups")).json()
+    assert groups[0]["maxTimeLagMs"] == 1000
+
+    # An idle topic (rate 0) also yields "unknown" rather than a misleading zero.
+    sampler.samples.append(Sample(ts=1020.0, per_topic={"orders": 600}))
+    detail = (await client.get(f"{C}/consumer-groups/app-consumers")).json()
+    assert detail["partitions"][0]["timeLagMs"] is None
+
+
+async def test_unhealthy_partitions(client: AsyncClient, admin: Any) -> None:
+    from tests.fakes import FakePartition
+
+    body = (await client.get(f"{C}/partitions/unhealthy")).json()
+    assert body["items"] == []
+    assert body["scannedPartitions"] == 5
+
+    orders = admin.topics["orders"].partitions
+    orders[0] = FakePartition(id=0, leader=0, replicas=[0, 1], isrs=[0])  # under-replicated
+    orders[1] = FakePartition(id=1, leader=-1, replicas=[1], isrs=[])  # offline (+ URP)
+    orders[2] = FakePartition(id=2, leader=1, replicas=[0, 1], isrs=[0, 1])  # non-preferred leader
+
+    body = (await client.get(f"{C}/partitions/unhealthy")).json()
+    assert body["offline"] == 1
+    assert body["underReplicated"] == 2
+    assert body["nonPreferredLeader"] == 1
+    assert [(i["partition"], i["reasons"]) for i in body["items"]] == [
+        (1, ["offline", "underReplicated"]),
+        (0, ["underReplicated"]),
+        (2, ["nonPreferredLeader"]),
+    ]
+    assert body["items"][0]["leader"] is None
+    assert body["items"][2] == {
+        "topic": "orders",
+        "partition": 2,
+        "leader": 1,
+        "replicas": [0, 1],
+        "isr": [0, 1],
+        "reasons": ["nonPreferredLeader"],
+    }
 
 
 async def test_share_groups_degrades(client: AsyncClient) -> None:

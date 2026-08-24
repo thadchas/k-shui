@@ -351,6 +351,16 @@ async def sql_result(
     return await client.sql_result(session, operation, token)
 
 
+@router.delete(FC + "/sql/sessions/{session}/operations/{operation}")
+async def sql_cancel_operation(
+    flink_name: str, session: str, operation: str, ctx: ClusterContext = Depends(get_cluster)
+) -> dict[str, Any]:
+    client = get_flink(ctx, flink_name)
+    if client.sql_gateway_url is None:
+        return {"supported": False, "reason": "sqlGatewayUrl not configured"}
+    return await client.sql_cancel_operation(session, operation)
+
+
 @router.delete(FC + "/sql/sessions/{session}")
 async def sql_close_session(
     flink_name: str, session: str, ctx: ClusterContext = Depends(get_cluster)

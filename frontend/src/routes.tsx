@@ -3,6 +3,7 @@ import { routerBasename } from '@/lib/utils';
 import { AppShell } from '@/layouts/AppShell';
 import { NotFound } from '@/layouts/NotFound';
 
+import { useUiStore } from '@/stores/ui';
 import { ClustersPage } from '@/pages/clusters/ClustersPage';
 import { ClusterOverviewPage } from '@/pages/overview/ClusterOverviewPage';
 import { BrokersPage } from '@/pages/brokers/BrokersPage';
@@ -46,6 +47,17 @@ import { NewAlertActionPage } from '@/pages/alerts/AlertActionFormPage';
 
 const decode = (v: string | undefined) => (v ? decodeURIComponent(v) : '');
 
+/** `/` → last visited cluster's overview when one is remembered, else the cluster list. */
+function IndexRedirect() {
+  const lastClusterId = useUiStore((s) => s.lastClusterId);
+  return (
+    <Navigate
+      to={lastClusterId ? `/c/${encodeURIComponent(lastClusterId)}/overview` : '/clusters'}
+      replace
+    />
+  );
+}
+
 export const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
   {
@@ -53,7 +65,7 @@ export const routes: RouteObject[] = [
     element: <AppShell />,
     errorElement: <NotFound />,
     children: [
-      { index: true, element: <Navigate to="/clusters" replace /> },
+      { index: true, element: <IndexRedirect /> },
       { path: 'clusters', element: <ClustersPage />, handle: { crumb: 'Clusters' } },
       { path: 'alerts', element: <AlertsPage />, handle: { crumb: 'Alerts' } },
       {

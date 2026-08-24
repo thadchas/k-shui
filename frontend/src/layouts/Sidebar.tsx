@@ -71,17 +71,30 @@ export interface SidebarProps {
   clusterId: string | null;
   features: Partial<FeatureFlags> | undefined;
   version?: string | null;
+  /** `drawer` renders the full (never collapsed) nav inside the mobile Sheet. */
+  variant?: 'rail' | 'drawer';
+  className?: string;
 }
 
-export function Sidebar({ clusterId, features, version }: SidebarProps) {
-  const collapsed = useUiStore((s) => s.sidebarCollapsed);
+export function Sidebar({
+  clusterId,
+  features,
+  version,
+  variant = 'rail',
+  className,
+}: SidebarProps) {
+  const persistedCollapsed = useUiStore((s) => s.sidebarCollapsed);
   const toggle = useUiStore((s) => s.toggleSidebar);
+  const isDrawer = variant === 'drawer';
+  const collapsed = isDrawer ? false : persistedCollapsed;
 
   return (
     <aside
+      aria-label="Primary navigation"
       className={cn(
         'flex h-dvh shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)] transition-[width] duration-150',
         collapsed ? 'w-16' : 'w-[248px]',
+        className,
       )}
     >
       <div
@@ -156,11 +169,13 @@ export function Sidebar({ clusterId, features, version }: SidebarProps) {
           collapsed && 'flex-col justify-center',
         )}
       >
-        <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} side="right">
-          <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label="Toggle sidebar">
-            {collapsed ? <PanelLeft /> : <ChevronLeft />}
-          </Button>
-        </Tooltip>
+        {!isDrawer ? (
+          <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} side="right">
+            <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label="Toggle sidebar">
+              {collapsed ? <PanelLeft /> : <ChevronLeft />}
+            </Button>
+          </Tooltip>
+        ) : null}
         {!collapsed ? (
           <span className="ml-auto font-mono text-2xs text-[var(--muted)]">
             {version ? `v${version}` : ''}

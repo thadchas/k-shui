@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link } from 'react-router';
 import { Bell, Plus, Siren, Webhook } from 'lucide-react';
 import { useAlertActions, useAlertSummary, useAlertTriggers } from '@/api/hooks/alerts';
+import { enumCodec, useSearchParamState } from '@/hooks/useUrlState';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
@@ -13,11 +14,12 @@ import { TriggersTab } from './components/TriggersTab';
 import { isAlertsUnavailable } from './alertsLib';
 
 const TABS = ['history', 'triggers', 'actions'] as const;
+type Tab = (typeof TABS)[number];
+const tabCodec = enumCodec<Tab>(TABS, 'history');
 
 export function AlertsPage() {
-  const [params, setParams] = useSearchParams();
-  const tabParam = params.get('tab') ?? 'history';
-  const tab = (TABS as readonly string[]).includes(tabParam) ? tabParam : 'history';
+  // Copy-and-set: switching tabs keeps the other query params (tab filters, page) intact.
+  const [tab, setTab] = useSearchParamState<Tab>('tab', 'history', tabCodec);
 
   const summary = useAlertSummary();
   const triggers = useAlertTriggers();
@@ -28,9 +30,7 @@ export function AlertsPage() {
   const counts = useMemo(() => {
     const s = summary.data;
     return {
-      total:
-        s?.total ??
-        Object.values(s?.bySeverity ?? {}).reduce((a, b) => a + (b ?? 0), 0),
+      total: s?.total ?? Object.values(s?.bySeverity ?? {}).reduce((a, b) => a + (b ?? 0), 0),
       critical: s?.bySeverity?.critical ?? 0,
       warning: s?.bySeverity?.warning ?? 0,
       info: s?.bySeverity?.info ?? 0,
@@ -102,10 +102,7 @@ export function AlertsPage() {
         </StatTileRow>
       )}
 
-      <Tabs
-        value={tab}
-        onValueChange={(v) => setParams(v === 'history' ? {} : { tab: v }, { replace: true })}
-      >
+      <Tabs value={tab} onValueChange={(v) => setTab(tabCodec.parse(v))}>
         <TabsList>
           <TabsTrigger value="history">History</TabsTrigger>
           <TabsTrigger value="triggers">

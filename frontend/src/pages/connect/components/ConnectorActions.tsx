@@ -10,10 +10,19 @@ import {
   Square,
   Trash2,
 } from 'lucide-react';
-import { useConnectorAction, useDeleteConnector } from '@/api/hooks/connect';
+import { useConnectorAction, useDeleteConnector, type ConnectorAction } from '@/api/hooks/connect';
 import type { Connector } from '@/api/types';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +32,74 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast, toastError } from '@/components/ui/toast';
 import { taskCounts } from './connectUtils';
+
+/** Proper past tense for action toasts (`stop` → "stopped", not "stopd"). */
+export const ACTION_PAST_TENSE: Record<ConnectorAction, string> = {
+  pause: 'paused',
+  resume: 'resumed',
+  stop: 'stopped',
+  restart: 'restarted',
+};
+
+export interface StopConnectorDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  connectorName: string;
+  loading?: boolean;
+  onConfirm: () => void | Promise<void>;
+}
+
+/** Explains STOPPED vs PAUSED before stopping a connector. */
+export function StopConnectorDialog({
+  open,
+  onOpenChange,
+  connectorName,
+  loading,
+  onConfirm,
+}: StopConnectorDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <div className="flex items-start gap-3">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--warning)_16%,transparent)]">
+              <Square className="size-4 text-[var(--warning)]" />
+            </span>
+            <div className="space-y-1">
+              <DialogTitle>Stop connector</DialogTitle>
+              <DialogDescription>
+                Stops <span className="font-mono">{connectorName}</span> and releases all of its
+                tasks.
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+        <DialogBody>
+          <ul className="list-disc space-y-1.5 pl-4 text-xs text-[var(--muted)]">
+            <li>
+              <span className="font-mono text-[var(--foreground)]">STOPPED</span> shuts down the
+              connector and its tasks; worker resources are freed and the connector no longer
+              processes records. This is the state required to edit or reset offsets.
+            </li>
+            <li>
+              <span className="font-mono text-[var(--foreground)]">PAUSED</span> keeps tasks
+              allocated but idle, so resuming is faster — offsets stay read-only.
+            </li>
+            <li>Use Resume to bring the connector back to RUNNING afterwards.</li>
+          </ul>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+            Cancel
+          </Button>
+          <Button loading={loading} onClick={() => void onConfirm()}>
+            <Square /> Stop connector
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export interface ConnectorActionsMenuProps {
   cluster: string;
@@ -46,20 +123,23 @@ export function ConnectorActionsMenu({
   const action = useConnectorAction(cluster, kc);
   const remove = useDeleteConnector(cluster, kc);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmStop, setConfirmStop] = useState(false);
 
   const state = (connector.state ?? '').toUpperCase();
   const counts = taskCounts(connector.tasks);
 
   const run = async (
-    kind: 'pause' | 'resume' | 'stop' | 'restart',
+    kind: ConnectorAction,
     options?: { includeTasks?: boolean; onlyFailed?: boolean },
     message?: string,
   ) => {
     try {
       await action.mutateAsync({ name: connector.name, action: kind, ...options });
-      toast.success(message ?? `${connector.name} ${kind}d`);
+      toast.success(message ?? `${connector.name} ${ACTION_PAST_TENSE[kind]}`);
+      return true;
     } catch (e) {
       toastError(`Failed to ${kind} connector`, e);
+      return false;
     }
   };
 
@@ -87,7 +167,7 @@ export function ConnectorActionsMenu({
               <Pause /> Pause
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem disabled={state === 'STOPPED'} onSelect={() => void run('stop')}>
+          <DropdownMenuItem disabled={state === 'STOPPED'} onSelect={() => setConfirmStop(true)}>
             <Square /> Stop
           </DropdownMenuItem>
           <DropdownMenuItem
@@ -125,6 +205,16 @@ export function ConnectorActionsMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <StopConnectorDialog
+        open={confirmStop}
+        onOpenChange={setConfirmStop}
+        connectorName={connector.name}
+        loading={action.isPending}
+        onConfirm={async () => {
+          if (await run('stop')) setConfirmStop(false);
+        }}
+      />
 
       <ConfirmDestructiveDialog
         open={confirmDelete}

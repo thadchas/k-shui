@@ -11,7 +11,14 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
-from k_shui.api.schemas.ksql import KsqlHistoryEntry, KsqlQuery, KsqlRequest, KsqlServer, KsqlSource
+from k_shui.api.schemas.ksql import (
+    KsqlCloseQueryRequest,
+    KsqlHistoryEntry,
+    KsqlQuery,
+    KsqlRequest,
+    KsqlServer,
+    KsqlSource,
+)
 from k_shui.core.errors import IntegrationNotConfigured
 from k_shui.core.registry import ClusterContext, get_cluster
 from k_shui.integrations.audit import audit
@@ -125,6 +132,16 @@ async def terminate_query(
     result = await get_ksql(ctx, ksql_name).terminate(query_id)
     await audit(request, "ksql.terminate", f"ksql/{ksql_name}/{query_id}", {})
     return {"queryId": query_id, "terminated": True, "result": result}
+
+
+@router.post(KS + "/close-query")
+async def close_query(
+    request: Request, ksql_name: str, body: KsqlCloseQueryRequest, ctx: ClusterContext = Depends(get_cluster)
+) -> dict[str, Any]:
+    """Close a transient push query (``/close-query``) — persistent queries use TERMINATE."""
+    result = await get_ksql(ctx, ksql_name).close_query(body.queryId)
+    await audit(request, "ksql.close_query", f"ksql/{ksql_name}/{body.queryId}", {})
+    return result
 
 
 @router.get(KS + "/streams/{name}")

@@ -1,5 +1,5 @@
 /** Flink hooks — pages land with the Streaming agent. */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { qk } from '@/api/keys';
 import { useRefetchInterval } from '@/stores/ui';
@@ -115,7 +115,7 @@ export function useTriggerSavepoint(cluster: string, f: string) {
 /* ===========================================================================
  * Additions for the Flink feature pages (appended — nothing above changed).
  * ======================================================================== */
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { apiUrl } from '@/api/client';
 import type {
   FlinkBackpressure,
@@ -130,7 +130,9 @@ import type {
   FlinkMetricEntry,
   FlinkOverview,
   FlinkRunJarRequest,
+  FlinkSavepointStatus,
   FlinkSqlOperation,
+  FlinkSqlOperationCancel,
   FlinkSqlResult,
   FlinkSqlSession,
   FlinkSqlSupport,
@@ -199,7 +201,8 @@ export function useFlinkCheckpointsFull(
   const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: qk.flinkCheckpoints(cluster ?? '', f ?? '', jid ?? ''),
-    queryFn: () => api.get<FlinkCheckpointsFull>(`${flinkBase(cluster!, f!)}/jobs/${jid}/checkpoints`),
+    queryFn: () =>
+      api.get<FlinkCheckpointsFull>(`${flinkBase(cluster!, f!)}/jobs/${jid}/checkpoints`),
     enabled: Boolean(cluster && f && jid),
     refetchInterval,
     retry: false,
@@ -227,7 +230,8 @@ export function useFlinkExceptionsFull(
 ) {
   return useQuery({
     queryKey: qk.flinkExceptions(cluster ?? '', f ?? '', jid ?? ''),
-    queryFn: () => api.get<FlinkExceptionsFull>(`${flinkBase(cluster!, f!)}/jobs/${jid}/exceptions`),
+    queryFn: () =>
+      api.get<FlinkExceptionsFull>(`${flinkBase(cluster!, f!)}/jobs/${jid}/exceptions`),
     enabled: Boolean(cluster && f && jid),
     retry: false,
   });
@@ -274,7 +278,12 @@ export function useFlinkVertexMetricNames(
   vertex: string | undefined,
 ) {
   return useQuery({
-    queryKey: [...qk.flinkJob(cluster ?? '', f ?? '', jid ?? ''), 'vertex', vertex, 'metric-names'] as const,
+    queryKey: [
+      ...qk.flinkJob(cluster ?? '', f ?? '', jid ?? ''),
+      'vertex',
+      vertex,
+      'metric-names',
+    ] as const,
     queryFn: () =>
       api.get<FlinkMetricEntry[]>(
         `${flinkBase(cluster!, f!)}/jobs/${jid}/vertices/${vertex}/metrics`,
@@ -320,7 +329,12 @@ export function useFlinkVertexSubtasks(
 ) {
   const refetchInterval = useRefetchInterval();
   return useQuery({
-    queryKey: [...qk.flinkJob(cluster ?? '', f ?? '', jid ?? ''), 'vertex', vertex, 'subtasks'] as const,
+    queryKey: [
+      ...qk.flinkJob(cluster ?? '', f ?? '', jid ?? ''),
+      'vertex',
+      vertex,
+      'subtasks',
+    ] as const,
     queryFn: () =>
       api.get<FlinkSubtasksResponse>(
         `${flinkBase(cluster!, f!)}/jobs/${jid}/vertices/${vertex}/subtasks`,
@@ -353,6 +367,88 @@ export function useFlinkVertexBackpressure(
     refetchInterval,
     retry: false,
   });
+}
+
+const SAVEPOINT_TERMINAL = /^(COMPLETED|FAILED)$/i;
+
+/** Whether an async-operation status payload has reached a terminal state. */
+export function isSavepointDone(status: FlinkSavepointStatus | undefined): boolean {
+  if (!status) return false;
+  if (SAVEPOINT_TERMINAL.test(status.status?.id ?? '')) return true;
+  return Boolean(status.operation?.failureCause);
+}
+
+/**
+ * Poll `GET /jobs/{jid}/savepoints/{triggerId}` every 2s until Flink reports
+ * COMPLETED (with an external path) or a failure cause.
+ */
+export function useFlinkSavepointStatus(
+  cluster: string | undefined,
+  f: string | undefined,
+  jid: string | undefined,
+  triggerId: string | null | undefined,
+) {
+  return useQuery({
+    queryKey: [...qk.flinkJob(cluster ?? '', f ?? '', jid ?? ''), 'savepoint', triggerId] as const,
+    queryFn: () =>
+      api.get<FlinkSavepointStatus>(
+        `${flinkBase(cluster!, f!)}/jobs/${jid}/savepoints/${encodeURIComponent(triggerId!)}`,
+      ),
+    enabled: Boolean(cluster && f && jid && triggerId),
+    refetchInterval: (query) => (isSavepointDone(query.state.data) ? false : 2000),
+    retry: false,
+  });
+}
+
+/**
+ * Sampled ("current") backpressure for many vertices at once — one request per
+ * vertex in parallel, cached for 10s so the job overview does not hammer the JobManager.
+ */
+export function useFlinkVertexBackpressures(
+  cluster: string | undefined,
+  f: string | undefined,
+  jid: string | undefined,
+  vertexIds: string[],
+  enabled = true,
+) {
+  const combined = useQueries({
+    queries: vertexIds.map((vertex) => ({
+      queryKey: [
+        ...qk.flinkJob(cluster ?? '', f ?? '', jid ?? ''),
+        'vertex',
+        vertex,
+        'backpressure',
+      ] as const,
+      queryFn: () =>
+        api.get<FlinkBackpressure>(
+          `${flinkBase(cluster!, f!)}/jobs/${jid}/vertices/${vertex}/backpressure`,
+        ),
+      enabled: Boolean(cluster && f && jid && vertex) && enabled,
+      staleTime: 10_000,
+      refetchInterval: 10_000,
+      retry: false,
+    })),
+    combine: combineBackpressure,
+  });
+  const byVertex = useMemo(() => {
+    const out: Record<string, FlinkBackpressure | undefined> = {};
+    vertexIds.forEach((id, i) => {
+      out[id] = combined.data[i];
+    });
+    return out;
+  }, [vertexIds, combined.data]);
+  return { byVertex, isFetching: combined.isFetching, isLoading: combined.isLoading };
+}
+
+/** Module-level so TanStack can structurally share the combined result across renders. */
+function combineBackpressure(
+  results: { data?: FlinkBackpressure; isFetching: boolean; isLoading: boolean }[],
+) {
+  return {
+    data: results.map((r) => r.data),
+    isFetching: results.some((r) => r.isFetching),
+    isLoading: results.some((r) => r.isLoading),
+  };
 }
 
 export function useFlinkVertexWatermarks(
@@ -397,8 +493,7 @@ export function useFlinkTaskManager(
 ) {
   return useQuery({
     queryKey: [...qk.flinkTaskManagers(cluster ?? '', f ?? ''), id] as const,
-    queryFn: () =>
-      api.get<FlinkTaskManagerDetail>(`${flinkBase(cluster!, f!)}/taskmanagers/${id}`),
+    queryFn: () => api.get<FlinkTaskManagerDetail>(`${flinkBase(cluster!, f!)}/taskmanagers/${id}`),
     enabled: Boolean(cluster && f && id),
     retry: false,
   });
@@ -449,8 +544,7 @@ export function useFlinkTaskManagerLogFile(
 ) {
   return useQuery({
     queryKey: [...qk.flinkTaskManagers(cluster ?? '', f ?? ''), id, 'log-file', file] as const,
-    queryFn: () =>
-      fetchText(`${flinkBase(cluster!, f!)}/taskmanagers/${id}/logs`, { file: file! }),
+    queryFn: () => fetchText(`${flinkBase(cluster!, f!)}/taskmanagers/${id}/logs`, { file: file! }),
     enabled: Boolean(cluster && f && id && file),
     retry: false,
   });
@@ -614,14 +708,22 @@ export function useFlinkSqlActions(cluster: string, f: string) {
 
   const poll = useCallback(
     (session: string, operation: string, token = 0) =>
-      api.get<FlinkSqlResult>(
-        `${base}/sql/sessions/${session}/operations/${operation}/result`,
-        { token },
+      api.get<FlinkSqlResult>(`${base}/sql/sessions/${session}/operations/${operation}/result`, {
+        token,
+      }),
+    [base],
+  );
+
+  /** Cancel + close a running operation (`DELETE .../operations/{op}`). */
+  const cancelOperation = useCallback(
+    (session: string, operation: string) =>
+      api.delete<FlinkSqlOperationCancel>(
+        `${base}/sql/sessions/${session}/operations/${operation}`,
       ),
     [base],
   );
 
-  return { openSession, closeSession, submit, poll };
+  return { openSession, closeSession, submit, poll, cancelOperation };
 }
 
 /** Direct URL for a Flink log download link. */

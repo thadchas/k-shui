@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { History, Play, Settings2, Square, Terminal, Trash2, Zap } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Eraser, History, Play, Settings2, Square, Terminal, Trash2, Zap } from 'lucide-react';
 import {
+  KSQL_ROW_LIMITS,
+  useCloseKsqlQuery,
   useKsqlClusters,
   useKsqlHistory,
   useKsqlQueries,
@@ -8,10 +10,11 @@ import {
   useKsqlStatement,
   useKsqlStreams,
   useKsqlTables,
+  useTerminateKsqlQuery,
 } from '@/api/hooks/ksql';
 import type { KsqlQueryInfo, KsqlStatementResult } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
-import { truncate } from '@/lib/format';
+import { formatRelative, truncate } from '@/lib/format';
 import { CodeEditor } from '@/components/CodeEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -42,6 +45,63 @@ import { KsqlStatementResults } from './components/KsqlStatementResults';
 
 const DEFAULT_SQL = 'SHOW STREAMS;';
 
+interface RecentStatement {
+  sql: string;
+  /** Epoch millis of the last run. */
+  ts: number;
+}
+
+const RECENTS_MAX = 25;
+const recentsKey = (cluster: string, server: string) => `k-shui.ksql.recents.${cluster}.${server}`;
+
+function loadRecents(key: string): RecentStatement[] {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (r): r is RecentStatement =>
+          typeof r === 'object' && r !== null && typeof (r as RecentStatement).sql === 'string',
+      )
+      .map((r) => ({ sql: r.sql, ts: Number(r.ts) || 0 }))
+      .slice(0, RECENTS_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function saveRecents(key: string, items: RecentStatement[]) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(items.slice(0, RECENTS_MAX)));
+  } catch {
+    /* quota / private mode — history is a convenience only */
+  }
+}
+
+/** Server history timestamps are epoch seconds (float) or ISO strings. */
+function historyTs(ts: string | number | null | undefined): number {
+  if (typeof ts === 'number') return ts < 1e12 ? ts * 1000 : ts;
+  if (!ts) return 0;
+  const n = Number(ts);
+  if (Number.isFinite(n)) return n < 1e12 ? n * 1000 : n;
+  const d = Date.parse(ts);
+  return Number.isNaN(d) ? 0 : d;
+}
+
+/**
+ * Push vs pull classification. `EMIT CHANGES` is always a push query; a SELECT
+ * with no WHERE predicate (i.e. no key lookup) is treated as an unbounded scan too.
+ */
+export function classifyKsqlQuery(sql: string): 'push' | 'pull' | null {
+  const text = sql.replace(/--.*$/gm, '').replace(/\s+/g, ' ').trim();
+  if (!/^select\b/i.test(text)) return null;
+  if (/\bemit\s+changes\b/i.test(text)) return 'push';
+  if (!/\bwhere\b/i.test(text)) return 'push';
+  return 'pull';
+}
+
 const PROPERTY_SUGGESTIONS = [
   'auto.offset.reset',
   'ksql.streams.auto.offset.reset',
@@ -66,7 +126,9 @@ export function KsqlPage() {
   ]);
   const [resultTab, setResultTab] = useState<'rows' | 'statement'>('rows');
   const [tab, setTab] = useState<'editor' | 'queries'>('editor');
-  const [recent, setRecent] = useState<string[]>([]);
+  const [rowLimit, setRowLimit] = useState<number>(KSQL_ROW_LIMITS[1]);
+  const [recent, setRecent] = useState<RecentStatement[]>([]);
+  const [lastRunMode, setLastRunMode] = useState<'push' | 'pull' | null>(null);
   const [describeTarget, setDescribeTarget] = useState<{
     kind: KsqlObjectKind;
     name: string;
@@ -78,24 +140,77 @@ export function KsqlPage() {
   const history = useKsqlHistory(cluster, server);
   const stream = useKsqlQueryStream(cluster, server);
   const statement = useKsqlStatement(cluster, server ?? '');
+  const closeQuery = useCloseKsqlQuery(cluster, server ?? '');
+  const terminateQuery = useTerminateKsqlQuery(cluster, server ?? '');
 
   const propertyRecord = useMemo(() => pairsToRecord(properties), [properties]);
 
   const selectedServer = clusters.data?.find((c) => c.name === server);
 
-  const historyItems = useMemo(() => {
-    const fromServer = (history.data ?? []).map((entry) => entry.sql);
-    return Array.from(new Set([...recent, ...fromServer])).slice(0, 25);
-  }, [recent, history.data]);
+  /* Recents live in localStorage, keyed per cluster + server. */
+  const storageKey = cluster && server ? recentsKey(cluster, server) : null;
+  useEffect(() => {
+    setRecent(storageKey ? loadRecents(storageKey) : []);
+  }, [storageKey]);
 
-  const remember = (text: string) =>
-    setRecent((prev) => [text, ...prev.filter((s) => s !== text)].slice(0, 25));
+  const remember = useCallback(
+    (text: string) =>
+      setRecent((prev) => {
+        const next = [{ sql: text, ts: Date.now() }, ...prev.filter((s) => s.sql !== text)].slice(
+          0,
+          RECENTS_MAX,
+        );
+        if (storageKey) saveRecents(storageKey, next);
+        return next;
+      }),
+    [storageKey],
+  );
+
+  const historyItems = useMemo(() => {
+    const merged = new Map<string, RecentStatement>();
+    for (const item of recent) merged.set(item.sql, item);
+    for (const entry of history.data ?? []) {
+      const ts = historyTs(entry.ts);
+      const existing = merged.get(entry.sql);
+      if (!existing || ts > existing.ts) merged.set(entry.sql, { sql: entry.sql, ts });
+    }
+    return Array.from(merged.values())
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, RECENTS_MAX);
+  }, [recent, history.data]);
 
   const runQuery = () => {
     if (!server || !sql.trim()) return;
     remember(sql.trim());
     setResultTab('rows');
-    stream.start({ sql: sql.trim(), properties: propertyRecord });
+    setLastRunMode(classifyKsqlQuery(sql));
+    stream.start({ sql: sql.trim(), properties: propertyRecord }, rowLimit);
+  };
+
+  /**
+   * Stop streaming, then release the server-side query: transient push queries
+   * are closed with `/close-query`; if that fails (older servers, persistent id)
+   * fall back to `TERMINATE <id>`.
+   */
+  const stopQuery = async () => {
+    const id = stream.queryId;
+    stream.stop();
+    if (!id) return;
+    try {
+      await closeQuery.mutateAsync(id);
+    } catch {
+      try {
+        await terminateQuery.mutateAsync(id);
+      } catch (e) {
+        toastError(`Query ${id} may still be running on the server`, e);
+      }
+    }
+  };
+
+  const clearResults = () => {
+    stream.clear();
+    statement.reset();
+    setLastRunMode(null);
   };
 
   const runStatement = async () => {
@@ -115,6 +230,7 @@ export function KsqlPage() {
   };
 
   const looksLikeQuery = /^\s*select/i.test(sql);
+  const queryMode = classifyKsqlQuery(sql);
 
   if (clusters.error) {
     return (
@@ -248,22 +364,43 @@ export function KsqlPage() {
                       <DropdownMenuContent className="max-h-96 w-[420px] overflow-y-auto">
                         <DropdownMenuLabel>Recent statements</DropdownMenuLabel>
                         <DropdownMenuSeparator />
-                        {historyItems.map((item, index) => (
-                          <DropdownMenuItem key={index} onSelect={() => setSql(item)}>
-                            <span className="truncate font-mono text-2xs">
-                              {truncate(item.replace(/\s+/g, ' '), 80)}
+                        {historyItems.map((item) => (
+                          <DropdownMenuItem key={item.sql} onSelect={() => setSql(item.sql)}>
+                            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                              <span className="truncate font-mono text-2xs">
+                                {truncate(item.sql.replace(/\s+/g, ' '), 80)}
+                              </span>
+                              <span className="text-2xs text-[var(--muted)]">
+                                {item.ts ? formatRelative(item.ts) : '—'}
+                              </span>
                             </span>
                           </DropdownMenuItem>
                         ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
 
+                    <SimpleSelect
+                      value={String(rowLimit)}
+                      onValueChange={(v) => setRowLimit(Number(v))}
+                      options={KSQL_ROW_LIMITS.map((n) => ({
+                        label: `keep last ${n.toLocaleString()}`,
+                        value: String(n),
+                      }))}
+                      aria-label="Row buffer limit"
+                      className="w-40"
+                    />
+
                     <Button variant="ghost" size="sm" onClick={() => setSql('')}>
                       <Trash2 /> Clear
                     </Button>
 
                     {stream.streaming ? (
-                      <Button variant="destructive" size="sm" onClick={stream.stop}>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        loading={closeQuery.isPending || terminateQuery.isPending}
+                        onClick={() => void stopQuery()}
+                      >
                         <Square /> Stop
                       </Button>
                     ) : (
@@ -300,6 +437,19 @@ export function KsqlPage() {
                   <p className="text-2xs text-[var(--muted)]">
                     ⌘/Ctrl+Enter runs the statement. “Run query” streams rows from a push or pull
                     query; “Execute” sends DDL/DML to the ksqlDB server.
+                    {queryMode ? (
+                      <>
+                        {' '}
+                        This looks like a{' '}
+                        <span className="font-medium text-[var(--foreground)]">
+                          {queryMode === 'push' ? 'push (unbounded)' : 'pull'}
+                        </span>{' '}
+                        query
+                        {queryMode === 'push'
+                          ? ` — it streams until stopped; only the last ${rowLimit.toLocaleString()} rows are kept.`
+                          : '.'}
+                      </>
+                    ) : null}
                   </p>
                 </CardContent>
               </Card>
@@ -315,6 +465,17 @@ export function KsqlPage() {
                       <TabsTrigger value="statement">Statement output</TabsTrigger>
                     </TabsList>
                   </Tabs>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={
+                      stream.streaming ||
+                      (stream.rows.length === 0 && stream.columns.length === 0 && !statement.data)
+                    }
+                    onClick={clearResults}
+                  >
+                    <Eraser /> Clear results
+                  </Button>
                 </CardHeader>
                 <CardContent className="pt-4">
                   {resultTab === 'rows' ? (
@@ -326,6 +487,9 @@ export function KsqlPage() {
                       finished={stream.finished}
                       error={stream.error}
                       queryId={stream.queryId}
+                      received={stream.received}
+                      maxRows={stream.maxRows}
+                      queryMode={lastRunMode}
                     />
                   ) : (
                     <KsqlStatementResults

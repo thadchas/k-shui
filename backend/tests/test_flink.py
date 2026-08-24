@@ -277,6 +277,7 @@ async def test_sql_gateway_reports_unsupported_when_unconfigured(api, flink_mock
     resp = await api.post(FC + "/sql/sessions/s1/statements", json={"statement": "SELECT 1"})
     assert resp.json()["supported"] is False
     assert (await api.get(FC + "/sql/sessions/s1/operations/o1/result")).json()["supported"] is False
+    assert (await api.delete(FC + "/sql/sessions/s1/operations/o1")).json()["supported"] is False
 
 
 async def test_sql_gateway_proxies_when_configured():
@@ -304,6 +305,12 @@ async def test_sql_gateway_proxies_when_configured():
                 },
             )
         )
+        cancel_route = mock.post("http://gateway.test/v1/sessions/sess-1/operations/op-1/cancel").mock(
+            return_value=httpx.Response(200, json={"status": "CANCELED"})
+        )
+        close_route = mock.delete("http://gateway.test/v1/sessions/sess-1/operations/op-1/close").mock(
+            return_value=httpx.Response(200, json={"status": "CLOSED"})
+        )
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://itest") as client:
             info = (await client.get(FC + "/sql")).json()
@@ -318,6 +325,14 @@ async def test_sql_gateway_proxies_when_configured():
                 await client.get(FC + "/sql/sessions/sess-1/operations/op-1/result", params={"token": 0})
             ).json()
             assert result["resultType"] == "PAYLOAD"
+            cancelled = (await client.delete(FC + "/sql/sessions/sess-1/operations/op-1")).json()
+            assert cancelled == {
+                "operationHandle": "op-1",
+                "cancelled": True,
+                "closed": True,
+                "status": "CANCELED",
+            }
+            assert cancel_route.called and close_route.called
     await app.state.registry.aclose()
 
 

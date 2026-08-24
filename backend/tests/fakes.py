@@ -273,6 +273,9 @@ class FakeKafkaAdmin:
                     {
                         "path": "/var/lib/kafka",
                         "sizeBytes": 1024,
+                        "totalBytes": 10240,
+                        "usableBytes": 5120,
+                        "error": None,
                         "partitions": [
                             {"topic": "orders", "partition": 0, "sizeBytes": 1024, "offsetLag": 0}
                         ],

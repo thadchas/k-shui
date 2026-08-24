@@ -22,10 +22,12 @@ export function useBrokers(cluster: string | undefined) {
 }
 
 export function useBroker(cluster: string | undefined, id: string | number | undefined) {
+  const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: qk.broker(cluster ?? '', id ?? ''),
     queryFn: () => api.get<Broker>(`/clusters/${cluster}/brokers/${id}`),
     enabled: Boolean(cluster && id !== undefined),
+    refetchInterval,
   });
 }
 
@@ -47,10 +49,12 @@ export function useUpdateBrokerConfigs(cluster: string, id: string | number) {
 }
 
 export function useBrokerLogDirs(cluster: string | undefined, id: string | number | undefined) {
+  const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: qk.brokerLogDirs(cluster ?? '', id ?? ''),
     queryFn: () => api.get<LogDir[]>(`/clusters/${cluster}/brokers/${id}/logdirs`),
     enabled: Boolean(cluster && id !== undefined),
+    refetchInterval,
   });
 }
 

@@ -11,6 +11,7 @@ import {
 } from '@/api/hooks/alerts';
 import type { AlertTrigger } from '@/api/types';
 import { formatDecimal, formatRelative } from '@/lib/format';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,7 +27,13 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
 import { Switch } from '@/components/ui/switch';
 import { toast, toastError } from '@/components/ui/toast';
-import { componentIcon, componentLabel, conditionSymbol, isAlertsUnavailable, severityTone } from '../alertsLib';
+import {
+  componentIcon,
+  componentLabel,
+  conditionSymbol,
+  isAlertsUnavailable,
+  severityTone,
+} from '../alertsLib';
 
 export function TriggersTab() {
   const navigate = useNavigate();
@@ -36,6 +43,7 @@ export function TriggersTab() {
   const remove = useDeleteAlertTrigger();
   const create = useCreateAlertTrigger();
   const [search, setSearch] = useState('');
+  const { canEdit } = usePermissions();
   const [deleteTarget, setDeleteTarget] = useState<AlertTrigger | null>(null);
 
   const actionNames = useMemo(
@@ -218,8 +226,18 @@ export function TriggersTab() {
                 <Copy /> Duplicate
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem destructive onSelect={() => setDeleteTarget(trigger)}>
+              <DropdownMenuItem
+                destructive
+                disabled={!canEdit}
+                title={canEdit ? undefined : REQUIRES_EDITOR}
+                onSelect={() => setDeleteTarget(trigger)}
+              >
                 <Trash2 /> Delete
+                {!canEdit ? (
+                  <span className="ml-auto pl-3 text-2xs text-[var(--muted)]">
+                    {REQUIRES_EDITOR}
+                  </span>
+                ) : null}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -250,6 +268,7 @@ export function TriggersTab() {
             all evaluation. Recorded history is kept.
           </>
         }
+        confirmText={deleteTarget?.name}
         confirmLabel="Delete trigger"
         loading={remove.isPending}
         onConfirm={() => {

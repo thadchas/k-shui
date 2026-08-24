@@ -60,7 +60,7 @@ export function componentIcon(component: string | undefined): LucideIcon {
 }
 
 export function componentLabel(component: string | undefined): string {
-  return COMPONENTS.find((c) => c.value === component)?.label ?? (component ?? '—');
+  return COMPONENTS.find((c) => c.value === component)?.label ?? component ?? '—';
 }
 
 export const CONDITIONS: { label: string; value: AlertCondition; symbol: string }[] = [
@@ -82,10 +82,20 @@ export const ACTION_TYPES: {
   icon: LucideIcon;
   hint: string;
 }[] = [
-  { label: 'Email', value: 'email', icon: Mail, hint: 'Delivered through the configured SMTP server' },
+  {
+    label: 'Email',
+    value: 'email',
+    icon: Mail,
+    hint: 'Delivered through the configured SMTP server',
+  },
   { label: 'Slack', value: 'slack', icon: MessageSquare, hint: 'Slack incoming webhook' },
   { label: 'PagerDuty', value: 'pagerduty', icon: Siren, hint: 'Events API v2 routing key' },
-  { label: 'Webhook', value: 'webhook', icon: Webhook, hint: 'Generic HTTP POST with a template body' },
+  {
+    label: 'Webhook',
+    value: 'webhook',
+    icon: Webhook,
+    hint: 'Generic HTTP POST with a template body',
+  },
   { label: 'Microsoft Teams', value: 'teams', icon: MessageSquare, hint: 'Teams incoming webhook' },
 ];
 
@@ -99,8 +109,16 @@ export function actionTypeIcon(type: string | undefined): LucideIcon {
  */
 export const FALLBACK_METRICS: AlertMetricCatalog = {
   cluster: [
-    { name: 'underReplicatedPartitions', unit: 'partitions', description: 'Partitions with fewer in-sync replicas than configured' },
-    { name: 'offlinePartitions', unit: 'partitions', description: 'Partitions with no active leader' },
+    {
+      name: 'underReplicatedPartitions',
+      unit: 'partitions',
+      description: 'Partitions with fewer in-sync replicas than configured',
+    },
+    {
+      name: 'offlinePartitions',
+      unit: 'partitions',
+      description: 'Partitions with no active leader',
+    },
     { name: 'activeControllerCount', unit: 'count', description: 'Should always be exactly 1' },
     { name: 'zkOrKraftUnavailable', unit: 'bool', description: 'Metadata quorum unreachable' },
     { name: 'brokerDownCount', unit: 'brokers', description: 'Brokers not reporting as online' },
@@ -116,7 +134,11 @@ export const FALLBACK_METRICS: AlertMetricCatalog = {
     { name: 'isOffline', unit: 'bool', description: 'Broker is not reachable' },
   ],
   topic: [
-    { name: 'underReplicated', unit: 'partitions', description: 'Under-replicated partitions for this topic' },
+    {
+      name: 'underReplicated',
+      unit: 'partitions',
+      description: 'Under-replicated partitions for this topic',
+    },
     { name: 'bytesIn', unit: 'B/s', description: 'Produced bytes per second' },
     { name: 'bytesOut', unit: 'B/s', description: 'Consumed bytes per second' },
     { name: 'messagesIn', unit: 'msg/s', description: 'Records produced per second' },
@@ -124,8 +146,16 @@ export const FALLBACK_METRICS: AlertMetricCatalog = {
   ],
   consumerGroup: [
     { name: 'lag', unit: 'records', description: 'Total lag across all assigned partitions' },
-    { name: 'lagPerPartition', unit: 'records', description: 'Highest lag on any single partition' },
-    { name: 'consumptionDifference', unit: 'records', description: 'Produced minus consumed over the window' },
+    {
+      name: 'lagPerPartition',
+      unit: 'records',
+      description: 'Highest lag on any single partition',
+    },
+    {
+      name: 'consumptionDifference',
+      unit: 'records',
+      description: 'Produced minus consumed over the window',
+    },
     { name: 'memberCount', unit: 'members', description: 'Active group members' },
     { name: 'isEmpty', unit: 'bool', description: 'Group has no active members' },
   ],
@@ -147,7 +177,9 @@ export const FALLBACK_METRICS: AlertMetricCatalog = {
   schemaRegistry: [
     { name: 'unreachable', unit: 'bool', description: 'Schema registry is not responding' },
   ],
-  custom: [{ name: 'promql', unit: '', description: 'Arbitrary PromQL expression evaluated per interval' }],
+  custom: [
+    { name: 'promql', unit: '', description: 'Arbitrary PromQL expression evaluated per interval' },
+  ],
 };
 
 /** Components whose targets come from a cluster-scoped list API. */

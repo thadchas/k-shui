@@ -1,19 +1,26 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
+  AlertTriangle,
   ArrowLeft,
   Braces,
   Cable,
+  Check,
   ChevronDown,
   ChevronRight,
   Eraser,
+  Eye,
+  EyeOff,
+  RefreshCw,
   RotateCcw,
   Save,
+  Square,
   TableProperties,
   Trash2,
 } from 'lucide-react';
 import {
   useConnector,
+  useConnectorAction,
   useConnectorOffsets,
   useConnectorTopics,
   usePatchConnectorOffsets,
@@ -21,16 +28,28 @@ import {
   useResetConnectorTopics,
   useRestartConnectorTask,
   useUpdateConnectorConfig,
+  useValidatePlugin,
 } from '@/api/hooks/connect';
-import type { ConnectorOffsetsPatch, ConnectorTask } from '@/api/types';
+import type { ConnectorOffsetsPatch, ConnectorTask, ConnectorValidationEntry } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { useDebounced } from '@/hooks/useDebounced';
 import { CodeEditor } from '@/components/CodeEditor';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
+import { DiffView } from '@/components/DiffView';
 import { StatTile, StatTileRow } from '@/components/StatTile';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CopyButton } from '@/components/ui/copy-button';
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState, InlineError } from '@/components/ui/error-state';
 import { JsonViewer } from '@/components/ui/json-viewer';
@@ -41,6 +60,7 @@ import {
   type KeyValuePair,
 } from '@/components/ui/key-value-editor';
 import { PageHeader } from '@/components/ui/page-header';
+import { RefreshPicker } from '@/components/ui/refresh-picker';
 import {
   SegmentedList,
   SegmentedTrigger,
@@ -61,11 +81,82 @@ import {
 } from '@/components/ui/table';
 import { toast, toastError } from '@/components/ui/toast';
 import { Tooltip } from '@/components/ui/tooltip';
-import { ConnectorActionsMenu } from './components/ConnectorActions';
+import { ConnectorActionsMenu, StopConnectorDialog } from './components/ConnectorActions';
 import { TasksMiniBar } from './components/TasksMiniBar';
-import { connectorStateTone, shortClass, taskCounts } from './components/connectUtils';
+import {
+  connectorStateTone,
+  maskConfigValue,
+  shortClass,
+  taskCounts,
+} from './components/connectUtils';
 
 const TABS = ['overview', 'config', 'tasks', 'topics', 'offsets'];
+
+/* ----------------------------- secret masking ----------------------------- */
+
+const MASK = maskConfigValue('password', 'x');
+
+function isSecretKey(key: string): boolean {
+  return maskConfigValue(key, 'x') === MASK;
+}
+
+function maskRecord(record: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(record).map(([key, value]) => [key, maskConfigValue(key, value)]),
+  );
+}
+
+function maskPairs(pairs: KeyValuePair[]): KeyValuePair[] {
+  return pairs.map((pair) => ({ ...pair, value: maskConfigValue(pair.key, pair.value) }));
+}
+
+function countSecrets(record: Record<string, string>): number {
+  return Object.keys(record).filter(isSecretKey).length;
+}
+
+/**
+ * The key/value editor only sees masked values while secrets are hidden. Map
+ * untouched masked rows back to their real values so the mask is never saved.
+ * Handles the editor's three operations: update (same length), add (+1 at the
+ * end) and remove (-1 at an arbitrary index).
+ */
+function unmaskPairs(next: KeyValuePair[], real: KeyValuePair[]): KeyValuePair[] {
+  const masked = maskPairs(real);
+  let removed = -1;
+  if (next.length === real.length - 1) {
+    removed = masked.findIndex(
+      (pair, i) => !next[i] || next[i].key !== pair.key || next[i].value !== pair.value,
+    );
+    if (removed === -1) removed = real.length - 1;
+  }
+  return next.map((pair, i) => {
+    const source = removed !== -1 && i >= removed ? i + 1 : i;
+    const original = real[source];
+    if (original && pair.value === MASK && isSecretKey(original.key)) {
+      return { ...pair, value: original.value };
+    }
+    return pair;
+  });
+}
+
+/** Same idea for the JSON view: masked values are matched back by key. */
+function unmaskRecord(
+  next: Record<string, string>,
+  real: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(next).map(([key, value]) =>
+      value === MASK && isSecretKey(key) && key in real ? [key, real[key]] : [key, value],
+    ),
+  );
+}
+
+function parseConfigJson(text: string): Record<string, string> {
+  const parsed = JSON.parse(text) as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(parsed).map(([k, v]) => [k, v === null || v === undefined ? '' : String(v)]),
+  );
+}
 
 export function ConnectorDetailPage() {
   const cluster = useClusterId();
@@ -80,9 +171,12 @@ export function ConnectorDetailPage() {
   const base = `/c/${cluster}/connect/${encodeURIComponent(kc)}`;
 
   const connector = useConnector(cluster, kc, name);
-  const topics = useConnectorTopics(cluster, kc, name, tab === 'topics');
+  /* The Overview tab reads the topic list too, so fetch for both tabs. */
+  const topics = useConnectorTopics(cluster, kc, name, tab === 'overview' || tab === 'topics');
   const offsets = useConnectorOffsets(cluster, kc, name);
   const updateConfig = useUpdateConnectorConfig(cluster, kc, name);
+  const validate = useValidatePlugin(cluster, kc);
+  const action = useConnectorAction(cluster, kc);
   const resetTopics = useResetConnectorTopics(cluster, kc, name);
   const restartTask = useRestartConnectorTask(cluster, kc, name);
   const patchOffsets = usePatchConnectorOffsets(cluster, kc, name);
@@ -91,25 +185,36 @@ export function ConnectorDetailPage() {
   const [configView, setConfigView] = useState<'pairs' | 'json'>('pairs');
   const [pairs, setPairs] = useState<KeyValuePair[]>([]);
   const [configJson, setConfigJson] = useState('{}');
+  /** Text shown in the JSON editor — masked unless secrets are revealed. */
+  const [jsonDraft, setJsonDraft] = useState('{}');
   const [configError, setConfigError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [offsetsDraft, setOffsetsDraft] = useState('');
   const [offsetsDirty, setOffsetsDirty] = useState(false);
   const [confirmResetOffsets, setConfirmResetOffsets] = useState(false);
   const [confirmResetTopics, setConfirmResetTopics] = useState(false);
-  const [expandedTrace, setExpandedTrace] = useState<number | null>(null);
+  const [expandedTraces, setExpandedTraces] = useState<Set<number>>(new Set());
+  const [reveal, setReveal] = useState<{ pairs: boolean; json: boolean }>({
+    pairs: false,
+    json: false,
+  });
+  const [confirmSave, setConfirmSave] = useState(false);
+  const [confirmStop, setConfirmStop] = useState(false);
+  const [validatedKey, setValidatedKey] = useState<string | null>(null);
 
   const data = connector.data;
   const counts = taskCounts(data?.tasks);
   const state = (data?.state ?? '').toUpperCase();
   const isStopped = state === 'STOPPED';
+  const isFailed = state === 'FAILED';
 
   /* Seed the config editors once the connector loads (and after a save). */
   useEffect(() => {
     if (!data?.config || dirty) return;
     setPairs(recordToPairs(data.config));
     setConfigJson(JSON.stringify(data.config, null, 2));
-  }, [data?.config, dirty]);
+    setJsonDraft(JSON.stringify(reveal.json ? data.config : maskRecord(data.config), null, 2));
+  }, [data?.config, dirty, reveal.json]);
 
   useEffect(() => {
     if (!offsets.data || offsetsDirty) return;
@@ -125,25 +230,88 @@ export function ConnectorDetailPage() {
   const currentConfig = useMemo<Record<string, string>>(() => {
     if (configView === 'pairs') return pairsToRecord(pairs);
     try {
-      const parsed = JSON.parse(configJson) as Record<string, unknown>;
-      return Object.fromEntries(
-        Object.entries(parsed).map(([k, v]) => [k, v === null || v === undefined ? '' : String(v)]),
-      );
+      return parseConfigJson(configJson);
     } catch {
       return {};
     }
   }, [configView, pairs, configJson]);
 
+  const secretCount = countSecrets(currentConfig);
+
+  /** Re-render the JSON editor text from state (on view switch / reveal toggle). */
+  const syncJsonDraft = (revealSecrets: boolean) => {
+    setJsonDraft(revealSecrets ? configJson : JSON.stringify(maskRecord(currentConfig), null, 2));
+  };
+
+  /* ---- live validation against the plugin (debounced) ---- */
+  const pluginClass = currentConfig['connector.class'] || data?.connectorClass || '';
+  const validationKey = useMemo(
+    () => JSON.stringify({ ...currentConfig, name }),
+    [currentConfig, name],
+  );
+  const debouncedKey = useDebounced(validationKey, 500);
+  const validateMutate = validate.mutate;
+
+  const runValidation = useCallback(
+    (key: string) => {
+      if (!pluginClass) return;
+      setValidatedKey(key);
+      validateMutate({ pluginClass, config: JSON.parse(key) as Record<string, string> });
+    },
+    [pluginClass, validateMutate],
+  );
+
+  useEffect(() => {
+    if (tab !== 'config' || !dirty || configError || !pluginClass) return;
+    runValidation(debouncedKey);
+  }, [tab, dirty, configError, pluginClass, debouncedKey, runValidation]);
+
+  const validation = validate.data;
+  const errorCount = validation?.errorCount ?? 0;
+  const validationStale = validatedKey !== validationKey;
+  const fieldErrors = useMemo(
+    () =>
+      ((validation?.configs ?? []) as ConnectorValidationEntry[]).filter(
+        (entry) => (entry.value?.errors?.length ?? 0) > 0,
+      ),
+    [validation],
+  );
+  const validationBlocksSave = validate.error
+    ? false
+    : validate.isPending || validationStale || errorCount > 0;
+  const canSave = dirty && !configError && !validationBlocksSave;
+
   const saveConfig = async () => {
     if (configError) return;
     try {
       await updateConfig.mutateAsync(currentConfig);
-      toast.success('Configuration saved');
+      toast.success('Configuration saved — connector is restarting');
       setDirty(false);
+      setConfirmSave(false);
+      setValidatedKey(null);
+      validate.reset();
     } catch (e) {
       toastError('Failed to save configuration', e);
     }
   };
+
+  const stopConnector = async () => {
+    try {
+      await action.mutateAsync({ name, action: 'stop' });
+      toast.success(`${name} stopped`);
+      setConfirmStop(false);
+    } catch (e) {
+      toastError('Failed to stop connector', e);
+    }
+  };
+
+  const toggleTrace = (id: number) =>
+    setExpandedTraces((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const topicList = useMemo(() => {
     const raw = topics.data;
@@ -203,6 +371,14 @@ export function ConnectorDetailPage() {
                 onDeleted={() => void navigate(base)}
               />
             ) : null}
+            <RefreshPicker
+              onRefresh={() => {
+                void connector.refetch();
+                if (tab === 'overview' || tab === 'topics') void topics.refetch();
+                if (tab === 'offsets') void offsets.refetch();
+              }}
+              refreshing={connector.isFetching}
+            />
           </>
         }
       />
@@ -305,11 +481,32 @@ export function ConnectorDetailPage() {
         <TabsContent value="config">
           <Card>
             <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
-              <CardTitle>Configuration</CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle>Configuration</CardTitle>
+                {dirty && !configError ? (
+                  validate.isPending || validationStale ? (
+                    <span className="flex items-center gap-1 text-2xs text-[var(--muted)]">
+                      <RefreshCw className="size-3 animate-spin" /> validating
+                    </span>
+                  ) : validate.error ? null : errorCount > 0 ? (
+                    <Badge variant="danger">
+                      {errorCount} error{errorCount === 1 ? '' : 's'}
+                    </Badge>
+                  ) : validation ? (
+                    <Badge variant="success">
+                      <Check className="size-3" /> valid
+                    </Badge>
+                  ) : null
+                ) : null}
+              </div>
               <div className="flex items-center gap-2">
                 <Tabs
                   value={configView}
-                  onValueChange={(v) => setConfigView(v as 'pairs' | 'json')}
+                  onValueChange={(v) => {
+                    const next = v as 'pairs' | 'json';
+                    if (next === 'json' && !configError) syncJsonDraft(reveal.json);
+                    setConfigView(next);
+                  }}
                 >
                   <SegmentedList>
                     <SegmentedTrigger value="pairs">
@@ -320,24 +517,68 @@ export function ConnectorDetailPage() {
                     </SegmentedTrigger>
                   </SegmentedList>
                 </Tabs>
-                <Button
-                  loading={updateConfig.isPending}
-                  disabled={!dirty || Boolean(configError)}
-                  onClick={() => void saveConfig()}
+                <Tooltip
+                  content={
+                    !dirty
+                      ? 'No changes'
+                      : configError
+                        ? 'Fix the JSON first'
+                        : errorCount > 0
+                          ? 'Fix validation errors first'
+                          : validationBlocksSave
+                            ? 'Waiting for validation'
+                            : 'Review changes and save'
+                  }
                 >
-                  <Save /> Save
-                </Button>
+                  <Button disabled={!canSave} onClick={() => setConfirmSave(true)}>
+                    <Save /> Save
+                  </Button>
+                </Tooltip>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-2xs text-[var(--muted)]">
+                <span>
+                  {secretCount > 0
+                    ? reveal[configView]
+                      ? `${secretCount} sensitive value${secretCount === 1 ? '' : 's'} shown in plain text`
+                      : `${secretCount} sensitive value${secretCount === 1 ? '' : 's'} hidden`
+                    : 'No sensitive values detected'}
+                </span>
+                {secretCount > 0 ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      const next = !reveal[configView];
+                      if (configView === 'json' && !configError) syncJsonDraft(next);
+                      setReveal((r) => ({ ...r, [configView]: next }));
+                    }}
+                    aria-pressed={reveal[configView]}
+                  >
+                    {reveal[configView] ? (
+                      <>
+                        <EyeOff /> Hide secrets
+                      </>
+                    ) : (
+                      <>
+                        <Eye /> Reveal secrets
+                      </>
+                    )}
+                  </Button>
+                ) : null}
+              </div>
+
               {connector.isLoading ? (
                 <Skeleton className="h-72 w-full" />
               ) : configView === 'pairs' ? (
                 <KeyValueEditor
-                  value={pairs}
-                  onChange={(next) => {
+                  value={reveal.pairs ? pairs : maskPairs(pairs)}
+                  onChange={(edited) => {
+                    const next = reveal.pairs ? edited : unmaskPairs(edited, pairs);
                     setPairs(next);
                     setConfigJson(JSON.stringify(pairsToRecord(next), null, 2));
+                    setConfigError(null);
                     setDirty(true);
                   }}
                   keyPlaceholder="config.key"
@@ -347,18 +588,17 @@ export function ConnectorDetailPage() {
               ) : (
                 <>
                   <CodeEditor
-                    value={configJson}
+                    value={jsonDraft}
                     onChange={(text) => {
-                      setConfigJson(text);
+                      setJsonDraft(text);
                       setDirty(true);
                       try {
-                        const parsed = JSON.parse(text) as Record<string, unknown>;
-                        setPairs(
-                          Object.entries(parsed).map(([key, value]) => ({
-                            key,
-                            value: value === null || value === undefined ? '' : String(value),
-                          })),
-                        );
+                        /* Masked placeholders are mapped back to the real values by key. */
+                        const parsed = reveal.json
+                          ? parseConfigJson(text)
+                          : unmaskRecord(parseConfigJson(text), currentConfig);
+                        setConfigJson(JSON.stringify(parsed, null, 2));
+                        setPairs(recordToPairs(parsed));
                         setConfigError(null);
                       } catch (e) {
                         setConfigError(e instanceof Error ? e.message : 'Invalid JSON');
@@ -374,9 +614,37 @@ export function ConnectorDetailPage() {
                   ) : null}
                 </>
               )}
+
+              {validate.error && dirty ? (
+                <InlineError error={validate.error} onRetry={() => runValidation(validationKey)} />
+              ) : null}
+
+              {dirty && !configError && !validationStale && fieldErrors.length > 0 ? (
+                <div className="rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--danger)_35%,var(--border))] bg-[color-mix(in_srgb,var(--danger)_6%,transparent)] px-3 py-2">
+                  <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-[var(--danger)]">
+                    <AlertTriangle className="size-3.5" />
+                    {errorCount} validation error{errorCount === 1 ? '' : 's'} — Save is disabled
+                    until they are fixed
+                  </p>
+                  <ul className="space-y-1 text-2xs">
+                    {fieldErrors.map((entry) => (
+                      <li key={entry.definition.name} className="flex flex-wrap gap-x-2">
+                        <span className="font-mono text-[var(--foreground)]">
+                          {entry.definition.name}
+                        </span>
+                        <span className="text-[var(--muted)]">
+                          {entry.value.errors.join(' · ')}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
               <p className="text-2xs text-[var(--muted)]">
                 Saving performs <span className="font-mono">PUT /connectors/{name}/config</span> —
-                the connector restarts with the new configuration.
+                the connector restarts with the new configuration. Changes are validated against{' '}
+                <span className="font-mono">{shortClass(pluginClass)}</span> as you type.
               </p>
             </CardContent>
           </Card>
@@ -391,80 +659,112 @@ export function ConnectorDetailPage() {
                   <Skeleton key={i} className="h-9 w-full" />
                 ))}
               </div>
-            ) : (data?.tasks?.length ?? 0) === 0 ? (
-              <EmptyState
-                icon={Cable}
-                title="No tasks"
-                description="This connector has not been assigned any tasks."
-              />
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-16">Task</TableHead>
-                    <TableHead className="w-32">State</TableHead>
-                    <TableHead>Worker</TableHead>
-                    <TableHead className="w-40" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(data?.tasks ?? []).map((task: ConnectorTask) => (
-                    <Fragment key={task.id}>
+              <>
+                {isFailed && data?.trace ? (
+                  <div className="border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--danger)_6%,transparent)]">
+                    <div className="flex items-center justify-between gap-2 px-4 pt-3">
+                      <p className="flex items-center gap-1.5 text-xs font-medium text-[var(--danger)]">
+                        <AlertTriangle className="size-3.5" /> Connector failed
+                      </p>
+                      <CopyButton value={data.trace} tooltip="Copy connector trace" />
+                    </div>
+                    <pre className="max-h-80 overflow-auto px-4 pb-3 pt-2 font-mono text-2xs leading-4 text-[var(--danger)]">
+                      {data.trace}
+                    </pre>
+                  </div>
+                ) : null}
+                {(data?.tasks?.length ?? 0) === 0 ? (
+                  <EmptyState
+                    icon={Cable}
+                    title="No tasks"
+                    description="This connector has not been assigned any tasks."
+                  />
+                ) : (
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell className="font-mono tabular-nums">{task.id}</TableCell>
-                        <TableCell>
-                          <StatusPill status={task.state} tone={connectorStateTone(task.state)} />
-                        </TableCell>
-                        <TableCell>
-                          <span className="truncate font-mono text-2xs text-[var(--muted)]">
-                            {task.workerId ?? '—'}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-end gap-1">
-                            {task.trace ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() =>
-                                  setExpandedTrace(expandedTrace === task.id ? null : task.id)
-                                }
-                              >
-                                {expandedTrace === task.id ? <ChevronDown /> : <ChevronRight />}
-                                Trace
-                              </Button>
-                            ) : null}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              loading={restartTask.isPending && restartTask.variables === task.id}
-                              onClick={async () => {
-                                try {
-                                  await restartTask.mutateAsync(task.id);
-                                  toast.success(`Task ${task.id} restarted`);
-                                } catch (e) {
-                                  toastError('Failed to restart task', e);
-                                }
-                              }}
-                            >
-                              <RotateCcw /> Restart
-                            </Button>
-                          </div>
-                        </TableCell>
+                        <TableHead className="w-16">Task</TableHead>
+                        <TableHead className="w-32">State</TableHead>
+                        <TableHead>Worker</TableHead>
+                        <TableHead className="w-40" />
                       </TableRow>
-                      {expandedTrace === task.id && task.trace ? (
-                        <TableRow className="hover:bg-transparent">
-                          <TableCell colSpan={4} className="bg-[var(--surface-2)] p-0">
-                            <pre className="max-h-80 overflow-auto p-3 font-mono text-2xs leading-4 text-[var(--danger)]">
-                              {task.trace}
-                            </pre>
-                          </TableCell>
-                        </TableRow>
-                      ) : null}
-                    </Fragment>
-                  ))}
-                </TableBody>
-              </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {(data?.tasks ?? []).map((task: ConnectorTask) => (
+                        <Fragment key={task.id}>
+                          <TableRow>
+                            <TableCell className="font-mono tabular-nums">{task.id}</TableCell>
+                            <TableCell>
+                              <StatusPill
+                                status={task.state}
+                                tone={connectorStateTone(task.state)}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <span className="truncate font-mono text-2xs text-[var(--muted)]">
+                                {task.workerId ?? '—'}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center justify-end gap-1">
+                                {task.trace ? (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => toggleTrace(task.id)}
+                                    aria-expanded={expandedTraces.has(task.id)}
+                                  >
+                                    {expandedTraces.has(task.id) ? (
+                                      <ChevronDown />
+                                    ) : (
+                                      <ChevronRight />
+                                    )}
+                                    Trace
+                                  </Button>
+                                ) : null}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  loading={
+                                    restartTask.isPending && restartTask.variables === task.id
+                                  }
+                                  onClick={async () => {
+                                    try {
+                                      await restartTask.mutateAsync(task.id);
+                                      toast.success(`Task ${task.id} restarted`);
+                                    } catch (e) {
+                                      toastError('Failed to restart task', e);
+                                    }
+                                  }}
+                                >
+                                  <RotateCcw /> Restart
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          {expandedTraces.has(task.id) && task.trace ? (
+                            <TableRow className="hover:bg-transparent">
+                              <TableCell colSpan={4} className="bg-[var(--surface-2)] p-0">
+                                <div className="relative">
+                                  <CopyButton
+                                    value={task.trace}
+                                    tooltip={`Copy task ${task.id} trace`}
+                                    className="absolute right-2 top-2"
+                                  />
+                                  <pre className="max-h-80 overflow-auto p-3 pr-10 font-mono text-2xs leading-4 text-[var(--danger)]">
+                                    {task.trace}
+                                  </pre>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                        </Fragment>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </>
             )}
           </Card>
         </TabsContent>
@@ -517,10 +817,21 @@ export function ConnectorDetailPage() {
         {/* ------------------------------- offsets ------------------------------- */}
         <TabsContent value="offsets" className="space-y-4">
           {!isStopped ? (
-            <div className="rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--warning)_35%,var(--border))] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] px-3 py-2 text-xs">
-              Offsets can only be modified while the connector is{' '}
-              <span className="font-mono">STOPPED</span>. Stop it from the Actions menu first —
-              current offsets are read-only until then.
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--warning)_35%,var(--border))] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] px-3 py-2 text-xs">
+              <span>
+                Offsets can only be modified while the connector is{' '}
+                <span className="font-mono">STOPPED</span> — current offsets are read-only until
+                then.
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!data}
+                loading={action.isPending}
+                onClick={() => setConfirmStop(true)}
+              >
+                <Square /> Stop connector
+              </Button>
             </div>
           ) : null}
 
@@ -580,6 +891,60 @@ export function ConnectorDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <StopConnectorDialog
+        open={confirmStop}
+        onOpenChange={setConfirmStop}
+        connectorName={name}
+        loading={action.isPending}
+        onConfirm={stopConnector}
+      />
+
+      <Dialog open={confirmSave} onOpenChange={setConfirmSave}>
+        <DialogContent size="lg">
+          <DialogHeader>
+            <div className="flex items-start gap-3">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--warning)_16%,transparent)]">
+                <AlertTriangle className="size-4 text-[var(--warning)]" />
+              </span>
+              <div className="space-y-1">
+                <DialogTitle>Save configuration</DialogTitle>
+                <DialogDescription>
+                  Review the changes below. Saving restarts{' '}
+                  <span className="font-mono">{name}</span> and all of its tasks with the new
+                  configuration.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <DialogBody className="space-y-2">
+            <DiffView
+              from={JSON.stringify(maskRecord(data?.config ?? {}), null, 2)}
+              to={JSON.stringify(maskRecord(currentConfig), null, 2)}
+              fromLabel="current"
+              toLabel="edited"
+              maxHeight={360}
+            />
+            {secretCount > 0 ? (
+              <p className="text-2xs text-[var(--muted)]">
+                Sensitive values are masked in this preview; the real values are saved.
+              </p>
+            ) : null}
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmSave(false)}
+              disabled={updateConfig.isPending}
+            >
+              Cancel
+            </Button>
+            <Button loading={updateConfig.isPending} onClick={() => void saveConfig()}>
+              <Save /> Save &amp; restart
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDestructiveDialog
         open={confirmResetOffsets}

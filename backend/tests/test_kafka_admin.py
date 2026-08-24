@@ -9,7 +9,7 @@ import pytest
 from k_shui.config import ClusterConfig, Settings
 from k_shui.core.errors import BadRequest, Conflict, IntegrationUnavailable, NotFound, UpstreamError
 from k_shui.core.registry import ClusterRegistry
-from k_shui.kafka.admin import KafkaAdmin, _config_source_name, client_config
+from k_shui.kafka.admin import KafkaAdmin, _config_source_name, _logdirs_to_dict, client_config
 from k_shui.kafka.consumer import BrowseRequest, MessageFilter
 
 
@@ -66,6 +66,45 @@ def test_config_resource_validation(raw_admin: KafkaAdmin) -> None:
         raw_admin._resource("topic", None)
 
 
+def test_logdirs_to_dict_reads_capacity_and_errors() -> None:
+    """DescribeLogDirs capacity fields are optional (-1 on old brokers) and offline dirs carry an error."""
+
+    class TP:
+        def __init__(self, topic: str, partition: int) -> None:
+            self.topic, self.partition = topic, partition
+
+    class Replica:
+        def __init__(self, size: int, offset_lag: int = 0) -> None:
+            self.size, self.offset_lag = size, offset_lag
+
+    class Dir:
+        def __init__(self, replicas: dict[Any, Any], total: int, usable: int, error: Any = None) -> None:
+            self.replica_infos, self.total_bytes, self.usable_bytes, self.error = (
+                replicas,
+                total,
+                usable,
+                error,
+            )
+
+    result = {
+        0: {
+            "/data/a": Dir({TP("orders", 0): Replica(100), TP("orders", 1): Replica(50, 3)}, 10_000, 2_500),
+            "/data/b": Dir({}, -1, -1, error="KAFKA_STORAGE_ERROR"),
+        }
+    }
+    out = _logdirs_to_dict(result)
+    a, b = out["0"]
+    assert a["path"] == "/data/a"
+    assert a["sizeBytes"] == 150
+    assert a["totalBytes"] == 10_000
+    assert a["usableBytes"] == 2_500
+    assert a["error"] is None
+    assert a["partitions"][1] == {"topic": "orders", "partition": 1, "sizeBytes": 50, "offsetLag": 3}
+    assert b["totalBytes"] is None
+    assert b["usableBytes"] is None
+    assert b["error"] == "KAFKA_STORAGE_ERROR"
+
+
 def test_config_source_name_handles_ints_and_enums() -> None:
     assert _config_source_name(None) is None
     assert _config_source_name(5) == "DEFAULT_CONFIG"
@@ -81,6 +120,34 @@ def test_browse_request_validation() -> None:
         BrowseRequest(topic="t", filter_mode="telepathy")
     assert BrowseRequest(topic="t", limit=99999).limit == 10000
     assert BrowseRequest(topic="t", limit=0).limit == 1
+
+
+async def test_plan_honours_per_partition_start_offsets() -> None:
+    from k_shui.kafka.consumer import MessageBrowser
+    from tests.fakes import FakeKafkaAdmin
+
+    class _Ctx:
+        class config:
+            id = "c"
+
+    browser = MessageBrowser.__new__(MessageBrowser)
+    browser.admin = FakeKafkaAdmin(_Ctx())  # type: ignore[arg-type]
+
+    # orders: 3 partitions, offsets 0..100 each
+    plan = await browser._plan(
+        BrowseRequest(topic="orders", mode="offset", offset=10, start_offsets={1: 50, 2: 999})
+    )
+    assert plan == [(0, 10, 100), (1, 50, 100)]  # p2 clamped to high → skipped as empty
+
+    plan = await browser._plan(
+        BrowseRequest(topic="orders", mode="offset", start_offsets={0: 20}, partitions=[0])
+    )
+    assert plan == [(0, 20, 100)]
+
+    with pytest.raises(BadRequest):
+        await browser._plan(
+            BrowseRequest(topic="orders", mode="offset", start_offsets={0: 20}, partitions=[1])
+        )
 
 
 @pytest.mark.parametrize(
