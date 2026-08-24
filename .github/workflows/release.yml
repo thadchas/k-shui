@@ -44,7 +44,7 @@ jobs:
       id-token: write # trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: static-assets
           path: backend/k_shui/static/
@@ -105,7 +105,7 @@ jobs:
       id-token: write # cosign keyless signing + SBOM attestation
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: static-assets
           path: backend/k_shui/static/
