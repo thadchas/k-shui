@@ -236,6 +236,33 @@ async def test_messages_start_offsets_param(client: AsyncClient, monkeypatch: py
         assert r.status_code == 400, bad
 
 
+async def test_messages_tail_and_filter_target_params(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.fakes import FakeMessageBrowser
+
+    seen: list[Any] = []
+    original = FakeMessageBrowser.browse
+
+    def spy(self: Any, req: Any) -> Any:
+        seen.append(req)
+        return original(self, req)
+
+    monkeypatch.setattr(FakeMessageBrowser, "browse", spy)
+    resp = await client.get(
+        f"{C}/topics/orders/messages?mode=tail&filter=header:trace%3Dt1&filterTarget=key&limit=5"
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    assert "event: progress" in resp.text
+    assert seen[-1].mode == "tail" and seen[-1].tail is True
+    assert seen[-1].filter == "header:trace=t1"
+    assert seen[-1].filter_target == "key"
+
+    assert (await client.get(f"{C}/topics/orders/messages?filterTarget=everything")).status_code == 422
+    assert (await client.get(f"{C}/topics/orders/messages?mode=follow")).status_code == 422
+
+
 async def test_purge_specific_partitions(client: AsyncClient, admin: Any) -> None:
     resp = await client.post(
         f"{C}/topics/orders/purge",
@@ -284,6 +311,30 @@ async def test_consumer_groups_list_detail_and_404(client: AsyncClient) -> None:
     assert detail["topicsSummary"] == [{"topic": "orders", "lag": 10, "partitions": 1}]
 
     assert (await client.get(f"{C}/consumer-groups/ghost")).status_code == 404
+
+
+async def test_consumer_groups_paginated_envelope(client: AsyncClient) -> None:
+    """`page` switches the response to the {items,total,page,perPage} envelope; omitting it keeps the list."""
+    plain = (await client.get(f"{C}/consumer-groups")).json()
+    assert isinstance(plain, list)
+
+    paged = (await client.get(f"{C}/consumer-groups?page=1&perPage=10")).json()
+    assert paged["page"] == 1
+    assert paged["perPage"] == 10
+    assert paged["total"] == len(plain)
+    assert [g["groupId"] for g in paged["items"]] == [g["groupId"] for g in plain]
+
+    # Sorting is applied before slicing; an out-of-range page is empty but keeps the total.
+    sorted_desc = (await client.get(f"{C}/consumer-groups?page=1&sort=totalLag&order=desc")).json()
+    assert sorted_desc["items"][0]["totalLag"] == max(g["totalLag"] for g in plain)
+    empty = (await client.get(f"{C}/consumer-groups?page=99&perPage=10")).json()
+    assert empty["items"] == []
+    assert empty["total"] == len(plain)
+
+    # Filters still apply inside the envelope.
+    filtered = (await client.get(f"{C}/consumer-groups?page=1&search=zzz")).json()
+    assert filtered == {"items": [], "page": 1, "perPage": 50, "total": 0}
+    assert (await client.get(f"{C}/consumer-groups?page=0")).status_code == 422
 
 
 async def test_consumer_group_time_lag_estimate(client: AsyncClient) -> None:
@@ -537,3 +588,14 @@ async def test_cluster_summary_survives_a_hanging_sampler(client: AsyncClient, m
         items = (await client.get("/api/v1/clusters")).json()
 
     assert items[0]["status"] == "online"
+
+
+async def test_offset_reset_keeps_partition_scope_when_uncommitted(client: AsyncClient) -> None:
+    """Scoping to partitions with no committed offsets must not expand to every partition."""
+    url = f"{C}/consumer-groups/app-consumers/offsets/reset"
+    scoped = {"topic": "orders", "partitions": [2], "strategy": "earliest", "dryRun": True}
+    plan = (await client.post(url, json=scoped)).json()
+    assert [p["partition"] for p in plan] == [2]
+
+    resp = await client.post(url, json={"topic": "orders", "partitions": [99], "strategy": "earliest"})
+    assert resp.status_code == 404

@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import type { ColumnDef } from '@tanstack/react-table';
 import { ArrowLeft, Plus, Puzzle } from 'lucide-react';
 import { useConnectPlugins } from '@/api/hooks/connect';
 import type { ConnectorPlugin } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { useUrlState } from '@/hooks/useUrlState';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
@@ -22,8 +24,10 @@ export function ConnectPluginsPage() {
   const navigate = useNavigate();
   const base = `/c/${cluster}/connect/${encodeURIComponent(kc)}`;
 
-  const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
+  const { canEdit } = usePermissions();
+  const [{ q: search, type: typeFilter }, setUrl] = useUrlState({ q: '', type: 'all' });
+  const setSearch = (q: string) => setUrl({ q });
+  const setTypeFilter = (type: string) => setUrl({ type });
 
   const plugins = useConnectPlugins(cluster, kc);
 
@@ -87,22 +91,27 @@ export function ConnectPluginsPage() {
         cell: ({ row }) => (
           <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
             <CopyButton value={row.original.class} tooltip="Copy class name" />
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                void navigate(
-                  `${base}/connectors/new?plugin=${encodeURIComponent(row.original.class)}`,
-                )
-              }
-            >
-              <Plus /> Use plugin
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!canEdit}
+                  onClick={() =>
+                    void navigate(
+                      `${base}/connectors/new?plugin=${encodeURIComponent(row.original.class)}`,
+                    )
+                  }
+                >
+                  <Plus /> Use plugin
+                </Button>
+              </span>
+            </Tooltip>
           </div>
         ),
       },
     ],
-    [base, navigate],
+    [base, navigate, canEdit],
   );
 
   return (
@@ -118,11 +127,21 @@ export function ConnectPluginsPage() {
                 <ArrowLeft /> Connectors
               </Link>
             </Button>
-            <Button asChild>
-              <Link to={`${base}/connectors/new`}>
-                <Plus /> New connector
-              </Link>
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button asChild={canEdit} disabled={!canEdit}>
+                  {canEdit ? (
+                    <Link to={`${base}/connectors/new`}>
+                      <Plus /> New connector
+                    </Link>
+                  ) : (
+                    <>
+                      <Plus /> New connector
+                    </>
+                  )}
+                </Button>
+              </span>
+            </Tooltip>
           </>
         }
       />
@@ -138,6 +157,7 @@ export function ConnectPluginsPage() {
         searchPlaceholder="Search plugins…"
         defaultSorting={[{ id: 'class', desc: false }]}
         rowLabel="plugins"
+        caption={`Connector plugins installed on ${kc}`}
         toolbar={
           <SimpleSelect
             value={typeFilter}

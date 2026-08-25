@@ -432,68 +432,77 @@ export function DataTable<TData>({
                       </tr>
                     ) : null}
                     {(shouldVirtualize ? virtualItems.map((v) => rows[v.index]) : rows).map(
-                      (row: Row<TData>) => (
-                        <TableRow
-                          key={row.id}
-                          clickable={rowsClickable}
-                          role={getRowHref ? 'link' : undefined}
-                          selected={isRowSelected?.(row.original)}
-                          style={shouldVirtualize ? { height: ROW_HEIGHT } : undefined}
-                          onClick={
-                            rowsClickable
-                              ? (e) => {
-                                  // Let the first-cell <Link> handle modified clicks (new tab).
-                                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                                  activateRow(row.original);
-                                }
-                              : undefined
-                          }
-                        >
-                          {row.getVisibleCells().map((cell, cellIndex) => {
-                            const cellMeta = cell.column.columnDef.meta;
-                            const content = flexRender(
-                              cell.column.columnDef.cell,
-                              cell.getContext(),
-                            );
-                            const href =
-                              getRowHref && cellIndex === 0 ? getRowHref(row.original) : null;
-                            return (
-                              <TableCell
-                                key={cell.id}
-                                numeric={cellMeta?.numeric}
-                                className={cn(cellMeta?.widthClass)}
-                                onClick={
-                                  cellMeta?.stopRowClick ? (e) => e.stopPropagation() : undefined
-                                }
-                                onKeyDown={
-                                  cellMeta?.stopRowClick ? (e) => e.stopPropagation() : undefined
-                                }
-                              >
-                                {href ? (
-                                  <Link
-                                    to={href}
-                                    tabIndex={-1}
-                                    className="block text-inherit no-underline"
-                                    onClick={(e) => {
-                                      // Plain clicks are handled by the row; keep the anchor for
-                                      // cmd/ctrl/middle-click and context menu semantics.
-                                      if (!(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) {
-                                        e.preventDefault();
-                                      } else {
-                                        e.stopPropagation();
-                                      }
-                                    }}
-                                  >
-                                    {content}
-                                  </Link>
-                                ) : (
-                                  content
-                                )}
-                              </TableCell>
-                            );
-                          })}
-                        </TableRow>
-                      ),
+                      (row: Row<TData>) => {
+                        const linkCellIndex = row
+                          .getVisibleCells()
+                          .findIndex((c) => !c.column.columnDef.meta?.stopRowClick);
+                        return (
+                          <TableRow
+                            key={row.id}
+                            clickable={rowsClickable}
+                            role={getRowHref ? 'link' : undefined}
+                            selected={isRowSelected?.(row.original)}
+                            style={shouldVirtualize ? { height: ROW_HEIGHT } : undefined}
+                            onClick={
+                              rowsClickable
+                                ? (e) => {
+                                    // Let the first-cell <Link> handle modified clicks (new tab).
+                                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                                    activateRow(row.original);
+                                  }
+                                : undefined
+                            }
+                          >
+                            {row.getVisibleCells().map((cell, cellIndex) => {
+                              const cellMeta = cell.column.columnDef.meta;
+                              const content = flexRender(
+                                cell.column.columnDef.cell,
+                                cell.getContext(),
+                              );
+                              // The anchor goes on the first cell that participates in row
+                              // activation; selection checkboxes / action menus opt out.
+                              const href =
+                                getRowHref && cellIndex === linkCellIndex
+                                  ? getRowHref(row.original)
+                                  : null;
+                              return (
+                                <TableCell
+                                  key={cell.id}
+                                  numeric={cellMeta?.numeric}
+                                  className={cn(cellMeta?.widthClass)}
+                                  onClick={
+                                    cellMeta?.stopRowClick ? (e) => e.stopPropagation() : undefined
+                                  }
+                                  onKeyDown={
+                                    cellMeta?.stopRowClick ? (e) => e.stopPropagation() : undefined
+                                  }
+                                >
+                                  {href ? (
+                                    <Link
+                                      to={href}
+                                      tabIndex={-1}
+                                      className="block text-inherit no-underline"
+                                      onClick={(e) => {
+                                        // Plain clicks are handled by the row; keep the anchor for
+                                        // cmd/ctrl/middle-click and context menu semantics.
+                                        if (!(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) {
+                                          e.preventDefault();
+                                        } else {
+                                          e.stopPropagation();
+                                        }
+                                      }}
+                                    >
+                                      {content}
+                                    </Link>
+                                  ) : (
+                                    content
+                                  )}
+                                </TableCell>
+                              );
+                            })}
+                          </TableRow>
+                        );
+                      },
                     )}
                     {paddingBottom > 0 ? (
                       <tr style={{ height: paddingBottom }}>

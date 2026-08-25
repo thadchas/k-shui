@@ -7,6 +7,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useCreateTopic } from '@/api/hooks/topics';
 import { useBrokers } from '@/api/hooks/brokers';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { RETENTION_PRESETS, formatDuration } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardToolbarHeader } from '@/components/ui/card';
@@ -31,6 +32,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 
 const TOPIC_NAME_RE = /^[a-zA-Z0-9._-]+$/;
 
@@ -67,6 +69,7 @@ const CONFIG_SUGGESTIONS = [
 
 export function NewTopicPage() {
   const cluster = useClusterId();
+  const { canEdit } = usePermissions();
   const navigate = useNavigate();
   const createTopic = useCreateTopic(cluster);
   const brokers = useBrokers(cluster);
@@ -85,6 +88,7 @@ export function NewTopicPage() {
   });
 
   const onSubmit = form.handleSubmit(async (raw) => {
+    if (!canEdit) return;
     const values = schema.parse(raw);
     const configs: Record<string, string> = {
       'cleanup.policy': values.cleanupPolicy,
@@ -286,9 +290,13 @@ export function NewTopicPage() {
             >
               Cancel
             </Button>
-            <Button type="submit" loading={createTopic.isPending}>
-              Create topic
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button type="submit" loading={createTopic.isPending} disabled={!canEdit}>
+                  Create topic
+                </Button>
+              </span>
+            </Tooltip>
           </div>
         </form>
       </Form>

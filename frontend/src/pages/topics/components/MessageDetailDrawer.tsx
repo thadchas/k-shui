@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { Message } from '@/api/types';
 import { formatBytes } from '@/lib/format';
+import { Crosshair } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
 import { JsonViewer } from '@/components/ui/json-viewer';
 import {
@@ -21,7 +23,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { formatMessageTimestamp, isTombstone, type TimestampFormat } from './messageUtils';
+import {
+  formatMessageTimestamp,
+  isTombstone,
+  keyFilterValue,
+  type TimestampFormat,
+} from './messageUtils';
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -36,12 +43,15 @@ export interface MessageDetailDrawerProps {
   message: Message | null;
   onOpenChange: (open: boolean) => void;
   timestampFormat?: TimestampFormat;
+  /** Offered when set: scope the browser's filter to this record's exact key. */
+  onFollowKey?: (key: string) => void;
 }
 
 export function MessageDetailDrawer({
   message,
   onOpenChange,
   timestampFormat = 'local',
+  onFollowKey,
 }: MessageDetailDrawerProps) {
   const [view, setView] = useState<'parsed' | 'raw'>('parsed');
   if (!message) return null;
@@ -103,7 +113,21 @@ export function MessageDetailDrawer({
               <h3 className="text-2xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                 Key
               </h3>
-              <CopyButton value={rawKey ?? ''} />
+              <div className="flex items-center gap-1">
+                {onFollowKey && message.key !== null && message.key !== undefined ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      onFollowKey(keyFilterValue(message.key));
+                      onOpenChange(false);
+                    }}
+                  >
+                    <Crosshair /> Follow key
+                  </Button>
+                ) : null}
+                <CopyButton value={rawKey ?? ''} />
+              </div>
             </div>
             {message.key === null || message.key === undefined ? (
               <p className="rounded-[var(--radius-control)] border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--muted)]">

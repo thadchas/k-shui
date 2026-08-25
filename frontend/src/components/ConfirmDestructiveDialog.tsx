@@ -26,6 +26,10 @@ export interface ConfirmDestructiveDialogProps {
   confirmLabel?: string;
   onConfirm: () => void | Promise<void>;
   loading?: boolean;
+  /** Extra caller-side validity gate (e.g. a form inside `children` is invalid). */
+  disabled?: boolean;
+  /** Shown as the confirm button's tooltip while `disabled` is true. */
+  disabledReason?: string;
   children?: React.ReactNode;
 }
 
@@ -39,6 +43,8 @@ export function ConfirmDestructiveDialog({
   confirmLabel = 'Delete',
   onConfirm,
   loading,
+  disabled,
+  disabledReason,
   children,
 }: ConfirmDestructiveDialogProps) {
   const [typed, setTyped] = useState('');
@@ -51,7 +57,8 @@ export function ConfirmDestructiveDialog({
     }
   }, [open]);
 
-  const canConfirm = (!confirmText || typed === confirmText) && (!acknowledgeLabel || acknowledged);
+  const canConfirm =
+    !disabled && (!confirmText || typed === confirmText) && (!acknowledgeLabel || acknowledged);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -104,6 +111,7 @@ export function ConfirmDestructiveDialog({
           <Button
             variant="destructive"
             disabled={!canConfirm || loading}
+            title={disabled && disabledReason ? disabledReason : undefined}
             loading={loading}
             onClick={() => void onConfirm()}
           >

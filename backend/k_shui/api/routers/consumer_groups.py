@@ -9,8 +9,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
-from k_shui.api.routers._common import sampler_for, topic_rate
-from k_shui.api.schemas.common import Ack, SeriesResponse
+from k_shui.api.routers._common import paginate_sort, sampler_for, topic_rate
+from k_shui.api.schemas.common import Ack, Page, SeriesResponse
 from k_shui.api.schemas.group import (
     GroupDetail,
     GroupMember,
@@ -112,20 +112,38 @@ async def _summaries(
     return out
 
 
-@router.get("/consumer-groups", response_model=list[GroupSummary])
+@router.get("/consumer-groups", response_model=list[GroupSummary] | Page[GroupSummary])
 async def list_groups(
     request: Request,
     search: str | None = Query(None),
     state: str | None = Query(None),
+    sort: str | None = Query(None),
+    order: str = Query("asc"),
+    page: int | None = Query(None, ge=1, description="1-based page; omit for the plain list"),
+    perPage: int = Query(50, ge=1, le=1000, alias="perPage"),
     ctx: ClusterContext = Depends(get_cluster),
     principal: Principal = Depends(require_viewer),
-) -> list[GroupSummary]:
+) -> list[GroupSummary] | Page[GroupSummary]:
+    """List consumer groups.
+
+    Backward compatible: without ``page`` the response is the plain list. When ``page`` is given
+    the response is the standard ``{items, total, page, perPage}`` envelope (same shape as
+    ``/topics``), with optional ``sort``/``order`` applied before slicing.
+    """
     items = await _summaries(ctx, sampler=sampler_for(request, ctx.config.id))
     if search:
         items = [g for g in items if search.lower() in g["groupId"].lower()]
     if state:
         items = [g for g in items if g["state"].lower() == state.lower()]
-    return [GroupSummary(**g) for g in items]
+    items = paginate_sort(items, sort, order)
+    if page is None:
+        return [GroupSummary(**g) for g in items]
+    total = len(items)
+    start = (page - 1) * perPage
+    window = items[start : start + perPage]
+    return Page[GroupSummary](
+        items=[GroupSummary(**g) for g in window], page=page, perPage=perPage, total=total
+    )
 
 
 @router.get("/share-groups")
@@ -272,9 +290,13 @@ async def reset_offsets(
     if body.partitions:
         committed = [c for c in committed if c["partition"] in body.partitions]
     if not committed and body.topic:
+        # No committed offsets yet: seed the plan from the topic's partitions, but keep
+        # honouring the caller's partition scoping instead of expanding to all of them.
         detail = await admin.describe_topic(body.topic)
         committed = [
-            {"topic": body.topic, "partition": p["id"], "offset": -1} for p in detail["partitionsDetail"]
+            {"topic": body.topic, "partition": p["id"], "offset": -1}
+            for p in detail["partitionsDetail"]
+            if not body.partitions or p["id"] in body.partitions
         ]
     if not committed:
         raise NotFound(f"no committed offsets found for group '{group_id}'")

@@ -54,6 +54,16 @@ export function isTombstone(message: Pick<Message, 'key' | 'value'>): boolean {
   return message.key !== null && message.key !== undefined && message.value === null;
 }
 
+/** The string form of a key as the server's `filterTarget=key` haystack sees it. */
+export function keyFilterValue(key: unknown): string {
+  return stringifyField(key);
+}
+
+/** Anchored regex matching exactly `key` (used by the "Follow key" chip with `filterMode=regex`). */
+export function exactKeyPattern(key: string): string {
+  return `^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+}
+
 export function stringifyField(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') return value;

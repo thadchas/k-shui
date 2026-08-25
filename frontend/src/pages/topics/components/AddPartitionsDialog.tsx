@@ -76,6 +76,12 @@ export function AddPartitionsDialog({
       confirmText={name || undefined}
       confirmLabel="Add partitions"
       loading={addPartitions.isPending}
+      disabled={!canSubmit}
+      disabledReason={
+        !countValid
+          ? `Enter a whole number greater than ${current}`
+          : 'Acknowledge the internal-topic warning to continue'
+      }
       onConfirm={async () => {
         if (!topic || !canSubmit) return;
         try {

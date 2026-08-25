@@ -21,6 +21,7 @@ import {
 } from '@/api/hooks/schemas';
 import type { Compatibility, SchemaType, SchemaVersion } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { formatTimestamp } from '@/lib/format';
 import { downloadText } from '@/lib/utils';
 import { CodeEditor } from '@/components/CodeEditor';
@@ -84,6 +85,11 @@ export function SchemaDetailPage() {
   const { subject: subjectParam = '' } = useParams<{ subject: string }>();
   const subject = decodeURIComponent(subjectParam);
   const navigate = useNavigate();
+  const { canEdit } = usePermissions();
+  const gate = canEdit ? {} : { disabled: true, title: REQUIRES_EDITOR };
+  const gateHint = canEdit ? null : (
+    <span className="ml-auto pl-3 text-2xs text-[var(--muted)]">{REQUIRES_EDITOR}</span>
+  );
   const [searchParams, setSearchParams] = useSearchParams();
 
   const requestedTab = searchParams.get('tab') ?? 'schema';
@@ -252,11 +258,21 @@ export function SchemaDetailPage() {
                 <ArrowLeft /> All schemas
               </Link>
             </Button>
-            <Button asChild>
-              <Link to={newVersionHref}>
-                <FilePlus2 /> New version
-              </Link>
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button asChild={canEdit} disabled={!canEdit}>
+                  {canEdit ? (
+                    <Link to={newVersionHref}>
+                      <FilePlus2 /> New version
+                    </Link>
+                  ) : (
+                    <>
+                      <FilePlus2 /> New version
+                    </>
+                  )}
+                </Button>
+              </span>
+            </Tooltip>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="icon" aria-label="Subject actions">
@@ -280,35 +296,41 @@ export function SchemaDetailPage() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   destructive
-                  disabled={!current || versions.length <= 1 || current.deleted}
+                  {...gate}
+                  disabled={!canEdit || !current || versions.length <= 1 || current.deleted}
                   onSelect={() =>
                     current &&
                     setDeleteTarget({ kind: 'version', version: current, permanent: false })
                   }
                 >
                   <Trash2 /> Soft delete v{current?.version ?? ''}
+                  {gateHint}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   destructive
-                  disabled={!current || (versions.length <= 1 && !current.deleted)}
+                  {...gate}
+                  disabled={!canEdit || !current || (versions.length <= 1 && !current.deleted)}
                   onSelect={() =>
                     current &&
                     setDeleteTarget({ kind: 'version', version: current, permanent: true })
                   }
                 >
                   <Trash2 /> Delete v{current?.version ?? ''} permanently
+                  {gateHint}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   destructive
+                  {...gate}
                   onSelect={() => setDeleteTarget({ kind: 'subject', permanent: false })}
                 >
-                  <Trash2 /> Soft delete subject
+                  <Trash2 /> Soft delete subject{gateHint}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   destructive
+                  {...gate}
                   onSelect={() => setDeleteTarget({ kind: 'subject', permanent: true })}
                 >
-                  <Trash2 /> Delete subject permanently
+                  <Trash2 /> Delete subject permanently{gateHint}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -348,15 +370,19 @@ export function SchemaDetailPage() {
                   />
                 </span>
               </Tooltip>
-              <Button
-                variant="outline"
-                size="sm"
-                loading={updateConfig.isPending || resetConfig.isPending}
-                disabled={!compatibilityDirty}
-                onClick={() => void saveCompatibility()}
-              >
-                Save
-              </Button>
+              <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+                <span className="inline-flex">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    loading={updateConfig.isPending || resetConfig.isPending}
+                    disabled={!canEdit || !compatibilityDirty}
+                    onClick={() => void saveCompatibility()}
+                  >
+                    Save
+                  </Button>
+                </span>
+              </Tooltip>
             </div>
           </div>
         </div>
@@ -564,21 +590,23 @@ export function SchemaDetailPage() {
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem
                                 destructive
-                                disabled={version.deleted || versions.length <= 1}
+                                {...gate}
+                                disabled={!canEdit || version.deleted || versions.length <= 1}
                                 onSelect={() =>
                                   setDeleteTarget({ kind: 'version', version, permanent: false })
                                 }
                               >
-                                <Trash2 /> Soft delete
+                                <Trash2 /> Soft delete{gateHint}
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 destructive
-                                disabled={versions.length <= 1 && !version.deleted}
+                                {...gate}
+                                disabled={!canEdit || (versions.length <= 1 && !version.deleted)}
                                 onSelect={() =>
                                   setDeleteTarget({ kind: 'version', version, permanent: true })
                                 }
                               >
-                                <Trash2 /> Delete permanently
+                                <Trash2 /> Delete permanently{gateHint}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>

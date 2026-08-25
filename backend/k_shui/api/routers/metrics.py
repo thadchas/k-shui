@@ -16,6 +16,7 @@ from k_shui.api.schemas.metrics import (
     MetricsStatus,
     QueryResult,
 )
+from k_shui.core.auth import require_editor, require_viewer
 from k_shui.core.errors import BadRequest, NotFound
 from k_shui.core.registry import ClusterContext, get_cluster
 from k_shui.integrations.audit import audit
@@ -30,7 +31,7 @@ from k_shui.integrations.prometheus import (
     try_prometheus,
 )
 
-router = APIRouter(tags=["metrics"])
+router = APIRouter(tags=["metrics"], dependencies=[Depends(require_viewer)])
 BASE = "/clusters/{cluster_id}/metrics"
 
 
@@ -109,7 +110,9 @@ async def list_dashboards(ctx: ClusterContext = Depends(get_cluster)) -> Any:
     return await dashboards.list_all(ctx.id)
 
 
-@router.post(BASE + "/dashboards", response_model=Dashboard, status_code=201)
+@router.post(
+    BASE + "/dashboards", response_model=Dashboard, status_code=201, dependencies=[Depends(require_editor)]
+)
 async def create_dashboard(
     request: Request, body: DashboardWrite, ctx: ClusterContext = Depends(get_cluster)
 ) -> Any:
@@ -118,7 +121,12 @@ async def create_dashboard(
     return saved
 
 
-@router.post(BASE + "/dashboards/import", response_model=Dashboard, status_code=201)
+@router.post(
+    BASE + "/dashboards/import",
+    response_model=Dashboard,
+    status_code=201,
+    dependencies=[Depends(require_editor)],
+)
 async def import_dashboard(
     request: Request,
     payload: dict[str, Any] = Body(...),
@@ -138,7 +146,9 @@ async def get_dashboard(dashboard_id: str, ctx: ClusterContext = Depends(get_clu
     return await dashboards.resolve(ctx.id, dashboard_id)
 
 
-@router.put(BASE + "/dashboards/{dashboard_id}", response_model=Dashboard)
+@router.put(
+    BASE + "/dashboards/{dashboard_id}", response_model=Dashboard, dependencies=[Depends(require_editor)]
+)
 async def update_dashboard(
     request: Request,
     dashboard_id: str,
@@ -154,7 +164,7 @@ async def update_dashboard(
     return saved
 
 
-@router.delete(BASE + "/dashboards/{dashboard_id}", status_code=204)
+@router.delete(BASE + "/dashboards/{dashboard_id}", status_code=204, dependencies=[Depends(require_editor)])
 async def delete_dashboard(
     request: Request, dashboard_id: str, ctx: ClusterContext = Depends(get_cluster)
 ) -> None:

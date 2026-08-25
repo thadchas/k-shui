@@ -12,3 +12,4 @@ export * from './flink';
 export * from './metrics';
 export * from './lineage';
 export * from './alerts';
+export * from './partitions';

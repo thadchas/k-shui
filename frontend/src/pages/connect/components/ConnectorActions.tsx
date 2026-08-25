@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useConnectorAction, useDeleteConnector, type ConnectorAction } from '@/api/hooks/connect';
 import type { Connector } from '@/api/types';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { Button } from '@/components/ui/button';
 import {
@@ -120,6 +121,7 @@ export function ConnectorActionsMenu({
   labelled,
 }: ConnectorActionsMenuProps) {
   const navigate = useNavigate();
+  const { canEdit } = usePermissions();
   const action = useConnectorAction(cluster, kc);
   const remove = useDeleteConnector(cluster, kc);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -127,6 +129,10 @@ export function ConnectorActionsMenu({
 
   const state = (connector.state ?? '').toUpperCase();
   const counts = taskCounts(connector.tasks);
+  const gate = canEdit ? {} : { disabled: true, title: REQUIRES_EDITOR };
+  const gateHint = canEdit ? null : (
+    <span className="ml-auto pl-3 text-2xs text-[var(--muted)]">{REQUIRES_EDITOR}</span>
+  );
 
   const run = async (
     kind: ConnectorAction,
@@ -159,26 +165,32 @@ export function ConnectorActionsMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent>
           {state === 'PAUSED' || state === 'STOPPED' ? (
-            <DropdownMenuItem onSelect={() => void run('resume')}>
-              <Play /> Resume
+            <DropdownMenuItem {...gate} onSelect={() => void run('resume')}>
+              <Play /> Resume{gateHint}
             </DropdownMenuItem>
           ) : (
-            <DropdownMenuItem onSelect={() => void run('pause')}>
-              <Pause /> Pause
+            <DropdownMenuItem {...gate} onSelect={() => void run('pause')}>
+              <Pause /> Pause{gateHint}
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem disabled={state === 'STOPPED'} onSelect={() => setConfirmStop(true)}>
-            <Square /> Stop
+          <DropdownMenuItem
+            {...gate}
+            disabled={!canEdit || state === 'STOPPED'}
+            onSelect={() => setConfirmStop(true)}
+          >
+            <Square /> Stop{gateHint}
           </DropdownMenuItem>
           <DropdownMenuItem
+            {...gate}
             onSelect={() =>
               void run('restart', { includeTasks: true }, `${connector.name} restarted`)
             }
           >
-            <RotateCcw /> Restart (with tasks)
+            <RotateCcw /> Restart (with tasks){gateHint}
           </DropdownMenuItem>
           <DropdownMenuItem
-            disabled={counts.failed === 0}
+            {...gate}
+            disabled={!canEdit || counts.failed === 0}
             onSelect={() =>
               void run(
                 'restart',
@@ -187,7 +199,7 @@ export function ConnectorActionsMenu({
               )
             }
           >
-            <RefreshCw /> Restart failed tasks
+            <RefreshCw /> Restart failed tasks{gateHint}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -200,8 +212,8 @@ export function ConnectorActionsMenu({
             <Settings2 /> Edit config
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem destructive onSelect={() => setConfirmDelete(true)}>
-            <Trash2 /> Delete connector
+          <DropdownMenuItem destructive {...gate} onSelect={() => setConfirmDelete(true)}>
+            <Trash2 /> Delete connector{gateHint}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

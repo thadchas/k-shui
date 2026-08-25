@@ -18,7 +18,7 @@ export function LoginPage() {
   // AppShell forwards the route the user was denied, so sign-in returns them there.
   const from = (location.state as { from?: string } | null)?.from;
   const destination = from && !from.startsWith('/login') ? from : '/clusters';
-  const { data: info, isLoading } = useInfo();
+  const { data: info, isLoading, isFetching } = useInfo();
   const login = useLogin();
   const token = useAuthStore((s) => s.token);
   const [username, setUsername] = useState('');
@@ -29,10 +29,13 @@ export function LoginPage() {
   const hasServerSession = Boolean(info?.auth?.user);
 
   useEffect(() => {
-    if (!isLoading && (authType === 'none' || token || hasServerSession)) {
+    // Wait for an in-flight /info refetch (AppShell invalidates it on session expiry) so a
+    // stale `auth.user` cannot bounce us back to the page that just 401'd.
+    if (isLoading || isFetching) return;
+    if (authType === 'none' || token || hasServerSession) {
       void navigate(destination, { replace: true });
     }
-  }, [isLoading, authType, token, hasServerSession, navigate, destination]);
+  }, [isLoading, isFetching, authType, token, hasServerSession, navigate, destination]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();

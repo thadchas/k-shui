@@ -33,6 +33,7 @@ import {
 import type { ConnectorOffsetsPatch, ConnectorTask, ConnectorValidationEntry } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
 import { useDebounced } from '@/hooks/useDebounced';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { CodeEditor } from '@/components/CodeEditor';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { DiffView } from '@/components/DiffView';
@@ -83,6 +84,7 @@ import { toast, toastError } from '@/components/ui/toast';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ConnectorActionsMenu, StopConnectorDialog } from './components/ConnectorActions';
 import { TasksMiniBar } from './components/TasksMiniBar';
+import { UnsavedChangesGuard } from './components/UnsavedChangesGuard';
 import {
   connectorStateTone,
   maskConfigValue,
@@ -100,28 +102,59 @@ function isSecretKey(key: string): boolean {
   return maskConfigValue(key, 'x') === MASK;
 }
 
-function maskRecord(record: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(record).map(([key, value]) => [key, maskConfigValue(key, value)]),
+/** Real values of the loaded secrets; a row keeps masking them even if its key is renamed. */
+type SecretValues = ReadonlySet<string>;
+
+function secretValuesOf(record: Record<string, string> | undefined): Set<string> {
+  return new Set(
+    Object.entries(record ?? {})
+      .filter(([key, value]) => isSecretKey(key) && value !== '')
+      .map(([, value]) => value),
   );
 }
 
-function maskPairs(pairs: KeyValuePair[]): KeyValuePair[] {
-  return pairs.map((pair) => ({ ...pair, value: maskConfigValue(pair.key, pair.value) }));
+function isHidden(key: string, value: string, secrets: SecretValues): boolean {
+  return isSecretKey(key) || secrets.has(value);
 }
 
-function countSecrets(record: Record<string, string>): number {
-  return Object.keys(record).filter(isSecretKey).length;
+function maskValue(key: string, value: string, secrets: SecretValues): string {
+  return isHidden(key, value, secrets) ? MASK : value;
 }
+
+function maskRecord(record: Record<string, string>, secrets: SecretValues): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(record).map(([key, value]) => [key, maskValue(key, value, secrets)]),
+  );
+}
+
+function maskPairs(pairs: KeyValuePair[], secrets: SecretValues): KeyValuePair[] {
+  return pairs.map((pair) => ({ ...pair, value: maskValue(pair.key, pair.value, secrets) }));
+}
+
+function countSecrets(record: Record<string, string>, secrets: SecretValues): number {
+  return Object.entries(record).filter(([key, value]) => isHidden(key, value, secrets)).length;
+}
+
+/** True when a masked placeholder survived unmasking (new/renamed/pasted key). */
+function hasMaskPlaceholder(record: Record<string, string>): boolean {
+  return Object.values(record).some((value) => value === MASK);
+}
+
+const MASK_ERROR = 'Reveal secrets before editing masked keys';
 
 /**
  * The key/value editor only sees masked values while secrets are hidden. Map
  * untouched masked rows back to their real values so the mask is never saved.
  * Handles the editor's three operations: update (same length), add (+1 at the
- * end) and remove (-1 at an arbitrary index).
+ * end) and remove (-1 at an arbitrary index). Rows are matched by position, so a
+ * renamed secret row keeps its real value (and stays masked via `secrets`).
  */
-function unmaskPairs(next: KeyValuePair[], real: KeyValuePair[]): KeyValuePair[] {
-  const masked = maskPairs(real);
+function unmaskPairs(
+  next: KeyValuePair[],
+  real: KeyValuePair[],
+  secrets: SecretValues,
+): KeyValuePair[] {
+  const masked = maskPairs(real, secrets);
   let removed = -1;
   if (next.length === real.length - 1) {
     removed = masked.findIndex(
@@ -132,7 +165,7 @@ function unmaskPairs(next: KeyValuePair[], real: KeyValuePair[]): KeyValuePair[]
   return next.map((pair, i) => {
     const source = removed !== -1 && i >= removed ? i + 1 : i;
     const original = real[source];
-    if (original && pair.value === MASK && isSecretKey(original.key)) {
+    if (original && pair.value === MASK && isHidden(original.key, original.value, secrets)) {
       return { ...pair, value: original.value };
     }
     return pair;
@@ -143,10 +176,13 @@ function unmaskPairs(next: KeyValuePair[], real: KeyValuePair[]): KeyValuePair[]
 function unmaskRecord(
   next: Record<string, string>,
   real: Record<string, string>,
+  secrets: SecretValues,
 ): Record<string, string> {
   return Object.fromEntries(
     Object.entries(next).map(([key, value]) =>
-      value === MASK && isSecretKey(key) && key in real ? [key, real[key]] : [key, value],
+      value === MASK && key in real && isHidden(key, real[key], secrets)
+        ? [key, real[key]]
+        : [key, value],
     ),
   );
 }
@@ -164,6 +200,7 @@ export function ConnectorDetailPage() {
   const kc = decodeURIComponent(kcParam);
   const name = decodeURIComponent(nameParam);
   const navigate = useNavigate();
+  const { canEdit } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const requestedTab = searchParams.get('tab') ?? 'overview';
@@ -208,13 +245,17 @@ export function ConnectorDetailPage() {
   const isStopped = state === 'STOPPED';
   const isFailed = state === 'FAILED';
 
+  const secretValues = useMemo(() => secretValuesOf(data?.config), [data?.config]);
+
   /* Seed the config editors once the connector loads (and after a save). */
   useEffect(() => {
     if (!data?.config || dirty) return;
     setPairs(recordToPairs(data.config));
     setConfigJson(JSON.stringify(data.config, null, 2));
-    setJsonDraft(JSON.stringify(reveal.json ? data.config : maskRecord(data.config), null, 2));
-  }, [data?.config, dirty, reveal.json]);
+    setJsonDraft(
+      JSON.stringify(reveal.json ? data.config : maskRecord(data.config, secretValues), null, 2),
+    );
+  }, [data?.config, dirty, reveal.json, secretValues]);
 
   useEffect(() => {
     if (!offsets.data || offsetsDirty) return;
@@ -236,11 +277,13 @@ export function ConnectorDetailPage() {
     }
   }, [configView, pairs, configJson]);
 
-  const secretCount = countSecrets(currentConfig);
+  const secretCount = countSecrets(currentConfig, secretValues);
 
   /** Re-render the JSON editor text from state (on view switch / reveal toggle). */
   const syncJsonDraft = (revealSecrets: boolean) => {
-    setJsonDraft(revealSecrets ? configJson : JSON.stringify(maskRecord(currentConfig), null, 2));
+    setJsonDraft(
+      revealSecrets ? configJson : JSON.stringify(maskRecord(currentConfig, secretValues), null, 2),
+    );
   };
 
   /* ---- live validation against the plugin (debounced) ---- */
@@ -279,7 +322,7 @@ export function ConnectorDetailPage() {
   const validationBlocksSave = validate.error
     ? false
     : validate.isPending || validationStale || errorCount > 0;
-  const canSave = dirty && !configError && !validationBlocksSave;
+  const canSave = canEdit && dirty && !configError && !validationBlocksSave;
 
   const saveConfig = async () => {
     if (configError) return;
@@ -331,6 +374,14 @@ export function ConnectorDetailPage() {
 
   return (
     <div>
+      <UnsavedChangesGuard
+        dirty={dirty || offsetsDirty}
+        description={
+          offsetsDirty && !dirty
+            ? 'Your edited offsets have not been applied and will be lost if you leave this page.'
+            : 'Your configuration edits have not been saved and will be lost if you leave this page.'
+        }
+      />
       <PageHeader
         title={<span className="font-mono">{name}</span>}
         description={
@@ -519,20 +570,24 @@ export function ConnectorDetailPage() {
                 </Tabs>
                 <Tooltip
                   content={
-                    !dirty
-                      ? 'No changes'
-                      : configError
-                        ? 'Fix the JSON first'
-                        : errorCount > 0
-                          ? 'Fix validation errors first'
-                          : validationBlocksSave
-                            ? 'Waiting for validation'
-                            : 'Review changes and save'
+                    !canEdit
+                      ? REQUIRES_EDITOR
+                      : !dirty
+                        ? 'No changes'
+                        : configError
+                          ? configError
+                          : errorCount > 0
+                            ? 'Fix validation errors first'
+                            : validationBlocksSave
+                              ? 'Waiting for validation'
+                              : 'Review changes and save'
                   }
                 >
-                  <Button disabled={!canSave} onClick={() => setConfirmSave(true)}>
-                    <Save /> Save
-                  </Button>
+                  <span className="inline-flex">
+                    <Button disabled={!canSave} onClick={() => setConfirmSave(true)}>
+                      <Save /> Save
+                    </Button>
+                  </span>
                 </Tooltip>
               </div>
             </CardHeader>
@@ -572,19 +627,25 @@ export function ConnectorDetailPage() {
               {connector.isLoading ? (
                 <Skeleton className="h-72 w-full" />
               ) : configView === 'pairs' ? (
-                <KeyValueEditor
-                  value={reveal.pairs ? pairs : maskPairs(pairs)}
-                  onChange={(edited) => {
-                    const next = reveal.pairs ? edited : unmaskPairs(edited, pairs);
-                    setPairs(next);
-                    setConfigJson(JSON.stringify(pairsToRecord(next), null, 2));
-                    setConfigError(null);
-                    setDirty(true);
-                  }}
-                  keyPlaceholder="config.key"
-                  valuePlaceholder="value"
-                  addLabel="Add config"
-                />
+                <>
+                  <KeyValueEditor
+                    value={reveal.pairs ? pairs : maskPairs(pairs, secretValues)}
+                    onChange={(edited) => {
+                      const next = reveal.pairs ? edited : unmaskPairs(edited, pairs, secretValues);
+                      const record = pairsToRecord(next);
+                      setPairs(next);
+                      setConfigJson(JSON.stringify(record, null, 2));
+                      setConfigError(hasMaskPlaceholder(record) ? MASK_ERROR : null);
+                      setDirty(true);
+                    }}
+                    keyPlaceholder="config.key"
+                    valuePlaceholder="value"
+                    addLabel="Add config"
+                  />
+                  {configError ? (
+                    <p className="font-mono text-2xs text-[var(--danger)]">{configError}</p>
+                  ) : null}
+                </>
               ) : (
                 <>
                   <CodeEditor
@@ -596,10 +657,10 @@ export function ConnectorDetailPage() {
                         /* Masked placeholders are mapped back to the real values by key. */
                         const parsed = reveal.json
                           ? parseConfigJson(text)
-                          : unmaskRecord(parseConfigJson(text), currentConfig);
+                          : unmaskRecord(parseConfigJson(text), currentConfig, secretValues);
                         setConfigJson(JSON.stringify(parsed, null, 2));
                         setPairs(recordToPairs(parsed));
-                        setConfigError(null);
+                        setConfigError(hasMaskPlaceholder(parsed) ? MASK_ERROR : null);
                       } catch (e) {
                         setConfigError(e instanceof Error ? e.message : 'Invalid JSON');
                       }
@@ -723,23 +784,28 @@ export function ConnectorDetailPage() {
                                     Trace
                                   </Button>
                                 ) : null}
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  loading={
-                                    restartTask.isPending && restartTask.variables === task.id
-                                  }
-                                  onClick={async () => {
-                                    try {
-                                      await restartTask.mutateAsync(task.id);
-                                      toast.success(`Task ${task.id} restarted`);
-                                    } catch (e) {
-                                      toastError('Failed to restart task', e);
-                                    }
-                                  }}
-                                >
-                                  <RotateCcw /> Restart
-                                </Button>
+                                <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+                                  <span className="inline-flex">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={!canEdit}
+                                      loading={
+                                        restartTask.isPending && restartTask.variables === task.id
+                                      }
+                                      onClick={async () => {
+                                        try {
+                                          await restartTask.mutateAsync(task.id);
+                                          toast.success(`Task ${task.id} restarted`);
+                                        } catch (e) {
+                                          toastError('Failed to restart task', e);
+                                        }
+                                      }}
+                                    >
+                                      <RotateCcw /> Restart
+                                    </Button>
+                                  </span>
+                                </Tooltip>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -774,14 +840,18 @@ export function ConnectorDetailPage() {
           <Card>
             <CardHeader className="flex-row items-center justify-between gap-2">
               <CardTitle>Active topics</CardTitle>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setConfirmResetTopics(true)}
-                disabled={topicList.length === 0}
-              >
-                <Eraser /> Reset topic set
-              </Button>
+              <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+                <span className="inline-flex">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setConfirmResetTopics(true)}
+                    disabled={!canEdit || topicList.length === 0}
+                  >
+                    <Eraser /> Reset topic set
+                  </Button>
+                </span>
+              </Tooltip>
             </CardHeader>
             <CardContent>
               {topics.isLoading ? (
@@ -823,15 +893,19 @@ export function ConnectorDetailPage() {
                 <span className="font-mono">STOPPED</span> — current offsets are read-only until
                 then.
               </span>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!data}
-                loading={action.isPending}
-                onClick={() => setConfirmStop(true)}
-              >
-                <Square /> Stop connector
-              </Button>
+              <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+                <span className="inline-flex">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!canEdit || !data}
+                    loading={action.isPending}
+                    onClick={() => setConfirmStop(true)}
+                  >
+                    <Square /> Stop connector
+                  </Button>
+                </span>
+              </Tooltip>
             </div>
           ) : null}
 
@@ -839,32 +913,40 @@ export function ConnectorDetailPage() {
             <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
               <CardTitle>Committed offsets</CardTitle>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!isStopped || !offsetsDirty}
-                  loading={patchOffsets.isPending}
-                  onClick={async () => {
-                    try {
-                      const parsed = JSON.parse(offsetsDraft) as ConnectorOffsetsPatch;
-                      await patchOffsets.mutateAsync(parsed);
-                      toast.success('Offsets updated');
-                      setOffsetsDirty(false);
-                    } catch (e) {
-                      toastError('Failed to update offsets', e);
-                    }
-                  }}
-                >
-                  <Save /> Apply offsets
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={!isStopped}
-                  onClick={() => setConfirmResetOffsets(true)}
-                >
-                  <Trash2 /> Reset offsets
-                </Button>
+                <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+                  <span className="inline-flex">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!canEdit || !isStopped || !offsetsDirty}
+                      loading={patchOffsets.isPending}
+                      onClick={async () => {
+                        try {
+                          const parsed = JSON.parse(offsetsDraft) as ConnectorOffsetsPatch;
+                          await patchOffsets.mutateAsync(parsed);
+                          toast.success('Offsets updated');
+                          setOffsetsDirty(false);
+                        } catch (e) {
+                          toastError('Failed to update offsets', e);
+                        }
+                      }}
+                    >
+                      <Save /> Apply offsets
+                    </Button>
+                  </span>
+                </Tooltip>
+                <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+                  <span className="inline-flex">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={!canEdit || !isStopped}
+                      onClick={() => setConfirmResetOffsets(true)}
+                    >
+                      <Trash2 /> Reset offsets
+                    </Button>
+                  </span>
+                </Tooltip>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -919,8 +1001,8 @@ export function ConnectorDetailPage() {
           </DialogHeader>
           <DialogBody className="space-y-2">
             <DiffView
-              from={JSON.stringify(maskRecord(data?.config ?? {}), null, 2)}
-              to={JSON.stringify(maskRecord(currentConfig), null, 2)}
+              from={JSON.stringify(maskRecord(data?.config ?? {}, secretValues), null, 2)}
+              to={JSON.stringify(maskRecord(currentConfig, secretValues), null, 2)}
               fromLabel="current"
               toLabel="edited"
               maxHeight={360}

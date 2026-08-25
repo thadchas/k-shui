@@ -12,6 +12,7 @@ from k_shui.api.schemas.lineage import (
     LineageNodeDetail,
     OpenLineageResult,
 )
+from k_shui.core.auth import require_editor, require_viewer
 from k_shui.core.errors import NotFound
 from k_shui.core.registry import ClusterContext, ClusterRegistry, get_cluster, get_registry
 from k_shui.integrations.audit import audit
@@ -19,7 +20,7 @@ from k_shui.integrations.lineage import get_marquez, try_marquez
 from k_shui.integrations.lineage_builder import ALL_SOURCES, build
 from k_shui.integrations.memstore import openlineage_events
 
-router = APIRouter(tags=["lineage"])
+router = APIRouter(tags=["lineage"], dependencies=[Depends(require_viewer)])
 BASE = "/clusters/{cluster_id}/lineage"
 
 
@@ -156,7 +157,12 @@ async def marquez_graph(
     return {"graph": await get_marquez(ctx).lineage(nodeId, depth)}
 
 
-@router.post("/lineage/openlineage", response_model=OpenLineageResult, status_code=202)
+@router.post(
+    "/lineage/openlineage",
+    response_model=OpenLineageResult,
+    status_code=202,
+    dependencies=[Depends(require_editor)],
+)
 async def ingest_openlineage(
     request: Request,
     event: dict[str, Any] = Body(...),

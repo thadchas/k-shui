@@ -1,10 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Copy, Download, MessageSquare, MoreHorizontal, Play, Send, Square } from 'lucide-react';
+import {
+  ArrowUp,
+  Copy,
+  Crosshair,
+  Download,
+  MessageSquare,
+  MoreHorizontal,
+  Pause,
+  Play,
+  Radio,
+  Send,
+  Square,
+  X,
+} from 'lucide-react';
 import { useExportMessages, useMessageStream } from '@/api/hooks/messages';
 import type {
   ExportFormat,
   FilterMode,
+  FilterTarget,
   Message,
   MessageFormat,
   MessageMode,
@@ -38,8 +52,10 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { isCompacted } from './InternalTopicAck';
 import { MessageDetailDrawer } from './MessageDetailDrawer';
 import {
+  exactKeyPattern,
   formatMessageTimestamp,
   isTombstone,
+  keyFilterValue,
   readTimestampFormat,
   serializeMessages,
   stringifyField,
@@ -54,6 +70,7 @@ const MODE_OPTIONS: { label: string; value: MessageMode }[] = [
   { label: 'Earliest', value: 'earliest' },
   { label: 'From offset', value: 'offset' },
   { label: 'From timestamp', value: 'timestamp' },
+  { label: 'Live tail', value: 'tail' },
 ];
 
 const FORMAT_OPTIONS: { label: string; value: MessageFormat }[] = [
@@ -74,6 +91,16 @@ const FILTER_MODES: { label: string; value: FilterMode }[] = [
   { label: 'regex', value: 'regex' },
   { label: 'jsonpath', value: 'jsonpath' },
 ];
+
+const FILTER_TARGETS: { label: string; value: FilterTarget }[] = [
+  { label: 'anywhere', value: 'any' },
+  { label: 'key', value: 'key' },
+  { label: 'value', value: 'value' },
+  { label: 'header', value: 'header' },
+];
+
+/** How far (px) the grid may be scrolled before we stop pinning it to the newest row. */
+const AUTOSCROLL_THRESHOLD = 24;
 
 const LIMIT_OPTIONS = [50, 100, 250, 500, 1000].map((n) => ({
   label: String(n),
@@ -135,6 +162,9 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
   const [valueFormat, setValueFormat] = useState<MessageFormat>('auto');
   const [filter, setFilter] = useState('');
   const [filterMode, setFilterMode] = useState<FilterMode>('contains');
+  const [filterTarget, setFilterTarget] = useState<FilterTarget>('any');
+  /** Exact key the browser is scoped to via the "Follow key" chip (null = free-form filter). */
+  const [followKey, setFollowKey] = useState<string | null>(null);
   const [hideTombstones, setHideTombstones] = useState(false);
   const [tsFormat, setTsFormat] = useState<TimestampFormat>(() => readTimestampFormat());
   const [selected, setSelected] = useState<Message | null>(null);
@@ -194,6 +224,7 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
       valueFormat,
       filter: filter || undefined,
       filterMode: filter ? filterMode : undefined,
+      filterTarget: filter && filterTarget !== 'any' ? filterTarget : undefined,
     }),
     [
       mode,
@@ -206,6 +237,7 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
       valueFormat,
       filter,
       filterMode,
+      filterTarget,
     ],
   );
 
@@ -216,6 +248,76 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
     setHasRun(true);
     stream.start(queryRef.current);
   }, [stream]);
+
+  const isTail = mode === 'tail';
+
+  /* ------------------------------ follow key ------------------------------- */
+
+  // Scope the filter to one exact key and re-run (a running tail restarts with the new filter).
+  const follow = useCallback(
+    (key: string) => {
+      const pattern = exactKeyPattern(key);
+      setFollowKey(key);
+      setFilter(pattern);
+      setFilterMode('regex');
+      setFilterTarget('key');
+      setSelected(null);
+      setHasRun(true);
+      stream.start({
+        ...queryRef.current,
+        filter: pattern,
+        filterMode: 'regex',
+        filterTarget: 'key',
+      });
+    },
+    [stream],
+  );
+
+  const unfollow = useCallback(() => {
+    setFollowKey(null);
+    setFilter('');
+    setFilterMode('contains');
+    setFilterTarget('any');
+    if (stream.live && stream.streaming) {
+      stream.start({
+        ...queryRef.current,
+        filter: undefined,
+        filterMode: undefined,
+        filterTarget: undefined,
+      });
+    }
+  }, [stream]);
+
+  /* ------------------------------ auto-scroll ------------------------------ */
+
+  // Tail mode prepends rows; keep the grid pinned to the top unless the user scrolled away.
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [scrolledAway, setScrolledAway] = useState(false);
+  const scrollEl = () => gridRef.current?.querySelector<HTMLElement>('.overflow-auto') ?? null;
+
+  useEffect(() => {
+    if (!stream.live) {
+      setScrolledAway(false);
+      return;
+    }
+    const el = scrollEl();
+    if (!el) return;
+    const onScroll = () => setScrolledAway(el.scrollTop > AUTOSCROLL_THRESHOLD);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [stream.live, hasRun]);
+
+  useEffect(() => {
+    if (!stream.live || scrolledAway || stream.lastFlushAt === 0) return;
+    const el = scrollEl();
+    if (el && el.scrollTop > 0) el.scrollTop = 0;
+  }, [stream.live, stream.lastFlushAt, scrolledAway]);
+
+  const jumpToLatest = () => {
+    const el = scrollEl();
+    if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
+    setScrolledAway(false);
+  };
 
   // Seek requests from outside (partition row click) select the partition and fetch.
   const lastSeek = useRef<number | null>(null);
@@ -250,13 +352,15 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
     return total;
   }, [scopedPartitions, mode, limit, scalarOffset, startOffsets, filter]);
 
-  const progressPct = stream.progress.done
-    ? 100
-    : estimatedTotal > 0
-      ? Math.min(99, Math.round((stream.progress.scanned / estimatedTotal) * 100))
-      : stream.progress.scanned > 0
-        ? 99
-        : 0;
+  const progressPct = stream.live
+    ? 0
+    : stream.progress.done
+      ? 100
+      : estimatedTotal > 0
+        ? Math.min(99, Math.round((stream.progress.scanned / estimatedTotal) * 100))
+        : stream.progress.scanned > 0
+          ? 99
+          : 0;
 
   /* -------------------------------- export --------------------------------- */
 
@@ -268,8 +372,10 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
     [stream.messages, hideTombstones, compacted],
   );
 
+  const exportOnScreen = (stream.progress.done || stream.live) && visibleMessages.length > 0;
+
   const doExport = async (format: ExportFormat) => {
-    if (stream.progress.done && visibleMessages.length > 0) {
+    if (exportOnScreen) {
       const { blob, extension } = serializeMessages(visibleMessages, format);
       downloadBlob(blob, `${topic}-messages.${extension}`);
       toast.success(`Exported ${visibleMessages.length} on-screen messages`);
@@ -315,17 +421,25 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
         id: 'key',
         header: 'Key',
         meta: { label: 'Key', widthClass: 'w-48' },
-        cell: ({ row }) => (
-          <span className="block max-w-48 truncate font-mono text-[13px]">
-            {row.original.key === null || row.original.key === undefined ? (
-              <span className="text-[var(--muted)]" title="Record has no key">
-                —
-              </span>
-            ) : (
-              renderPreview(row.original.key)
-            )}
-          </span>
-        ),
+        cell: ({ row }) =>
+          row.original.key === null || row.original.key === undefined ? (
+            <span className="text-[var(--muted)]" title="Record has no key">
+              —
+            </span>
+          ) : (
+            <Tooltip content="Follow this key (filter the browser to it)">
+              <button
+                type="button"
+                className="block max-w-48 truncate rounded px-1 -mx-1 text-left font-mono text-[13px] hover:bg-[var(--surface-2)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  follow(keyFilterValue(row.original.key));
+                }}
+              >
+                {renderPreview(row.original.key)}
+              </button>
+            </Tooltip>
+          ),
       },
       {
         id: 'value',
@@ -357,7 +471,7 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
         cell: ({ row }) => Object.keys(row.original.headers ?? {}).length,
       },
     ],
-    [tsFormat],
+    [tsFormat, follow],
   );
 
   const rowActions = (m: Message) => (
@@ -391,6 +505,13 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => void copyText('Offset', String(m.offset))}>
           <Copy /> Copy offset
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={m.key === null || m.key === undefined}
+          onSelect={() => follow(keyFilterValue(m.key))}
+        >
+          <Crosshair /> Follow key
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -524,16 +645,21 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
                 id="msg-filter"
                 mono
                 value={filter}
-                onChange={(e) => setFilter(e.target.value)}
+                onChange={(e) => {
+                  setFilter(e.target.value);
+                  if (followKey !== null) setFollowKey(null);
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) run();
+                  if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !stream.streaming) run();
                 }}
                 placeholder={
                   filterMode === 'jsonpath'
                     ? '$.order.status'
                     : filterMode === 'regex'
-                      ? 'ERROR|WARN'
-                      : 'substring…'
+                      ? 'ERROR|WARN  or  header:name=^v\\d+'
+                      : filterTarget === 'header'
+                        ? 'name=value  (or just name)'
+                        : 'substring…  or  header:name=value'
                 }
               />
               <SimpleSelect
@@ -542,25 +668,62 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
                 onValueChange={(v) => setFilterMode(v as FilterMode)}
                 options={FILTER_MODES}
               />
+              <Tooltip content="Where to match: key, value, headers, or anywhere">
+                <span>
+                  <SimpleSelect
+                    className="w-[112px]"
+                    value={filterTarget}
+                    onValueChange={(v) => setFilterTarget(v as FilterTarget)}
+                    options={FILTER_TARGETS}
+                    aria-label="Filter target"
+                  />
+                </span>
+              </Tooltip>
             </div>
           </div>
 
           <div className="ml-auto flex items-center gap-2">
             {stream.streaming ? (
-              <Button variant="destructive" onClick={stream.stop}>
-                <Square /> Stop
-              </Button>
+              <>
+                {stream.live ? (
+                  stream.paused ? (
+                    <Button variant="secondary" onClick={stream.resume}>
+                      <Play /> Resume
+                      {stream.pendingCount > 0 ? (
+                        <Badge variant="info" size="sm">
+                          {formatCompact(stream.pendingCount)} new
+                        </Badge>
+                      ) : null}
+                    </Button>
+                  ) : (
+                    <Button variant="secondary" onClick={stream.pause}>
+                      <Pause /> Pause
+                    </Button>
+                  )
+                ) : null}
+                <Button variant="destructive" onClick={stream.stop}>
+                  <Square /> Stop
+                </Button>
+              </>
             ) : (
               <Tooltip
                 content={
                   <span className="flex items-center gap-1">
-                    Fetch <Kbd>{IS_MAC ? '⌘' : 'Ctrl'}</Kbd>
+                    {isTail ? 'Start tailing' : 'Fetch'} <Kbd>{IS_MAC ? '⌘' : 'Ctrl'}</Kbd>
                     <Kbd>↵</Kbd>
                   </span>
                 }
               >
                 <Button onClick={run}>
-                  <Play /> Fetch
+                  {isTail ? (
+                    <>
+                      <Radio /> Live tail
+                    </>
+                  ) : (
+                    <>
+                      <Play /> Fetch
+                    </>
+                  )}
                 </Button>
               </Tooltip>
             )}
@@ -577,7 +740,7 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel className="font-normal text-[var(--muted)]">
-                  {stream.progress.done && visibleMessages.length > 0
+                  {exportOnScreen
                     ? `${formatCompact(visibleMessages.length)} on-screen messages`
                     : 'Re-runs the query on the server'}
                 </DropdownMenuLabel>
@@ -667,6 +830,23 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
 
         {/* display options */}
         <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-[var(--muted)]">
+          {followKey !== null ? (
+            <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-[color-mix(in_srgb,var(--primary)_40%,transparent)] bg-[color-mix(in_srgb,var(--primary)_10%,transparent)] py-0.5 pr-1 pl-2 text-[var(--primary)]">
+              <Crosshair className="size-3 shrink-0" />
+              <span className="whitespace-nowrap">Following key</span>
+              <span className="max-w-64 truncate font-mono" title={followKey}>
+                {followKey}
+              </span>
+              <button
+                type="button"
+                className="rounded-full p-0.5 hover:bg-[color-mix(in_srgb,var(--primary)_20%,transparent)]"
+                aria-label="Stop following key"
+                onClick={unfollow}
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ) : null}
           <div className="flex items-center gap-2">
             <span>Timestamps</span>
             <SimpleSelect
@@ -693,8 +873,59 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
           ) : null}
         </div>
 
-        {/* progress */}
-        {hasRun ? (
+        {/* progress / live status */}
+        {hasRun && stream.live ? (
+          <div
+            className="mt-4 flex flex-wrap items-center justify-between gap-2 text-2xs text-[var(--muted)]"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="flex flex-wrap items-center gap-2">
+              {stream.streaming ? (
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold uppercase tracking-wide',
+                    stream.paused
+                      ? 'bg-[color-mix(in_srgb,var(--warning)_18%,transparent)] text-[var(--warning)]'
+                      : 'bg-[color-mix(in_srgb,var(--success)_16%,transparent)] text-[var(--success)]',
+                  )}
+                >
+                  <span className="relative flex size-2">
+                    {!stream.paused ? (
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-current opacity-60" />
+                    ) : null}
+                    <span className="relative inline-flex size-2 rounded-full bg-current" />
+                  </span>
+                  {stream.paused ? 'paused' : 'live'}
+                </span>
+              ) : (
+                <Badge variant="secondary">stopped</Badge>
+              )}
+              {stream.streaming ? (
+                stream.behind > 0 ? (
+                  <Badge variant="warning" size="sm">
+                    {formatCompact(stream.behind)} behind
+                  </Badge>
+                ) : (
+                  <Badge variant="success" size="sm">
+                    caught up
+                  </Badge>
+                )
+              ) : null}
+              {stream.paused && stream.pendingCount > 0 ? (
+                <Badge variant="info" size="sm">
+                  {formatCompact(stream.pendingCount)} new while paused
+                </Badge>
+              ) : null}
+              <span className="font-mono tabular-nums">
+                {formatCompact(visibleMessages.length)} shown (last {formatCompact(limit)}) ·{' '}
+                {formatCompact(stream.progress.scanned)} seen ·{' '}
+                {formatCompact(stream.progress.matched)} matched
+              </span>
+            </span>
+            <span>Newest first · following from the end of the topic</span>
+          </div>
+        ) : hasRun ? (
           <div className="mt-4 space-y-1.5">
             <div className="flex items-center justify-between text-2xs text-[var(--muted)]">
               <span className="flex items-center gap-2">
@@ -727,48 +958,78 @@ export function MessagesTab({ cluster, topic, partitions, cleanupPolicy, seek }:
 
       {stream.error ? <InlineError error={stream.error} /> : null}
 
-      <DataTable
-        columns={columns}
-        data={visibleMessages}
-        loading={stream.streaming && stream.messages.length === 0}
-        hideToolbar
-        onRowClick={setSelected}
-        rowActions={rowActions}
-        maxHeight="60vh"
-        rowLabel="messages"
-        skeletonRows={10}
-        emptyState={
-          <EmptyState
-            icon={MessageSquare}
-            title={
-              hasRun
-                ? hideTombstones && stream.messages.length > 0
-                  ? 'Only tombstones matched'
-                  : 'No messages matched'
-                : 'Ready to browse'
-            }
-            description={
-              hasRun
-                ? hideTombstones && stream.messages.length > 0
-                  ? 'Turn off "Hide tombstones" to see them.'
-                  : 'Try a wider time window, a different mode, or clear the filter.'
-                : 'Pick a mode and hit Fetch to stream records from this topic.'
-            }
-            action={
-              !hasRun ? (
-                <Button onClick={run}>
-                  <Play /> Fetch messages
-                </Button>
-              ) : undefined
-            }
-          />
-        }
-      />
+      <div ref={gridRef} className="relative">
+        <DataTable
+          columns={columns}
+          data={visibleMessages}
+          loading={stream.streaming && !stream.live && stream.messages.length === 0}
+          hideToolbar
+          onRowClick={setSelected}
+          rowActions={rowActions}
+          maxHeight="60vh"
+          rowLabel="messages"
+          skeletonRows={10}
+          emptyState={
+            <EmptyState
+              icon={stream.live && stream.streaming ? Radio : MessageSquare}
+              title={
+                stream.live && stream.streaming
+                  ? 'Waiting for new records…'
+                  : hasRun
+                    ? hideTombstones && stream.messages.length > 0
+                      ? 'Only tombstones matched'
+                      : 'No messages matched'
+                    : 'Ready to browse'
+              }
+              description={
+                stream.live && stream.streaming
+                  ? followKey !== null
+                    ? `Records with key ${followKey} will appear here as they are produced.`
+                    : 'New records will appear here as they are produced to the topic.'
+                  : hasRun
+                    ? hideTombstones && stream.messages.length > 0
+                      ? 'Turn off "Hide tombstones" to see them.'
+                      : 'Try a wider time window, a different mode, or clear the filter.'
+                    : isTail
+                      ? 'Start a live tail to follow new records as they arrive.'
+                      : 'Pick a mode and hit Fetch to stream records from this topic.'
+              }
+              action={
+                !hasRun ? (
+                  <Button onClick={run}>
+                    {isTail ? (
+                      <>
+                        <Radio /> Start live tail
+                      </>
+                    ) : (
+                      <>
+                        <Play /> Fetch messages
+                      </>
+                    )}
+                  </Button>
+                ) : undefined
+              }
+            />
+          }
+        />
+        {stream.live && stream.streaming && scrolledAway ? (
+          <div className="pointer-events-none absolute inset-x-0 top-12 z-10 flex justify-center">
+            <Button
+              size="sm"
+              className="pointer-events-auto shadow-[var(--shadow-lg)]"
+              onClick={jumpToLatest}
+            >
+              <ArrowUp /> Jump to latest
+            </Button>
+          </div>
+        ) : null}
+      </div>
 
       <MessageDetailDrawer
         message={selected}
         onOpenChange={(open) => !open && setSelected(null)}
         timestampFormat={tsFormat}
+        onFollowKey={follow}
       />
       <ProduceMessageSheet
         open={produceOpen}

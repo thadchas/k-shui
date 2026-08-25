@@ -26,7 +26,11 @@ router = APIRouter(prefix="/clusters/{cluster_id}/topics/{topic}/messages", tags
 
 def browse_params(
     topic: str,
-    mode: str = Query("latest", pattern="^(latest|earliest|offset|timestamp)$"),
+    mode: str = Query(
+        "latest",
+        pattern="^(latest|earliest|offset|timestamp|tail)$",
+        description="tail = live follow from the end (or startOffsets) until the client disconnects",
+    ),
     partitions: str | None = Query(None, description="comma separated partition ids"),
     offset: int | None = Query(None),
     startOffsets: str | None = Query(
@@ -38,6 +42,11 @@ def browse_params(
     valueFormat: str = Query("auto"),
     filter: str | None = Query(None),
     filterMode: str = Query("contains", pattern="^(contains|regex|jsonpath)$"),
+    filterTarget: str = Query(
+        "any",
+        pattern="^(any|key|value|header)$",
+        description="scope the filter to the key, value or headers; 'header:<name>=<value>' also works",
+    ),
     includeRaw: bool = Query(False),
     timeBudget: float = Query(15.0, ge=1.0, le=120.0),
 ) -> BrowseRequest:
@@ -73,6 +82,7 @@ def browse_params(
         value_format=valueFormat,
         filter=filter,
         filter_mode=filterMode,
+        filter_target=filterTarget,
         include_raw=includeRaw,
         time_budget=timeBudget,
     )
@@ -91,6 +101,8 @@ async def get_messages(
         return MessagesResponse(**await browser.collect(req))
 
     async def generator() -> AsyncIterator[dict[str, str]]:
+        # ``browse`` closes its consumer in ``finally`` both when we break out here after a
+        # disconnect and when sse-starlette cancels this generator (tail mode never ends on its own).
         async for event in browser.browse(req):
             kind = event.pop("type")
             payload = event.get("message") if kind == "message" else event

@@ -1,6 +1,7 @@
 import { Crown } from 'lucide-react';
 import { useClusterConfigs, useKRaftQuorum, useUpdateClusterConfigs } from '@/api/hooks/clusters';
 import { useClusterId } from '@/hooks/useClusterId';
+import { usePermissions } from '@/hooks/usePermissions';
 import { formatNumber, formatRelative } from '@/lib/format';
 import { ConfigTable } from '@/components/ConfigTable';
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +24,7 @@ export function ClusterSettingsPage() {
   const configs = useClusterConfigs(cluster);
   const updateConfigs = useUpdateClusterConfigs(cluster);
   const quorum = useKRaftQuorum(cluster);
+  const { canEdit } = usePermissions();
 
   const replicas = [
     ...(quorum.data?.voters ?? []).map((v) => ({ ...v, role: 'voter' as const })),
@@ -44,6 +46,7 @@ export function ClusterSettingsPage() {
           error={configs.error}
           onRetry={() => void configs.refetch()}
           saving={updateConfigs.isPending}
+          readOnly={!canEdit}
           onSave={async (changes) => {
             try {
               await updateConfigs.mutateAsync({ configs: changes });

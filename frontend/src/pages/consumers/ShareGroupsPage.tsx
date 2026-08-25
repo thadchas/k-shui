@@ -80,6 +80,7 @@ export function ShareGroupsPage() {
           searchPlaceholder="Search share groups…"
           defaultSorting={[{ id: 'totalLag', desc: true }]}
           rowLabel="share groups"
+          caption="Share groups in this cluster with state, members and lag"
           emptyState={<EmptyState icon={Share2} title="No share groups" />}
         />
       )}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { ArrowLeft, CircleCheck, FileJson, ShieldCheck, Wand2 } from 'lucide-react';
 import {
@@ -9,6 +10,8 @@ import {
 import { useTopics } from '@/api/hooks/topics';
 import type { SchemaReference, SchemaType } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { UnsavedChangesGuard } from '@/pages/connect/components/UnsavedChangesGuard';
 import { CodeEditor } from '@/components/CodeEditor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,6 +21,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { SimpleSelect } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 import { CompatibilityResult } from './components/CompatibilityResult';
 import { SchemaReferencesEditor } from './components/SchemaReferencesEditor';
 import {
@@ -62,6 +66,8 @@ export function NewSchemaPage() {
   const [part, setPart] = useState<'key' | 'value'>('value');
   const [recordName, setRecordName] = useState('');
   const [touchedSchema, setTouchedSchema] = useState(false);
+  const [registered, setRegistered] = useState(false);
+  const { canEdit } = usePermissions();
 
   const topics = useTopics(cluster, { perPage: 500 });
   const subjects = useSchemaSubjects(cluster);
@@ -97,6 +103,7 @@ export function NewSchemaPage() {
   const jsonError = useMemo(() => validateSchemaText(schema, schemaType), [schema, schemaType]);
 
   const canSubmit = Boolean(subject.trim()) && Boolean(schema.trim()) && !jsonError;
+  const dirty = !registered && (touchedSchema || subject.trim() !== presetSubject.trim());
 
   const cleanReferences = () =>
     references.filter((r) => r.name.trim() && r.subject.trim()).map((r) => ({ ...r }));
@@ -170,6 +177,7 @@ export function NewSchemaPage() {
         normalize: normalize || undefined,
       });
       toast.success(`Registered schema id ${result?.id ?? ''}`.trim());
+      flushSync(() => setRegistered(true));
       void navigate(`/c/${cluster}/schemas/${encodeURIComponent(subject.trim())}`);
     } catch (e) {
       toastError('Failed to register schema', e);
@@ -178,6 +186,10 @@ export function NewSchemaPage() {
 
   return (
     <div>
+      <UnsavedChangesGuard
+        dirty={dirty}
+        description="The schema you are editing has not been registered and will be lost if you leave this page."
+      />
       <PageHeader
         title="Register schema"
         description="Add a new subject, or a new version of an existing subject, to the registry."
@@ -204,13 +216,17 @@ export function NewSchemaPage() {
             >
               <ShieldCheck /> Check compatibility
             </Button>
-            <Button
-              disabled={!canSubmit}
-              loading={register.isPending}
-              onClick={() => void onRegister()}
-            >
-              <FileJson /> Register
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button
+                  disabled={!canEdit || !canSubmit}
+                  loading={register.isPending}
+                  onClick={() => void onRegister()}
+                >
+                  <FileJson /> Register
+                </Button>
+              </span>
+            </Tooltip>
           </>
         }
       />

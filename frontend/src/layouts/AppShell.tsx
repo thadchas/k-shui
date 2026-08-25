@@ -5,6 +5,7 @@ import { Boxes } from 'lucide-react';
 import { useClusters } from '@/api/hooks/clusters';
 import { useInfo } from '@/api/hooks/system';
 import { qk } from '@/api/keys';
+import type { InfoResponse } from '@/api/types';
 import { CommandPalette } from '@/components/CommandPalette';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,11 @@ export function AppShell() {
   useEffect(() => {
     if (!sessionExpired) return;
     ackSessionExpired();
+    // Drop the cached user first so LoginPage does not bounce back on the stale /info
+    // (it would otherwise see a server session and send us straight back here).
+    qc.setQueryData<InfoResponse>(qk.info(), (old) =>
+      old ? { ...old, auth: { ...old.auth, user: null } } : old,
+    );
     void qc.invalidateQueries({ queryKey: qk.info() });
     if (!info?.auth.enabled) return;
     void navigate('/login', {

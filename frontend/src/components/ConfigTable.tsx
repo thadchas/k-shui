@@ -27,6 +27,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
+import { REQUIRES_EDITOR } from '@/hooks/usePermissions';
 
 const MASK = '••••••••';
 
@@ -38,6 +39,13 @@ export interface ConfigTableProps {
   /** Enables inline edit + diff/confirm. Omit for read-only. */
   onSave?: (changes: Record<string, string | null>) => Promise<void> | void;
   saving?: boolean;
+  /**
+   * Keep the edit column visible but disable editing (e.g. viewer role). Pending drafts are
+   * kept but cannot be applied; tooltips explain why.
+   */
+  readOnly?: boolean;
+  /** Tooltip shown on disabled edit controls when `readOnly`. */
+  readOnlyReason?: string;
   className?: string;
   title?: string;
   description?: string;
@@ -56,6 +64,8 @@ export function ConfigTable({
   onRetry,
   onSave,
   saving,
+  readOnly = false,
+  readOnlyReason = REQUIRES_EDITOR,
   className,
 }: ConfigTableProps) {
   const [search, setSearch] = useState('');
@@ -89,7 +99,7 @@ export function ConfigTable({
   };
 
   const applyChanges = async () => {
-    if (!onSave) return;
+    if (!onSave || readOnly) return;
     const payload: Record<string, string | null> = {};
     for (const change of changes) payload[change.name] = change.to === '' ? null : change.to;
     await onSave(payload);
@@ -123,9 +133,13 @@ export function ConfigTable({
             <Button variant="outline" size="sm" onClick={resetDrafts}>
               <RotateCcw /> Discard
             </Button>
-            <Button size="sm" onClick={() => setConfirmOpen(true)}>
-              Review &amp; apply
-            </Button>
+            <Tooltip content={readOnly ? readOnlyReason : undefined}>
+              <span className="inline-flex">
+                <Button size="sm" disabled={readOnly} onClick={() => setConfirmOpen(true)}>
+                  Review &amp; apply
+                </Button>
+              </span>
+            </Tooltip>
           </div>
         ) : null}
       </div>
@@ -299,17 +313,22 @@ export function ConfigTable({
                             <X />
                           </Button>
                         ) : (
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`Edit ${config.name}`}
-                            onClick={() => {
-                              setDrafts((d) => ({ ...d, [config.name]: config.value ?? '' }));
-                              setEditing(config.name);
-                            }}
-                          >
-                            <Pencil />
-                          </Button>
+                          <Tooltip content={readOnly ? readOnlyReason : undefined}>
+                            <span className="inline-flex">
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`Edit ${config.name}`}
+                                disabled={readOnly}
+                                onClick={() => {
+                                  setDrafts((d) => ({ ...d, [config.name]: config.value ?? '' }));
+                                  setEditing(config.name);
+                                }}
+                              >
+                                <Pencil />
+                              </Button>
+                            </span>
+                          </Tooltip>
                         )}
                       </TableCell>
                     ) : null}
@@ -362,7 +381,7 @@ export function ConfigTable({
             <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={saving}>
               Cancel
             </Button>
-            <Button loading={saving} onClick={() => void applyChanges()}>
+            <Button loading={saving} disabled={readOnly} onClick={() => void applyChanges()}>
               Apply {changes.length} {changes.length === 1 ? 'change' : 'changes'}
             </Button>
           </DialogFooter>

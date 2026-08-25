@@ -9,6 +9,7 @@ import {
 } from '@/api/hooks/consumerGroups';
 import type { ConsumerGroupMember, ConsumerGroupPartition, TimeRange } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { formatCompact, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
@@ -33,6 +34,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TimeRangePicker } from '@/components/ui/time-range-picker';
 import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 import { ResetOffsetsDialog } from './components/ResetOffsetsDialog';
 import { TIME_LAG_WARN_MS, formatTimeLag } from './lag';
 
@@ -117,6 +119,7 @@ export function ConsumerGroupDetailPage() {
   const { group: groupParam = '' } = useParams<{ group: string }>();
   const group = decodeURIComponent(groupParam);
   const navigate = useNavigate();
+  const { canEdit } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get('tab') ?? 'overview';
   const [range, setRange] = useState<TimeRange>('1h');
@@ -336,12 +339,24 @@ export function ConsumerGroupDetailPage() {
             <Button variant="outline" onClick={() => void navigate(`/c/${cluster}/consumers`)}>
               <ArrowLeft /> All groups
             </Button>
-            <Button variant="secondary" onClick={() => setResetOpen(true)}>
-              <RotateCcw /> Reset offsets
-            </Button>
-            <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
-              <Trash2 /> Delete
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button variant="secondary" disabled={!canEdit} onClick={() => setResetOpen(true)}>
+                  <RotateCcw /> Reset offsets
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button
+                  variant="destructive"
+                  disabled={!canEdit}
+                  onClick={() => setDeleteOpen(true)}
+                >
+                  <Trash2 /> Delete
+                </Button>
+              </span>
+            </Tooltip>
           </>
         }
       />
@@ -443,6 +458,7 @@ export function ConsumerGroupDetailPage() {
             hideToolbar
             defaultSorting={[{ id: 'lag', desc: true }]}
             rowLabel="partitions"
+            caption={`Partition assignments and lag for consumer group ${group}`}
             emptyState={<EmptyState icon={Users} title="No partition assignments" />}
           />
         </TabsContent>
@@ -493,6 +509,7 @@ export function ConsumerGroupDetailPage() {
             onRowClick={(row) => toggleMember(row.memberId)}
             isRowSelected={(row) => expandedMembers.has(row.memberId)}
             rowLabel="members"
+            caption={`Active members of consumer group ${group}`}
             emptyState={
               <EmptyState
                 icon={Users}

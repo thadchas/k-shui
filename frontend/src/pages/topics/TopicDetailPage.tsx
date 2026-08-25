@@ -23,6 +23,7 @@ import {
 } from '@/api/hooks/topics';
 import type { TimeRange } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { pickSeries } from '@/lib/charts';
 import {
   formatBytesEstimate,
@@ -85,6 +86,7 @@ export function TopicDetailPage() {
   const { topic: topicParam = '' } = useParams<{ topic: string }>();
   const topic = decodeURIComponent(topicParam);
   const navigate = useNavigate();
+  const { canEdit } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab') ?? 'overview';
   const tab = TABS.includes(requestedTab) ? requestedTab : 'overview';
@@ -164,19 +166,36 @@ export function TopicDetailPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem disabled={!data} onSelect={() => setPartitionsOpen(true)}>
+                {!canEdit ? (
+                  <p className="px-2 py-1.5 text-2xs text-[var(--muted)]">{REQUIRES_EDITOR}</p>
+                ) : null}
+                <DropdownMenuItem
+                  disabled={!data || !canEdit}
+                  title={canEdit ? undefined : REQUIRES_EDITOR}
+                  onSelect={() => setPartitionsOpen(true)}
+                >
                   <SplitSquareHorizontal /> Add partitions
                 </DropdownMenuItem>
-                <DropdownMenuItem disabled={!data} onSelect={() => setCloneOpen(true)}>
+                <DropdownMenuItem
+                  disabled={!data || !canEdit}
+                  title={canEdit ? undefined : REQUIRES_EDITOR}
+                  onSelect={() => setCloneOpen(true)}
+                >
                   <Copy /> Clone topic
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem destructive disabled={!data} onSelect={() => setPurgeOpen(true)}>
+                <DropdownMenuItem
+                  destructive
+                  disabled={!data || !canEdit}
+                  title={canEdit ? undefined : REQUIRES_EDITOR}
+                  onSelect={() => setPurgeOpen(true)}
+                >
                   <Eraser /> Purge records
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   destructive
-                  disabled={!data}
+                  disabled={!data || !canEdit}
+                  title={canEdit ? undefined : REQUIRES_EDITOR}
                   onSelect={() => {
                     setDeleteAck(false);
                     setDeleteOpen(true);
@@ -290,6 +309,7 @@ export function TopicDetailPage() {
             error={configs.error}
             onRetry={() => void configs.refetch()}
             saving={updateConfigs.isPending}
+            readOnly={!canEdit}
             onSave={async (changes) => {
               try {
                 await updateConfigs.mutateAsync({ configs: changes });
@@ -495,6 +515,8 @@ export function TopicDetailPage() {
         confirmText={topic}
         confirmLabel="Delete topic"
         loading={deleteTopic.isPending}
+        disabled={isInternal && !deleteAck}
+        disabledReason="Acknowledge the internal-topic warning to continue"
         onConfirm={async () => {
           if (isInternal && !deleteAck) return;
           try {

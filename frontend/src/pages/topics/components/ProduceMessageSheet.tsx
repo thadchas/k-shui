@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Send } from 'lucide-react';
 import { useProduceMessage } from '@/api/hooks/messages';
 import type { MessageFormat, PartitionDetail } from '@/api/types';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { CodeEditor } from '@/components/CodeEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +19,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 
 const PRODUCE_FORMATS: MessageFormat[] = [
   'string',
@@ -58,10 +60,12 @@ export function ProduceMessageSheet({
   const [valueSubject, setValueSubject] = useState('');
 
   const produce = useProduceMessage(cluster, topic);
+  const { canEdit } = usePermissions();
   const needsKeySubject = ['avro', 'protobuf', 'jsonschema'].includes(keyFormat);
   const needsValueSubject = ['avro', 'protobuf', 'jsonschema'].includes(valueFormat);
 
   const submit = async () => {
+    if (!canEdit) return;
     try {
       const result = await produce.mutateAsync({
         partition: partition === 'auto' ? null : Number(partition),
@@ -191,13 +195,17 @@ export function ProduceMessageSheet({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            loading={produce.isPending}
-            disabled={!value.trim()}
-            onClick={() => void submit()}
-          >
-            <Send /> Produce
-          </Button>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                loading={produce.isPending}
+                disabled={!value.trim() || !canEdit}
+                onClick={() => void submit()}
+              >
+                <Send /> Produce
+              </Button>
+            </span>
+          </Tooltip>
         </SheetFooter>
       </SheetContent>
     </Sheet>

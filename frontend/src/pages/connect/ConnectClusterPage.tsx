@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import type { ColumnDef } from '@tanstack/react-table';
 import {
   ArrowLeft,
@@ -24,6 +24,8 @@ import {
 import type { Connector } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
 import { useDebounced } from '@/hooks/useDebounced';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { useUrlState } from '@/hooks/useUrlState';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -53,12 +55,17 @@ export function ConnectClusterPage() {
   const cluster = useClusterId();
   const { kc: kcParam = '' } = useParams<{ kc: string }>();
   const kc = decodeURIComponent(kcParam);
-  const navigate = useNavigate();
+  const { canEdit } = usePermissions();
 
-  const [search, setSearch] = useState('');
+  const [{ q: search, state: stateFilter, type: typeFilter }, setUrl] = useUrlState({
+    q: '',
+    state: 'all',
+    type: 'all',
+  });
+  const setSearch = (q: string) => setUrl({ q });
+  const setStateFilter = (state: string) => setUrl({ state });
+  const setTypeFilter = (type: string) => setUrl({ type });
   const debouncedSearch = useDebounced(search, 300);
-  const [stateFilter, setStateFilter] = useState<string>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDelete, setBulkDelete] = useState(false);
   const [bulkStop, setBulkStop] = useState(false);
@@ -275,11 +282,21 @@ export function ConnectClusterPage() {
                 <Puzzle /> Plugins
               </Link>
             </Button>
-            <Button asChild>
-              <Link to={`${base}/connectors/new`}>
-                <Plus /> New connector
-              </Link>
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button asChild={canEdit} disabled={!canEdit}>
+                  {canEdit ? (
+                    <Link to={`${base}/connectors/new`}>
+                      <Plus /> New connector
+                    </Link>
+                  ) : (
+                    <>
+                      <Plus /> New connector
+                    </>
+                  )}
+                </Button>
+              </span>
+            </Tooltip>
             <RefreshPicker
               onRefresh={() => {
                 void connectors.refetch();
@@ -310,37 +327,89 @@ export function ConnectClusterPage() {
       {selected.size > 0 ? (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--primary)_35%,var(--border))] bg-[color-mix(in_srgb,var(--primary)_8%,transparent)] px-3 py-2">
           <span className="text-xs font-medium">{selected.size} selected</span>
-          <Button size="sm" variant="outline" onClick={() => void runBulk('resume')}>
-            <Play /> Resume
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void runBulk('pause')}>
-            <Pause /> Pause
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setBulkStop(true)}>
-            <Square /> Stop
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void runBulk('restart')}>
-            <RotateCcw /> Restart
-          </Button>
+          {!canEdit ? (
+            <span className="text-2xs text-[var(--muted)]">{REQUIRES_EDITOR}</span>
+          ) : null}
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEdit}
+                onClick={() => void runBulk('resume')}
+              >
+                <Play /> Resume
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEdit}
+                onClick={() => void runBulk('pause')}
+              >
+                <Pause /> Pause
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEdit}
+                onClick={() => setBulkStop(true)}
+              >
+                <Square /> Stop
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEdit}
+                onClick={() => void runBulk('restart')}
+              >
+                <RotateCcw /> Restart
+              </Button>
+            </span>
+          </Tooltip>
           <Tooltip
             content={
-              selectedFailedTasks === 0
-                ? 'No failed tasks in the selection'
-                : `Restart ${selectedFailedTasks} failed task${selectedFailedTasks === 1 ? '' : 's'} only`
+              !canEdit
+                ? REQUIRES_EDITOR
+                : selectedFailedTasks === 0
+                  ? 'No failed tasks in the selection'
+                  : `Restart ${selectedFailedTasks} failed task${selectedFailedTasks === 1 ? '' : 's'} only`
             }
           >
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={selectedFailedTasks === 0}
-              onClick={() => void runBulk('restart', { onlyFailed: true })}
-            >
-              <RefreshCw /> Restart failed tasks
-            </Button>
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEdit || selectedFailedTasks === 0}
+                onClick={() => void runBulk('restart', { onlyFailed: true })}
+              >
+                <RefreshCw /> Restart failed tasks
+              </Button>
+            </span>
           </Tooltip>
-          <Button size="sm" variant="destructive" onClick={() => setBulkDelete(true)}>
-            <Trash2 /> Delete
-          </Button>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={!canEdit}
+                onClick={() => setBulkDelete(true)}
+              >
+                <Trash2 /> Delete
+              </Button>
+            </span>
+          </Tooltip>
           <Button
             size="sm"
             variant="ghost"
@@ -363,9 +432,8 @@ export function ConnectClusterPage() {
         searchPlaceholder="Search connectors…"
         defaultSorting={[{ id: 'name', desc: false }]}
         isRowSelected={(row) => selected.has(row.name)}
-        onRowClick={(connector) =>
-          void navigate(`${base}/connectors/${encodeURIComponent(connector.name)}`)
-        }
+        getRowHref={(connector) => `${base}/connectors/${encodeURIComponent(connector.name)}`}
+        caption={`Connectors on ${kc}`}
         rowActions={(connector) => (
           <ConnectorActionsMenu
             cluster={cluster}
@@ -414,11 +482,13 @@ export function ConnectClusterPage() {
                 : 'Create a connector to move data in or out of Kafka.'
             }
             action={
-              <Button asChild>
-                <Link to={`${base}/connectors/new`}>
-                  <Plus /> New connector
-                </Link>
-              </Button>
+              canEdit ? (
+                <Button asChild>
+                  <Link to={`${base}/connectors/new`}>
+                    <Plus /> New connector
+                  </Link>
+                </Button>
+              ) : undefined
             }
           />
         }

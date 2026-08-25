@@ -8,10 +8,12 @@ import {
   CheckCircle2,
   Crown,
   Layers,
+  Scale,
   Server,
   ShieldAlert,
   Tag,
   Users,
+  Vote,
 } from 'lucide-react';
 import {
   useCluster,
@@ -23,9 +25,12 @@ import {
 import { useConsumerGroups } from '@/api/hooks/consumerGroups';
 import type { TimeRange, UnhealthyPartition, UnhealthyPartitionReason } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { pickSeries } from '@/lib/charts';
 import { formatCompact, formatNumber } from '@/lib/format';
 import { HealthChecks } from '@/components/HealthChecks';
+import { ElectLeadersDialog } from '@/components/PartitionOps/ElectLeadersDialog';
+import { PlanDialog } from '@/components/PartitionOps/PlanDialog';
 import { StatTile, StatTileRow } from '@/components/StatTile';
 import { TimeSeriesChart } from '@/components/TimeSeriesChart';
 import { Badge } from '@/components/ui/badge';
@@ -55,6 +60,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { TimeRangePicker } from '@/components/ui/time-range-picker';
+import { Tooltip } from '@/components/ui/tooltip';
 
 const REASON_LABEL: Record<
   UnhealthyPartitionReason,
@@ -109,6 +115,9 @@ export function ClusterOverviewPage() {
   const [range, setRange] = useState<TimeRange>('1h');
   const [healthOpen, setHealthOpen] = useState(false);
   const [healthSearch, setHealthSearch] = useState('');
+  const [electOpen, setElectOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
+  const { canEdit } = usePermissions();
 
   const detail = useCluster(cluster);
   const health = useClusterHealth(cluster);
@@ -127,6 +136,39 @@ export function ClusterOverviewPage() {
         .sort((a, b) => b.totalLag - a.totalLag)
         .slice(0, TOP_GROUPS),
     [groups.data],
+  );
+
+  const nonPreferred = useMemo(
+    () =>
+      (unhealthy.data?.items ?? [])
+        .filter((p) => p.reasons.includes('nonPreferredLeader'))
+        .map((p) => ({ topic: p.topic, partition: p.partition })),
+    [unhealthy.data],
+  );
+  const electDisabledReason = !canEdit
+    ? REQUIRES_EDITOR
+    : nonPreferred.length === 0
+      ? 'Every partition is already led by its preferred replica'
+      : undefined;
+
+  const remediationActions = (
+    <>
+      <Tooltip content={electDisabledReason}>
+        <span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={Boolean(electDisabledReason)}
+            onClick={() => setElectOpen(true)}
+          >
+            <Vote /> Elect preferred leaders
+          </Button>
+        </span>
+      </Tooltip>
+      <Button variant="outline" size="sm" onClick={() => setPlanOpen(true)}>
+        <Scale /> Rebalance plan…
+      </Button>
+    </>
   );
 
   const partitionColumns = useMemo<ColumnDef<UnhealthyPartition>[]>(
@@ -458,7 +500,8 @@ export function ClusterOverviewPage() {
             description="Offline, under-replicated and non-preferred-leader partitions"
             actions={
               unhealthy.data ? (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {remediationActions}
                   {unhealthy.data.offline > 0 ? (
                     <Badge variant="danger">{unhealthy.data.offline} offline</Badge>
                   ) : null}
@@ -622,7 +665,8 @@ export function ClusterOverviewPage() {
                 : 'Cluster-wide partitions that are offline, under-replicated or led by a non-preferred replica.'}
             </DialogDescription>
           </DialogHeader>
-          <DialogBody>
+          <DialogBody className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">{remediationActions}</div>
             <DataTable
               columns={partitionColumns}
               data={unhealthyItems}
@@ -646,6 +690,15 @@ export function ClusterOverviewPage() {
           </DialogBody>
         </DialogContent>
       </Dialog>
+
+      <ElectLeadersDialog
+        open={electOpen}
+        onOpenChange={setElectOpen}
+        clusterId={cluster}
+        partitions={nonPreferred}
+        onDone={() => void unhealthy.refetch()}
+      />
+      <PlanDialog open={planOpen} onOpenChange={setPlanOpen} clusterId={cluster} />
     </div>
   );
 }

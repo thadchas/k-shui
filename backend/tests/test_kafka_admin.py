@@ -338,3 +338,188 @@ async def test_partial_watermark_failure_does_not_recycle(raw_admin: KafkaAdmin)
         await raw_admin.watermarks([("orders", 0), ("orders", 1)])
     assert raw_admin._transport_failures == 0
     assert raw_admin._needs_recycle is False
+
+
+# ------------------------------------------------------------------ filter targets / headers
+@pytest.mark.parametrize(
+    ("mode", "target", "expression", "message", "expected"),
+    [
+        ("contains", "key", "alice", {"key": "alice-1", "value": {"user": "bob"}}, True),
+        ("contains", "key", "bob", {"key": "alice-1", "value": {"user": "bob"}}, False),
+        ("contains", "value", "bob", {"key": "alice-1", "value": {"user": "bob"}}, True),
+        ("contains", "value", "alice", {"key": "alice-1", "value": {"user": "bob"}}, False),
+        ("regex", "key", r"^alice-\d$", {"key": "alice-1", "value": "alice-1"}, True),
+        ("regex", "value", r"^alice-\d$", {"key": "alice-1", "value": "zzz"}, False),
+        ("jsonpath", "key", "$.id", {"key": {"id": 1}, "value": {"other": 1}}, True),
+        ("jsonpath", "value", "$.id", {"key": {"id": 1}, "value": {"other": 1}}, False),
+        # header:<name>=<value> works in any target; value is a substring / regex
+        ("contains", "any", "header:trace=abc", {"headers": {"trace": "xabcx"}, "value": "nope"}, True),
+        ("contains", "any", "header:trace=abc", {"headers": {"trace": "zzz"}, "value": "abc"}, False),
+        ("contains", "any", "header:trace", {"headers": {"trace": "zzz"}}, True),
+        ("contains", "any", "header:missing", {"headers": {"trace": "zzz"}}, False),
+        ("regex", "any", r"header:trace=^t\d+$", {"headers": {"trace": "t42"}}, True),
+        ("regex", "any", r"header:trace=^t\d+$", {"headers": {"trace": "x42"}}, False),
+        ("contains", "header", "trace=abc", {"headers": {"trace": "abc"}}, True),
+        ("contains", "header", "abc", {"headers": {"abc": "1"}}, True),
+        ("contains", "header", "abc", {"headers": {"trace": "abc"}}, False),
+    ],
+)
+def test_message_filter_targets(
+    mode: str, target: str, expression: str, message: dict[str, Any], expected: bool
+) -> None:
+    assert MessageFilter(expression, mode, target).matches(message) is expected
+
+
+def test_message_filter_target_validation() -> None:
+    with pytest.raises(BadRequest):
+        BrowseRequest(topic="t", filter_target="everything")
+    with pytest.raises(BadRequest):
+        MessageFilter("header:=x", "contains")
+    with pytest.raises(BadRequest):
+        MessageFilter("header:x=$.a", "jsonpath")
+    assert BrowseRequest(topic="t", mode="tail").tail is True
+
+
+# ------------------------------------------------------------------ live tail
+class _FakeRecord:
+    def __init__(self, partition: int, offset: int, value: bytes, headers: list | None = None) -> None:
+        self._partition, self._offset, self._value, self._headers = partition, offset, value, headers
+
+    def error(self) -> None:
+        return None
+
+    def partition(self) -> int:
+        return self._partition
+
+    def offset(self) -> int:
+        return self._offset
+
+    def key(self) -> bytes:
+        return f"k{self._offset}".encode()
+
+    def value(self) -> bytes:
+        return self._value
+
+    def timestamp(self) -> tuple[int, int]:
+        return (1, 1700000000000 + self._offset)
+
+    def headers(self) -> list | None:
+        return self._headers
+
+
+class _ScriptedConsumer:
+    """``consume()`` returns one scripted batch per call, then empties (like a quiet topic)."""
+
+    def __init__(self, batches: list[list[_FakeRecord]], sleep: float = 0.0) -> None:
+        self.batches = list(batches)
+        self.sleep = sleep
+        self.assigned: list[Any] = []
+        self.closed = False
+        self.polls = 0
+
+    def assign(self, tps: list[Any]) -> None:
+        self.assigned = tps
+
+    def consume(self, num_messages: int, timeout: float) -> list[_FakeRecord]:
+        import time
+
+        self.polls += 1
+        if self.sleep:
+            time.sleep(self.sleep)
+        return self.batches.pop(0) if self.batches else []
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeSerdes:
+    async def deserialize(
+        self, fmt: str, raw: bytes | None, topic: str, is_key: bool
+    ) -> tuple[Any, str, None]:
+        return (raw.decode() if raw else None, "string", None)
+
+
+def _tail_browser(consumer: _ScriptedConsumer) -> Any:
+    from k_shui.kafka.consumer import MessageBrowser
+    from tests.fakes import FakeKafkaAdmin
+
+    class _Ctx:
+        class config:
+            id = "c"
+
+    browser = MessageBrowser.__new__(MessageBrowser)
+    browser.admin = FakeKafkaAdmin(_Ctx())  # type: ignore[arg-type]
+    browser.serdes = _FakeSerdes()  # type: ignore[assignment]
+    browser._make_consumer = lambda: consumer  # type: ignore[method-assign]
+    browser._assign = lambda c, topic, plan: c.assign(plan)  # type: ignore[method-assign]
+    return browser
+
+
+async def test_tail_plan_starts_at_end_and_keeps_empty_partitions() -> None:
+    browser = _tail_browser(_ScriptedConsumer([]))
+    plan = await browser._plan(BrowseRequest(topic="orders", mode="tail"))
+    assert plan == [(0, 100, 100), (1, 100, 100), (2, 100, 100)]
+    plan = await browser._plan(
+        BrowseRequest(topic="orders", mode="tail", start_offsets={1: 40}, partitions=[1])
+    )
+    assert plan == [(1, 40, 100)]
+
+
+async def test_tail_streams_across_polls_and_filters() -> None:
+    consumer = _ScriptedConsumer(
+        [
+            [_FakeRecord(0, 100, b"alpha"), _FakeRecord(1, 100, b"beta")],
+            [],  # quiet poll: must not end the stream
+            [_FakeRecord(0, 101, b"gamma", headers=[("trace", b"t1")])],
+        ]
+    )
+    browser = _tail_browser(consumer)
+    req = BrowseRequest(topic="orders", mode="tail", filter="a", heartbeat_interval=60)
+    gen = browser.browse(req)
+    events: list[dict[str, Any]] = []
+    async for event in gen:
+        events.append(event)
+        if sum(1 for e in events if e["type"] == "message") == 3:
+            break
+    await gen.aclose()
+
+    assert events[0]["type"] == "progress" and events[0]["live"] is True and events[0]["behind"] == 0
+    assert events[0]["positions"] == {"0": 100, "1": 100, "2": 100}
+    values = [e["message"]["value"] for e in events if e["type"] == "message"]
+    assert values == ["alpha", "beta", "gamma"]  # all contain "a"; streamed across 3 polls
+    assert consumer.polls >= 3
+    assert "end" not in {e["type"] for e in events}
+    assert consumer.closed is True
+
+
+async def test_tail_heartbeat_reports_lag_and_disconnect_closes_consumer() -> None:
+    # topic end is 100 on every partition (FakeKafkaAdmin); we follow p0 from 95 → 5 behind
+    consumer = _ScriptedConsumer([[_FakeRecord(0, 95, b"x")], [], [], []], sleep=0.01)
+    browser = _tail_browser(consumer)
+    req = BrowseRequest(
+        topic="orders", mode="tail", partitions=[0], start_offsets={0: 95}, heartbeat_interval=0.02
+    )
+    gen = browser.browse(req)
+    heartbeats: list[dict[str, Any]] = []
+    async for event in gen:
+        if event["type"] == "progress":
+            heartbeats.append(event)
+        if len(heartbeats) >= 3:
+            break
+    assert consumer.closed is False  # still live until the client goes away
+    await gen.aclose()  # what sse-starlette does on disconnect
+    assert consumer.closed is True
+
+    assert heartbeats[0]["behind"] == 5
+    last = heartbeats[-1]
+    assert last["scanned"] == 1 and last["matched"] == 1
+    assert last["positions"] == {"0": 96}
+    assert last["endOffsets"] == {"0": 100}
+    assert last["behind"] == 4
+    assert last["done"] is False and last["live"] is True
+
+
+async def test_tail_rejects_non_streaming_collect() -> None:
+    browser = _tail_browser(_ScriptedConsumer([]))
+    with pytest.raises(BadRequest):
+        await browser.collect(BrowseRequest(topic="orders", mode="tail"))

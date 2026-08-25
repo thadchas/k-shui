@@ -346,8 +346,10 @@ export type MessageFormat =
   | 'int'
   | 'long';
 
-export type MessageMode = 'latest' | 'earliest' | 'offset' | 'timestamp';
+export type MessageMode = 'latest' | 'earliest' | 'offset' | 'timestamp' | 'tail';
 export type FilterMode = 'contains' | 'jsonpath' | 'regex';
+/** Which part of the record the filter is matched against (`header:<name>=<value>` also works). */
+export type FilterTarget = 'any' | 'key' | 'value' | 'header';
 
 export interface Message {
   partition: number;
@@ -378,6 +380,7 @@ export interface MessagesQuery {
   valueFormat?: MessageFormat;
   filter?: string;
   filterMode?: FilterMode;
+  filterTarget?: FilterTarget;
   stream?: boolean;
 }
 
@@ -390,6 +393,14 @@ export interface MessageProgress {
   scanned: number;
   matched: number;
   done: boolean;
+  /** Tail mode heartbeat: the stream follows the topic and never finishes on its own. */
+  live?: boolean;
+  /** Tail mode: records the server has not yet delivered (sum over followed partitions). */
+  behind?: number;
+  /** Tail mode: current end offset per partition id. */
+  endOffsets?: Record<string, number>;
+  /** Tail mode: next offset the server will read per partition id. */
+  positions?: Record<string, number>;
 }
 
 export interface ProduceMessageRequest {
@@ -1704,4 +1715,99 @@ export interface AlertMetricDef {
   name: string;
   unit?: string;
   description?: string;
+}
+
+/* ------------------------------ partition ops ----------------------------- */
+
+export interface PartitionRef {
+  topic: string;
+  partition: number;
+}
+
+export type ElectionType = 'preferred' | 'unclean';
+
+export interface ElectLeadersRequest {
+  /** Empty = every partition in the cluster. */
+  partitions: PartitionRef[];
+  electionType: ElectionType;
+}
+
+export type ElectionStatus = 'elected' | 'notNeeded' | 'failed';
+
+export interface ElectionResult extends PartitionRef {
+  status: ElectionStatus;
+  error: string | null;
+}
+
+export interface ElectLeadersResponse {
+  electionType: ElectionType;
+  items: ElectionResult[];
+  succeeded: number;
+  failed: number;
+  notNeeded: number;
+}
+
+export interface PartitionAssignment extends PartitionRef {
+  replicas: number[];
+}
+
+export interface ReassignmentJson {
+  version: number;
+  partitions: PartitionAssignment[];
+}
+
+export interface ReassignRequest {
+  partitions: PartitionAssignment[];
+  throttleBytesPerSec?: number;
+}
+
+export interface ReassignResult extends PartitionAssignment {
+  error: string | null;
+}
+
+export interface ReassignResponse {
+  items: ReassignResult[];
+  throttleBytesPerSec: number | null;
+  reassignmentJson: ReassignmentJson;
+}
+
+export interface ReassignPlanRequest {
+  /** Empty = every topic. */
+  topics: string[];
+  brokers?: number[];
+}
+
+export interface ReassignPlanItem extends PartitionRef {
+  current: number[];
+  proposed: number[];
+  changed: boolean;
+}
+
+export interface ReassignPlanResponse {
+  items: ReassignPlanItem[];
+  changed: number;
+  brokers: number[];
+  rackAware: boolean;
+  applySupported: boolean;
+  reassignmentJson: ReassignmentJson;
+  command: string;
+}
+
+export interface ReassignmentInProgress extends PartitionRef {
+  replicas: number[];
+  addingReplicas: number[];
+  removingReplicas: number[];
+}
+
+export interface ReassignmentsResponse {
+  supported: boolean;
+  reason: string | null;
+  items: ReassignmentInProgress[];
+}
+
+export interface PartitionCapabilities {
+  clientVersion: string;
+  electLeaders: boolean;
+  reassign: boolean;
+  listReassignments: boolean;
 }

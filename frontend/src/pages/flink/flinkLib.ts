@@ -104,10 +104,7 @@ export function liveDuration(
   return Math.max(duration, now - startTime);
 }
 
-export function metricValue(
-  entries: FlinkMetricEntry[] | undefined,
-  id: string,
-): number | null {
+export function metricValue(entries: FlinkMetricEntry[] | undefined, id: string): number | null {
   const hit = entries?.find((e) => e.id === id);
   if (!hit || hit.value === undefined || hit.value === null) return null;
   const n = Number(hit.value);
@@ -144,3 +141,20 @@ export const DEFAULT_VERTEX_METRICS = [
   'numRecordsOutPerSecond',
   'busyTimeMsPerSecond',
 ] as const;
+
+/**
+ * True when every statement in `sql` is a read (SELECT / SHOW / DESCRIBE / EXPLAIN …).
+ * Anything else (DDL, INSERT, SET, CREATE …) may mutate the catalog or cluster and
+ * needs editor permissions. Comments are stripped before classifying.
+ */
+export function isReadOnlySql(sql: string): boolean {
+  const stripped = sql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const statements = stripped
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (statements.length === 0) return true;
+  return statements.every((s) =>
+    /^(SELECT|WITH|SHOW|DESCRIBE|DESC|EXPLAIN|LIST|PRINT|HELP)\b/i.test(s),
+  );
+}

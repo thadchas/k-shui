@@ -19,13 +19,14 @@ from k_shui.api.schemas.ksql import (
     KsqlServer,
     KsqlSource,
 )
+from k_shui.core.auth import require_editor, require_viewer
 from k_shui.core.errors import IntegrationNotConfigured
 from k_shui.core.registry import ClusterContext, get_cluster
 from k_shui.integrations.audit import audit
 from k_shui.integrations.ksql import all_ksql, get_ksql
 from k_shui.integrations.memstore import ksql_ring, next_id
 
-router = APIRouter(tags=["ksql"])
+router = APIRouter(tags=["ksql"], dependencies=[Depends(require_viewer)])
 BASE = "/clusters/{cluster_id}/ksql"
 KS = BASE + "/{ksql_name}"
 
@@ -70,7 +71,7 @@ async def server_info(ksql_name: str, ctx: ClusterContext = Depends(get_cluster)
     return await get_ksql(ctx, ksql_name).info()
 
 
-@router.post(KS + "/statement")
+@router.post(KS + "/statement", dependencies=[Depends(require_editor)])
 async def run_statement(
     request: Request, ksql_name: str, body: KsqlRequest, ctx: ClusterContext = Depends(get_cluster)
 ) -> list[dict[str, Any]]:
@@ -125,7 +126,7 @@ async def list_queries(ksql_name: str, ctx: ClusterContext = Depends(get_cluster
     return await get_ksql(ctx, ksql_name).queries()
 
 
-@router.delete(KS + "/queries/{query_id}")
+@router.delete(KS + "/queries/{query_id}", dependencies=[Depends(require_editor)])
 async def terminate_query(
     request: Request, ksql_name: str, query_id: str, ctx: ClusterContext = Depends(get_cluster)
 ) -> dict[str, Any]:

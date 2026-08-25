@@ -11,6 +11,7 @@ import {
 } from '@/api/hooks/brokers';
 import type { LogDir, LogDirPartition, TimeRange } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { usePermissions } from '@/hooks/usePermissions';
 import { pickSeries } from '@/lib/charts';
 import { formatBytes, formatNumber } from '@/lib/format';
 import { ConfigTable } from '@/components/ConfigTable';
@@ -128,6 +129,7 @@ function LogDirCard({ dir, cluster }: { dir: LogDir; cluster: string }) {
           getRowId={(row) => `${row.topic}-${row.partition}`}
           maxHeight={384}
           rowLabel="partitions"
+          caption={`Partitions stored in log directory ${dir.path}`}
           emptyState={
             <EmptyState
               compact
@@ -154,6 +156,7 @@ export function BrokerDetailPage() {
   const logdirs = useBrokerLogDirs(cluster, brokerId);
   const metrics = useBrokerMetrics(cluster, brokerId, { range });
   const updateConfigs = useUpdateBrokerConfigs(cluster, brokerId);
+  const { canEdit } = usePermissions();
 
   const setTab = (value: string) => {
     const next = new URLSearchParams(searchParams);
@@ -272,6 +275,7 @@ export function BrokerDetailPage() {
             error={configs.error}
             onRetry={() => void configs.refetch()}
             saving={updateConfigs.isPending}
+            readOnly={!canEdit}
             onSave={async (changes) => {
               try {
                 await updateConfigs.mutateAsync({ configs: changes });

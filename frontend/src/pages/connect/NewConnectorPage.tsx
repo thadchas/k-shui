@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   ArrowLeft,
@@ -13,6 +14,7 @@ import { useConnectPlugins, useCreateConnector, useValidatePlugin } from '@/api/
 import type { ConnectorPlugin } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
 import { useDebounced } from '@/hooks/useDebounced';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { CodeEditor } from '@/components/CodeEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,8 +25,10 @@ import { Label } from '@/components/ui/label';
 import { PageHeader } from '@/components/ui/page-header';
 import { SegmentedList, SegmentedTrigger, Tabs } from '@/components/ui/tabs';
 import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 import { ConnectorConfigForm } from './components/ConnectorConfigForm';
 import { PluginGrid } from './components/PluginGrid';
+import { UnsavedChangesGuard } from './components/UnsavedChangesGuard';
 import { shortClass } from './components/connectUtils';
 
 type Step = 'plugin' | 'config';
@@ -48,6 +52,8 @@ export function NewConnectorPage() {
   const [view, setView] = useState<'form' | 'json'>('form');
   const [rawJson, setRawJson] = useState('{}');
   const [rawError, setRawError] = useState<string | null>(null);
+  const [created, setCreated] = useState(false);
+  const { canEdit } = usePermissions();
 
   const plugins = useConnectPlugins(cluster, kc);
   const validate = useValidatePlugin(cluster, kc);
@@ -63,6 +69,10 @@ export function NewConnectorPage() {
   );
 
   const configKey = useMemo(() => JSON.stringify(fullConfig), [fullConfig]);
+  const dirty =
+    !created &&
+    (name.trim() !== '' ||
+      Object.keys(config).some((k) => k !== 'connector.class' && k !== 'name'));
   const debouncedKey = useDebounced(configKey, 500);
 
   const runValidation = useCallback(
@@ -129,6 +139,7 @@ export function NewConnectorPage() {
     try {
       await create.mutateAsync({ name: name.trim(), config: fullConfig });
       toast.success(`Connector ${name.trim()} created`);
+      flushSync(() => setCreated(true));
       void navigate(`${base}/connectors/${encodeURIComponent(name.trim())}`);
     } catch (e) {
       toastError('Failed to create connector', e);
@@ -139,6 +150,7 @@ export function NewConnectorPage() {
 
   return (
     <div>
+      <UnsavedChangesGuard dirty={dirty} />
       <PageHeader
         title="New connector"
         description={`Create a connector on ${kc}.`}
@@ -160,13 +172,17 @@ export function NewConnectorPage() {
                 <Button variant="outline" onClick={() => setStep('plugin')}>
                   Change plugin
                 </Button>
-                <Button
-                  loading={create.isPending}
-                  disabled={!name.trim() || !pluginClass || Boolean(rawError)}
-                  onClick={() => void onCreate()}
-                >
-                  <Plus /> Create connector
-                </Button>
+                <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+                  <span className="inline-flex">
+                    <Button
+                      loading={create.isPending}
+                      disabled={!canEdit || !name.trim() || !pluginClass || Boolean(rawError)}
+                      onClick={() => void onCreate()}
+                    >
+                      <Plus /> Create connector
+                    </Button>
+                  </span>
+                </Tooltip>
               </>
             ) : null}
           </>

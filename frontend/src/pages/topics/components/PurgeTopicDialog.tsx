@@ -126,6 +126,12 @@ export function PurgeTopicDialog({
       confirmText={name || undefined}
       confirmLabel="Purge records"
       loading={purgeTopic.isPending}
+      disabled={!canSubmit}
+      disabledReason={
+        !partitionsValid
+          ? 'Select at least one partition and enter a valid offset for each'
+          : 'Acknowledge the internal-topic warning to continue'
+      }
       onConfirm={async () => {
         if (!topic || !canSubmit) return;
         const body: PurgeTopicRequest =

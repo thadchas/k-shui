@@ -1,10 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useParams } from 'react-router';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Crown } from 'lucide-react';
-import type { PartitionDetail } from '@/api/types';
+import { Crown, Shuffle, Vote } from 'lucide-react';
+import { useReassignments } from '@/api/hooks/partitions';
+import type { PartitionDetail, PartitionRef, ReassignmentInProgress } from '@/api/types';
+import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { formatBytes, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { ElectLeadersDialog } from '@/components/PartitionOps/ElectLeadersDialog';
+import { ReassignDialog } from '@/components/PartitionOps/ReassignDialog';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { DataTable } from '@/components/ui/data-table';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -13,14 +21,16 @@ function ReplicaList({
   ids,
   isr,
   leader,
+  reassignment,
 }: {
   ids: number[];
   isr: number[];
   leader: number | null;
+  reassignment?: ReassignmentInProgress;
 }) {
   const isrSet = new Set(isr);
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap items-center gap-1">
       {ids.map((id, index) => {
         const inSync = isrSet.has(id);
         const preferred = index === 0;
@@ -49,12 +59,34 @@ function ReplicaList({
           </Tooltip>
         );
       })}
+      {reassignment?.addingReplicas.length ? (
+        <Tooltip
+          content={`Reassignment in progress: adding broker(s) ${reassignment.addingReplicas.join(', ')}`}
+        >
+          <Badge variant="info" size="sm">
+            +{reassignment.addingReplicas.join(',')}
+          </Badge>
+        </Tooltip>
+      ) : null}
+      {reassignment?.removingReplicas.length ? (
+        <Tooltip
+          content={`Reassignment in progress: removing broker(s) ${reassignment.removingReplicas.join(', ')}`}
+        >
+          <Badge variant="warning" size="sm">
+            −{reassignment.removingReplicas.join(',')}
+          </Badge>
+        </Tooltip>
+      ) : null}
     </div>
   );
 }
 
 export function isPartitionUnhealthy(p: PartitionDetail): boolean {
   return p.leader === null || p.isr.length < p.replicas.length;
+}
+
+export function hasNonPreferredLeader(p: PartitionDetail): boolean {
+  return p.leader !== null && p.replicas.length > 0 && p.leader !== p.replicas[0];
 }
 
 export interface PartitionsTableProps {
@@ -64,6 +96,10 @@ export interface PartitionsTableProps {
   onRetry?: () => void;
   className?: string;
   onRowClick?: (partition: PartitionDetail) => void;
+  /** Topic the partitions belong to; enables the election / reassignment actions. */
+  topic?: string;
+  /** Defaults to the `:cluster` route param. */
+  clusterId?: string;
 }
 
 export function PartitionsTable({
@@ -73,8 +109,38 @@ export function PartitionsTable({
   onRetry,
   className,
   onRowClick,
+  topic: topicProp,
+  clusterId: clusterProp,
 }: PartitionsTableProps) {
+  const routeCluster = useClusterId();
+  const clusterId = clusterProp ?? routeCluster;
+  // TopicDetailPage renders us under /c/:cluster/topics/:topic — fall back to the route param
+  // when the topic prop is not passed so the actions stay available without a page change.
+  const { topic: routeTopic = '' } = useParams<{ topic: string }>();
+  const topic = topicProp ?? routeTopic;
+  const actionsEnabled = Boolean(clusterId && topic);
+
+  const { canEdit } = usePermissions();
+  const reassignments = useReassignments(clusterId, actionsEnabled);
+  const inFlight = useMemo(() => {
+    const map = new Map<number, ReassignmentInProgress>();
+    for (const r of reassignments.data?.items ?? []) if (r.topic === topic) map.set(r.partition, r);
+    return map;
+  }, [reassignments.data, topic]);
+
   const [onlyUnhealthy, setOnlyUnhealthy] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(() => new Set());
+  const [electOpen, setElectOpen] = useState(false);
+  const [reassignTarget, setReassignTarget] = useState<PartitionDetail | null>(null);
+
+  // Drop selections for partitions that disappeared (e.g. topic switched).
+  useEffect(() => {
+    const ids = new Set((partitions ?? []).map((p) => p.id));
+    setSelected((prev) => {
+      const next = new Set([...prev].filter((id) => ids.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [partitions]);
 
   const totalMessages = useMemo(
     () => (partitions ?? []).reduce((acc, p) => acc + Math.max(0, p.endOffset - p.beginOffset), 0),
@@ -90,8 +156,37 @@ export function PartitionsTable({
     [partitions, onlyUnhealthy],
   );
 
-  const columns = useMemo<ColumnDef<PartitionDetail>[]>(
-    () => [
+  const selectedRows = useMemo(
+    () => (partitions ?? []).filter((p) => selected.has(p.id)),
+    [partitions, selected],
+  );
+  const electable = useMemo(() => selectedRows.filter(hasNonPreferredLeader), [selectedRows]);
+  const electTargets: PartitionRef[] = useMemo(
+    () => electable.map((p) => ({ topic, partition: p.id })),
+    [electable, topic],
+  );
+
+  const allVisibleSelected = rows.length > 0 && rows.every((p) => selected.has(p.id));
+  const someVisibleSelected = rows.some((p) => selected.has(p.id));
+  const toggleAll = (on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const p of rows) {
+        if (on) next.add(p.id);
+        else next.delete(p.id);
+      }
+      return next;
+    });
+  const toggleOne = (id: number, on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
+  const columns = useMemo<ColumnDef<PartitionDetail>[]>(() => {
+    const base: ColumnDef<PartitionDetail>[] = [
       {
         accessorKey: 'id',
         header: 'Partition',
@@ -118,7 +213,7 @@ export function PartitionsTable({
               <span className="font-mono tabular-nums">{leader}</span>
               {notPreferred ? (
                 <Tooltip
-                  content={`Preferred leader is broker ${preferred}. Run a preferred leader election to rebalance.`}
+                  content={`Preferred leader is broker ${preferred}. Select the row and run "Elect preferred leader" to move it back.`}
                 >
                   <Badge variant="warning" size="sm">
                     not preferred
@@ -138,6 +233,7 @@ export function PartitionsTable({
             ids={row.original.replicas}
             isr={row.original.isr}
             leader={row.original.leader}
+            reassignment={inFlight.get(row.original.id)}
           />
         ),
       },
@@ -202,13 +298,72 @@ export function PartitionsTable({
         meta: { numeric: true, label: 'Size' },
         cell: ({ row }) => formatBytes(row.original.sizeBytes),
       },
-    ],
-    [totalMessages],
-  );
+    ];
+    if (!actionsEnabled) return base;
+    const select: ColumnDef<PartitionDetail> = {
+      id: '__select',
+      enableSorting: false,
+      enableHiding: false,
+      meta: { widthClass: 'w-9', stopRowClick: true },
+      header: () => (
+        <Checkbox
+          checked={allVisibleSelected ? true : someVisibleSelected ? 'indeterminate' : false}
+          onCheckedChange={(v) => toggleAll(v === true)}
+          aria-label="Select all partitions"
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={selected.has(row.original.id)}
+          onCheckedChange={(v) => toggleOne(row.original.id, v === true)}
+          aria-label={`Select partition ${row.original.id}`}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ),
+    };
+    return [select, ...base];
+    // toggleAll/toggleOne are stable closures over setState; rows/selected drive the header state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalMessages, inFlight, actionsEnabled, allVisibleSelected, someVisibleSelected, selected]);
+
+  const electDisabledReason = !canEdit
+    ? REQUIRES_EDITOR
+    : selectedRows.length === 0
+      ? 'Select one or more partitions'
+      : electable.length === 0
+        ? 'Every selected partition is already led by its preferred replica'
+        : undefined;
 
   return (
     <div className={cn('space-y-2', className)}>
-      <div className="flex items-center justify-end gap-3">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {actionsEnabled ? (
+          <>
+            {selectedRows.length > 0 ? (
+              <span className="text-xs text-[var(--muted)]">
+                {selectedRows.length} selected
+                {electable.length > 0 ? ` · ${electable.length} not on preferred leader` : ''}
+              </span>
+            ) : null}
+            <Tooltip content={electDisabledReason}>
+              <span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={Boolean(electDisabledReason)}
+                  onClick={() => setElectOpen(true)}
+                >
+                  <Vote /> Elect preferred leader
+                </Button>
+              </span>
+            </Tooltip>
+            {reassignments.data?.items.some((r) => r.topic === topic) ? (
+              <Badge variant="info" size="sm">
+                {inFlight.size} reassigning
+              </Badge>
+            ) : null}
+          </>
+        ) : null}
         {unhealthyCount > 0 ? (
           <Badge variant="warning" size="sm">
             {unhealthyCount} unhealthy
@@ -232,12 +387,53 @@ export function PartitionsTable({
         hideToolbar
         defaultSorting={[{ id: 'id', desc: false }]}
         onRowClick={onRowClick}
+        getRowId={(row) => String(row.id)}
+        isRowSelected={actionsEnabled ? (row) => selected.has(row.id) : undefined}
+        rowActions={
+          actionsEnabled
+            ? (row) => (
+                <Tooltip content={canEdit ? 'Reassign replicas…' : REQUIRES_EDITOR}>
+                  <span>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Reassign replicas of partition ${row.id}`}
+                      disabled={!canEdit}
+                      onClick={() => setReassignTarget(row)}
+                    >
+                      <Shuffle />
+                    </Button>
+                  </span>
+                </Tooltip>
+              )
+            : undefined
+        }
         emptyTitle={onlyUnhealthy ? 'All partitions healthy' : 'No partitions'}
         emptyDescription={
           onlyUnhealthy ? 'Every partition has a leader and a full in-sync set.' : undefined
         }
         rowLabel="partitions"
       />
+      {actionsEnabled ? (
+        <>
+          <ElectLeadersDialog
+            open={electOpen}
+            onOpenChange={setElectOpen}
+            clusterId={clusterId}
+            partitions={electTargets}
+            onDone={() => setSelected(new Set())}
+          />
+          <ReassignDialog
+            open={reassignTarget !== null}
+            onOpenChange={(open) => {
+              if (!open) setReassignTarget(null);
+            }}
+            clusterId={clusterId}
+            topic={topic}
+            partition={reassignTarget}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

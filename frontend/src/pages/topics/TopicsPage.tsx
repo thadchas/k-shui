@@ -16,6 +16,8 @@ import { useDeleteTopic, useTopics } from '@/api/hooks/topics';
 import type { TopicSummary } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
 import { useDebounced } from '@/hooks/useDebounced';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { enumCodec, useUrlState } from '@/hooks/useUrlState';
 import {
   formatBytesEstimate,
   formatBytesPerSec,
@@ -44,6 +46,35 @@ import { PurgeTopicDialog } from './components/PurgeTopicDialog';
 
 const INTERNAL_LOCKED = 'Internal Kafka topic — open the topic page to change it deliberately.';
 
+const SORT_KEYS = [
+  'name',
+  'partitions',
+  'replicationFactor',
+  'underReplicatedPartitions',
+  'sizeBytes',
+  'messageCount',
+  'cleanupPolicy',
+  'retentionMs',
+  'bytesInPerSec',
+  'bytesOutPerSec',
+] as const;
+type SortKey = (typeof SORT_KEYS)[number];
+const ORDERS = ['asc', 'desc'] as const;
+type Order = (typeof ORDERS)[number];
+
+const URL_DEFAULTS = {
+  q: '',
+  page: 1,
+  perPage: 50,
+  sort: 'name' as SortKey,
+  order: 'asc' as Order,
+  showInternal: false,
+};
+const URL_CODECS = {
+  sort: enumCodec(SORT_KEYS, 'name'),
+  order: enumCodec(ORDERS, 'asc'),
+};
+
 type DialogState =
   | { kind: 'none' }
   | { kind: 'delete'; topic: TopicSummary }
@@ -55,12 +86,17 @@ export function TopicsPage() {
   const cluster = useClusterId();
   const navigate = useNavigate();
 
-  const [search, setSearch] = useState('');
+  const { canEdit } = usePermissions();
+
+  const [{ q: search, page, perPage, sort, order, showInternal }, setUrl] = useUrlState(
+    URL_DEFAULTS,
+    { codecs: URL_CODECS },
+  );
   const debouncedSearch = useDebounced(search, 300);
-  const [showInternal, setShowInternal] = useState(false);
-  const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(50);
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'name', desc: false }]);
+  const sorting = useMemo<SortingState>(
+    () => [{ id: sort, desc: order === 'desc' }],
+    [sort, order],
+  );
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
 
   const query = useMemo(
@@ -69,10 +105,10 @@ export function TopicsPage() {
       showInternal,
       page,
       perPage,
-      sort: sorting[0]?.id,
-      order: (sorting[0]?.desc ? 'desc' : 'asc') as 'asc' | 'desc',
+      sort,
+      order,
     }),
-    [debouncedSearch, showInternal, page, perPage, sorting],
+    [debouncedSearch, showInternal, page, perPage, sort, order],
   );
 
   const { data, isLoading, error, refetch } = useTopics(cluster, query);
@@ -190,7 +226,11 @@ export function TopicsPage() {
   const rowActions = (topic: TopicSummary) => {
     const locked = topic.isInternal;
     const lockedItem = (node: React.ReactElement) =>
-      locked ? (
+      !canEdit ? (
+        <Tooltip content={REQUIRES_EDITOR} side="left">
+          <span className="block">{node}</span>
+        </Tooltip>
+      ) : locked ? (
         <Tooltip content={INTERNAL_LOCKED} side="left">
           <span className="block">{node}</span>
         </Tooltip>
@@ -212,29 +252,37 @@ export function TopicsPage() {
           >
             <MessageSquare /> Browse messages
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() =>
-              void navigate(`/c/${cluster}/topics/${encodeURIComponent(topic.name)}?tab=configs`)
-            }
-          >
-            <Settings2 /> Edit configs
-          </DropdownMenuItem>
           {lockedItem(
             <DropdownMenuItem
-              disabled={locked}
+              disabled={!canEdit}
+              onSelect={() =>
+                void navigate(`/c/${cluster}/topics/${encodeURIComponent(topic.name)}?tab=configs`)
+              }
+            >
+              <Settings2 /> Edit configs
+            </DropdownMenuItem>,
+          )}
+          {lockedItem(
+            <DropdownMenuItem
+              disabled={locked || !canEdit}
               onSelect={() => setDialog({ kind: 'partitions', topic })}
             >
               <SplitSquareHorizontal /> Add partitions
             </DropdownMenuItem>,
           )}
-          <DropdownMenuItem onSelect={() => setDialog({ kind: 'clone', topic })}>
-            <Copy /> Clone topic
-          </DropdownMenuItem>
+          {lockedItem(
+            <DropdownMenuItem
+              disabled={!canEdit}
+              onSelect={() => setDialog({ kind: 'clone', topic })}
+            >
+              <Copy /> Clone topic
+            </DropdownMenuItem>,
+          )}
           <DropdownMenuSeparator />
           {lockedItem(
             <DropdownMenuItem
               destructive
-              disabled={locked}
+              disabled={locked || !canEdit}
               onSelect={() => setDialog({ kind: 'purge', topic })}
             >
               <Eraser /> Purge records
@@ -243,7 +291,7 @@ export function TopicsPage() {
           {lockedItem(
             <DropdownMenuItem
               destructive
-              disabled={locked}
+              disabled={locked || !canEdit}
               onSelect={() => setDialog({ kind: 'delete', topic })}
             >
               <Trash2 /> Delete topic
@@ -261,11 +309,21 @@ export function TopicsPage() {
         description="Browse, inspect and manage topics in this cluster."
         meta={data ? <Badge variant="secondary">{formatCompact(data.total)}</Badge> : null}
         actions={
-          <Button asChild>
-            <Link to={`/c/${cluster}/topics/new`}>
-              <Plus /> New topic
-            </Link>
-          </Button>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              {canEdit ? (
+                <Button asChild>
+                  <Link to={`/c/${cluster}/topics/new`}>
+                    <Plus /> New topic
+                  </Link>
+                </Button>
+              ) : (
+                <Button disabled>
+                  <Plus /> New topic
+                </Button>
+              )}
+            </span>
+          </Tooltip>
         }
       />
 
@@ -276,38 +334,31 @@ export function TopicsPage() {
         error={error}
         onRetry={() => void refetch()}
         globalFilter={search}
-        onGlobalFilterChange={(v) => {
-          setSearch(v);
-          setPage(1);
-        }}
+        onGlobalFilterChange={(v) => setUrl({ q: v, page: 1 })}
         searchPlaceholder="Search topics…"
         sorting={sorting}
         onSortingChange={(s) => {
-          setSorting(s.length ? s : [{ id: 'name', desc: false }]);
-          setPage(1);
+          const next = s[0];
+          const nextSort = (SORT_KEYS as readonly string[]).includes(next?.id ?? '')
+            ? (next.id as SortKey)
+            : 'name';
+          setUrl({ sort: nextSort, order: next?.desc ? 'desc' : 'asc', page: 1 });
         }}
         manualSorting
         page={page}
         perPage={perPage}
         total={data?.total ?? 0}
-        onPageChange={setPage}
-        onPerPageChange={(n) => {
-          setPerPage(n);
-          setPage(1);
-        }}
-        onRowClick={(topic) =>
-          void navigate(`/c/${cluster}/topics/${encodeURIComponent(topic.name)}`)
-        }
+        onPageChange={(p) => setUrl({ page: p })}
+        onPerPageChange={(n) => setUrl({ perPage: n, page: 1 })}
+        getRowHref={(topic) => `/c/${cluster}/topics/${encodeURIComponent(topic.name)}`}
         rowActions={rowActions}
         rowLabel="topics"
+        caption="Topics in this cluster with partition count, replication, size and throughput"
         toolbar={
           <label className="flex items-center gap-2 whitespace-nowrap text-xs text-[var(--muted)]">
             <Switch
               checked={showInternal}
-              onCheckedChange={(v) => {
-                setShowInternal(v);
-                setPage(1);
-              }}
+              onCheckedChange={(v) => setUrl({ showInternal: v, page: 1 })}
               aria-label="Show internal topics"
             />
             Show internal
@@ -323,7 +374,7 @@ export function TopicsPage() {
                 : 'Create your first topic to start streaming.'
             }
             action={
-              !search ? (
+              !search && canEdit ? (
                 <Button asChild>
                   <Link to={`/c/${cluster}/topics/new`}>
                     <Plus /> New topic

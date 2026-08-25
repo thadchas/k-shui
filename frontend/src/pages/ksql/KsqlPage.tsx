@@ -14,6 +14,9 @@ import {
 } from '@/api/hooks/ksql';
 import type { KsqlQueryInfo, KsqlStatementResult } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { enumCodec, useSearchParamState } from '@/hooks/useUrlState';
+import { UnsavedChangesGuard } from '@/pages/connect/components/UnsavedChangesGuard';
 import { formatRelative, truncate } from '@/lib/format';
 import { CodeEditor } from '@/components/CodeEditor';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +40,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatusPill } from '@/components/ui/status-pill';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 import { KsqlDescribeSheet } from './components/KsqlDescribeSheet';
 import { KsqlQueriesTable } from './components/KsqlQueriesTable';
 import { KsqlResultsGrid } from './components/KsqlResultsGrid';
@@ -102,6 +106,20 @@ export function classifyKsqlQuery(sql: string): 'push' | 'pull' | null {
   return 'pull';
 }
 
+/** Statements that only read catalog metadata — safe for viewers to execute. */
+function isReadOnlyKsqlStatement(sql: string): boolean {
+  const text = sql.replace(/--.*$/gm, '').trim();
+  const statements = text
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (statements.length === 0) return true;
+  return statements.every((s) => /^(SELECT|SHOW|LIST|DESCRIBE|EXPLAIN|PRINT)\b/i.test(s));
+}
+
+const KSQL_TABS = ['editor', 'queries'] as const;
+const ksqlTabCodec = enumCodec(KSQL_TABS, 'editor');
+
 const PROPERTY_SUGGESTIONS = [
   'auto.offset.reset',
   'ksql.streams.auto.offset.reset',
@@ -112,6 +130,7 @@ const PROPERTY_SUGGESTIONS = [
 
 export function KsqlPage() {
   const cluster = useClusterId();
+  const { canEdit } = usePermissions();
 
   const clusters = useKsqlClusters(cluster);
   const [server, setServer] = useState<string | undefined>(undefined);
@@ -125,7 +144,7 @@ export function KsqlPage() {
     { key: 'auto.offset.reset', value: 'earliest' },
   ]);
   const [resultTab, setResultTab] = useState<'rows' | 'statement'>('rows');
-  const [tab, setTab] = useState<'editor' | 'queries'>('editor');
+  const [tab, setTab] = useSearchParamState<'editor' | 'queries'>('tab', 'editor', ksqlTabCodec);
   const [rowLimit, setRowLimit] = useState<number>(KSQL_ROW_LIMITS[1]);
   const [recent, setRecent] = useState<RecentStatement[]>([]);
   const [lastRunMode, setLastRunMode] = useState<'push' | 'pull' | null>(null);
@@ -214,7 +233,7 @@ export function KsqlPage() {
   };
 
   const runStatement = async () => {
-    if (!server || !sql.trim()) return;
+    if (!server || !sql.trim() || !canExecute) return;
     remember(sql.trim());
     setResultTab('statement');
     try {
@@ -231,6 +250,11 @@ export function KsqlPage() {
 
   const looksLikeQuery = /^\s*select/i.test(sql);
   const queryMode = classifyKsqlQuery(sql);
+  const canExecute = canEdit || isReadOnlyKsqlStatement(sql);
+  const executeBlockedReason = canExecute
+    ? undefined
+    : `${REQUIRES_EDITOR} — viewers may only execute SHOW / LIST / DESCRIBE / EXPLAIN statements`;
+  const editorDirty = sql.trim() !== '' && sql !== DEFAULT_SQL;
 
   if (clusters.error) {
     return (
@@ -263,6 +287,10 @@ export function KsqlPage() {
 
   return (
     <div>
+      <UnsavedChangesGuard
+        dirty={editorDirty}
+        description="The statement in the editor will be lost if you leave this page."
+      />
       <PageHeader
         title="ksqlDB"
         description="Editor, streams and tables, and running persistent queries."
@@ -413,15 +441,19 @@ export function KsqlPage() {
                         <Play /> Run query
                       </Button>
                     )}
-                    <Button
-                      size="sm"
-                      variant={looksLikeQuery ? 'outline' : 'default'}
-                      loading={statement.isPending}
-                      disabled={!sql.trim() || !server}
-                      onClick={() => void runStatement()}
-                    >
-                      <Zap /> Execute
-                    </Button>
+                    <Tooltip content={executeBlockedReason}>
+                      <span className="inline-flex">
+                        <Button
+                          size="sm"
+                          variant={looksLikeQuery ? 'outline' : 'default'}
+                          loading={statement.isPending}
+                          disabled={!sql.trim() || !server || !canExecute}
+                          onClick={() => void runStatement()}
+                        >
+                          <Zap /> Execute
+                        </Button>
+                      </span>
+                    </Tooltip>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-2">

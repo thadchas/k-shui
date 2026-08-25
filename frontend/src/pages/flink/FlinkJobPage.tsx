@@ -21,6 +21,7 @@ import {
 } from '@/api/hooks/flink';
 import type { FlinkBackpressure, FlinkVertexDetail } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import {
   formatBytes,
   formatCompact,
@@ -105,6 +106,7 @@ export function FlinkJobPage() {
   const tabParam = params.get('tab') ?? 'overview';
   const tab = (TABS as readonly string[]).includes(tabParam) ? tabParam : 'overview';
   const now = useNow(1000);
+  const { canEdit } = usePermissions();
 
   const job = useFlinkJobDetail(cluster, fc, jid);
   const jobAction = useFlinkJobAction(cluster, fc);
@@ -301,30 +303,42 @@ export function FlinkJobPage() {
                 <ArrowLeft /> Jobs
               </Link>
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!running}
-              onClick={() => setSavepointMode('trigger')}
-            >
-              <Camera /> Savepoint
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!running}
-              onClick={() => setSavepointMode('stop')}
-            >
-              <OctagonX /> Stop
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={!running}
-              onClick={() => setCancelOpen(true)}
-            >
-              <XCircle /> Cancel
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!canEdit || !running}
+                  onClick={() => setSavepointMode('trigger')}
+                >
+                  <Camera /> Savepoint
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!canEdit || !running}
+                  onClick={() => setSavepointMode('stop')}
+                >
+                  <OctagonX /> Stop
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={!canEdit || !running}
+                  onClick={() => setCancelOpen(true)}
+                >
+                  <XCircle /> Cancel
+                </Button>
+              </span>
+            </Tooltip>
             <RefreshPicker onRefresh={() => void job.refetch()} refreshing={job.isFetching} />
           </>
         }
@@ -395,6 +409,7 @@ export function FlinkJobPage() {
                 loading={job.isLoading}
                 hideToolbar
                 rowLabel="vertices"
+                caption="Job vertices"
                 emptyState={<EmptyState compact title="No vertices" />}
               />
             </CardContent>
@@ -434,6 +449,7 @@ export function FlinkJobPage() {
             savepoint. In-flight state is lost.
           </>
         }
+        confirmText={data?.name || jid}
         confirmLabel="Cancel job"
         loading={jobAction.isPending}
         onConfirm={() =>

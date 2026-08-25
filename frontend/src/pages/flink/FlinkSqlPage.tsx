@@ -4,8 +4,10 @@ import { ArrowLeft, CircleStop, Eraser, Play, Plug, PlugZap, Terminal, Trash2 } 
 import { useFlinkSqlActions, useFlinkSqlSupport } from '@/api/hooks/flink';
 import type { FlinkSqlResult, FlinkSqlResultColumn } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { UnsavedChangesGuard } from '@/pages/connect/components/UnsavedChangesGuard';
 import { formatDuration } from '@/lib/format';
-import { useNow } from './flinkLib';
+import { isReadOnlySql, useNow } from './flinkLib';
 import { CodeEditor } from '@/components';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,6 +25,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 
 const SAMPLE = `-- Flink SQL
 SHOW TABLES;`;
@@ -54,6 +57,13 @@ export function FlinkSqlPage() {
   );
 
   const [sql, setSql] = useState(SAMPLE);
+  const { canEdit } = usePermissions();
+  const readOnlyStatement = isReadOnlySql(sql);
+  const canRun = canEdit || readOnlyStatement;
+  const runBlockedReason = canRun
+    ? undefined
+    : `${REQUIRES_EDITOR} — viewers may only run SELECT / SHOW / DESCRIBE / EXPLAIN statements`;
+  const editorDirty = sql.trim() !== '' && sql !== SAMPLE;
   const [session, setSession] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [running, setRunning] = useState(false);
@@ -118,8 +128,9 @@ export function FlinkSqlPage() {
     if (!active) return;
     setCancelling(true);
     try {
-      await cancelOperation(active.session, active.operation);
-      toast.success('Statement cancelled');
+      const res = await cancelOperation(active.session, active.operation);
+      if (res.cancelled) toast.success('Statement cancelled');
+      else toast.warning(`Gateway did not confirm the cancel (status: ${res.status || 'unknown'})`);
     } catch (e) {
       toastError('Could not cancel on the gateway (polling stopped)', e);
     } finally {
@@ -128,7 +139,7 @@ export function FlinkSqlPage() {
   }, [cancelOperation]);
 
   const run = useCallback(async () => {
-    if (!sql.trim()) return;
+    if (!sql.trim() || !canRun) return;
     let handle = session;
     cancelRef.current = false;
     activeRef.current = null;
@@ -194,7 +205,7 @@ export function FlinkSqlPage() {
       setFinishedAt(Date.now());
       setRunning(false);
     }
-  }, [openSession, poll, session, sql, submit]);
+  }, [canRun, openSession, poll, session, sql, submit]);
 
   const elapsedMs =
     startedAt === null ? null : Math.max(0, (running ? now : (finishedAt ?? now)) - startedAt);
@@ -243,6 +254,10 @@ export function FlinkSqlPage() {
 
   return (
     <div className="space-y-4">
+      <UnsavedChangesGuard
+        dirty={editorDirty}
+        description="The SQL in the editor will be lost if you leave this page."
+      />
       <PageHeader
         title="Flink SQL"
         description={`Run statements against the ${fc} SQL gateway`}
@@ -306,9 +321,13 @@ export function FlinkSqlPage() {
                   <CircleStop /> Cancel
                 </Button>
               ) : (
-                <Button size="sm" onClick={() => void run()}>
-                  <Play /> Run
-                </Button>
+                <Tooltip content={runBlockedReason}>
+                  <span className="inline-flex">
+                    <Button size="sm" disabled={!canRun} onClick={() => void run()}>
+                      <Play /> Run
+                    </Button>
+                  </span>
+                </Tooltip>
               )}
             </>
           }
