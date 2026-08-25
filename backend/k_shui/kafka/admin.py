@@ -390,10 +390,12 @@ class KafkaAdmin(SecurityAdminMixin):
         per_call = per_partition if per_partition is not None else min(self.timeout, WATERMARK_TIMEOUT)
         total = budget if budget is not None else WATERMARK_BUDGET
 
-        def _run() -> dict[tuple[str, int], tuple[int, int]]:
+        def _run() -> tuple[dict[tuple[str, int], tuple[int, int]], bool, bool]:
             result: dict[tuple[str, int], tuple[int, int]] = {}
             deadline = _time.monotonic() + total if total else None
             expired = False
+            transport_failure = False
+            succeeded = False
             for topic, part, tp in tps:
                 if expired:
                     result[(topic, part)] = (0, 0)
@@ -410,13 +412,30 @@ class KafkaAdmin(SecurityAdminMixin):
                 try:
                     low, high = consumer.get_watermark_offsets(tp, timeout=call_timeout, cached=False)
                     result[(topic, part)] = (low, high)
+                    succeeded = True
                 except Exception as exc:
-                    log.debug("kafka.watermark_failed", topic=topic, partition=part, error=str(exc))
+                    text = str(exc)
+                    if "_TIMED_OUT" in text or "_TRANSPORT" in text or "_ALL_BROKERS_DOWN" in text:
+                        transport_failure = True
+                    log.debug("kafka.watermark_failed", topic=topic, partition=part, error=text)
                     result[(topic, part)] = (0, 0)
-            return result
+            return result, transport_failure, succeeded
 
         async with self._consumer_lock:
-            return await self._call(_run)
+            # Plain thread hop, not ``_call``: _run never raises, and _call's success path
+            # would reset the failure counter before the accounting below could act.
+            result, transport_failure, succeeded = await asyncio.to_thread(_run)
+        # Swallowed per-partition errors never reach ``_call``'s accounting, so a wedged
+        # watermark consumer would otherwise survive forever (only a process restart cured
+        # it). Count all-failed sweeps here so the recycle logic applies to it too.
+        if transport_failure and not succeeded:
+            self._transport_failures += 1
+            if self._transport_failures >= RECYCLE_AFTER_TRANSPORT_FAILURES:
+                self._needs_recycle = True
+                log.warning("kafka.watermark_consumer_wedged", cluster=self.cluster_id)
+        elif succeeded:
+            self._transport_failures = 0
+        return result
 
     async def offsets_for_times(self, partitions: list[tuple[str, int, int]]) -> dict[tuple[str, int], int]:
         """(topic, partition, timestamp_ms) → offset (-1 when past the end)."""

@@ -213,3 +213,61 @@ async def test_non_transport_errors_do_not_recycle(raw_admin: KafkaAdmin) -> Non
         with pytest.raises(NotFound):
             await raw_admin._call(boom)
     assert raw_admin._needs_recycle is False
+
+
+class _WedgedConsumer:
+    """get_watermark_offsets always fails with a transport-class error."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def get_watermark_offsets(self, tp, timeout=None, cached=False):
+        self.calls += 1
+        raise RuntimeError('KafkaError{code=_TRANSPORT,val=-195,str="broker transport failure"}')
+
+
+class _HealthyConsumer:
+    def get_watermark_offsets(self, tp, timeout=None, cached=False):
+        return (0, 42)
+
+
+async def test_wedged_watermark_consumer_recycles(raw_admin: KafkaAdmin) -> None:
+    """An all-failed watermark sweep counts toward client recycling (regression:
+    swallowed per-partition errors previously kept a dead consumer alive forever)."""
+    from k_shui.kafka.admin import RECYCLE_AFTER_TRANSPORT_FAILURES
+
+    wedged = _WedgedConsumer()
+    raw_admin._consumer = wedged
+    for _ in range(RECYCLE_AFTER_TRANSPORT_FAILURES):
+        result = await raw_admin.watermarks([("orders", 0), ("orders", 1)])
+        assert result == {("orders", 0): (0, 0), ("orders", 1): (0, 0)}
+    assert raw_admin._needs_recycle is True
+
+    # Next acquisition drops the wedged consumer and builds a fresh one.
+    raw_admin._recycle_if_needed()
+    assert raw_admin._consumer is None
+    raw_admin._consumer = _HealthyConsumer()
+    result = await raw_admin.watermarks([("orders", 0)])
+    assert result == {("orders", 0): (0, 42)}
+    assert raw_admin._transport_failures == 0
+    assert raw_admin._needs_recycle is False
+
+
+async def test_partial_watermark_failure_does_not_recycle(raw_admin: KafkaAdmin) -> None:
+    """A sweep with at least one success must not count toward recycling."""
+
+    class _Flaky:
+        def __init__(self) -> None:
+            self.n = 0
+
+        def get_watermark_offsets(self, tp, timeout=None, cached=False):
+            self.n += 1
+            if self.n % 2 == 0:
+                raise RuntimeError("_TRANSPORT: one broker flapping")
+            return (0, 7)
+
+    raw_admin._consumer = _Flaky()
+    for _ in range(5):
+        await raw_admin.watermarks([("orders", 0), ("orders", 1)])
+    assert raw_admin._transport_failures == 0
+    assert raw_admin._needs_recycle is False
