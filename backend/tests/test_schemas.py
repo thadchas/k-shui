@@ -153,7 +153,9 @@ async def test_subject_detail_passes_deleted_flag(api, sr_mock):
     )
     resp = await api.get(base("/schemas/subjects/orders-value"), params={"deleted": True})
     assert resp.status_code == 200
-    assert seen == ["deleted=true"]
+    # First call lists everything (incl. soft-deleted); the second consults the live list so
+    # the `deleted` flag can be derived for registries that don't set it on the payload.
+    assert seen == ["deleted=true", ""]
     versions = {v["version"]: v for v in resp.json()["versions"]}
     assert versions[3]["deleted"] is True
     assert versions[1]["deleted"] is False

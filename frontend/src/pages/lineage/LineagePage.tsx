@@ -93,7 +93,9 @@ export function LineagePage() {
             </Badge>
           ) : null
         }
-        actions={<RefreshPicker onRefresh={() => void graph.refetch()} refreshing={graph.isFetching} />}
+        actions={
+          <RefreshPicker onRefresh={() => void graph.refetch()} refreshing={graph.isFetching} />
+        }
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)]">
@@ -193,10 +195,7 @@ export function LineagePage() {
                     className="flex items-center gap-2 text-2xs"
                     style={{ opacity: count === 0 ? 0.45 : 1 }}
                   >
-                    <span
-                      className="size-2.5 rounded-full"
-                      style={{ background: style.color }}
-                    />
+                    <span className="size-2.5 rounded-full" style={{ background: style.color }} />
                     <span className="flex-1 truncate text-[var(--muted)]">{style.label}</span>
                     <span className="font-mono tabular-nums text-[var(--muted)]">{count}</span>
                   </div>

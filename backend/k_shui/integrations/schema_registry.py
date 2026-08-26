@@ -64,16 +64,32 @@ class SchemaRegistryClient:
         data = await self.http.get_json(f"/subjects/{subject}/versions", params=params)
         return [int(v) for v in (data or [])]
 
-    async def get_version(self, subject: str, version: int | str = "latest") -> dict[str, Any]:
-        data = await self.http.get_json(f"/subjects/{subject}/versions/{version}")
+    async def get_version(
+        self, subject: str, version: int | str = "latest", deleted: bool = False
+    ) -> dict[str, Any]:
+        # Registries only serve a soft-deleted version when asked with ``?deleted=true``.
+        params = {"deleted": "true"} if deleted else None
+        data = await self.http.get_json(f"/subjects/{subject}/versions/{version}", params=params)
         return self._normalise_version(subject, data)
 
     async def get_versions(self, subject: str, deleted: bool = False) -> list[dict[str, Any]]:
         versions = await self.list_versions(subject, deleted=deleted)
         results = await asyncio.gather(
-            *(self.get_version(subject, v) for v in versions), return_exceptions=True
+            *(self.get_version(subject, v, deleted=deleted) for v in versions),
+            return_exceptions=True,
         )
-        return [r for r in results if isinstance(r, dict)]
+        rows = [r for r in results if isinstance(r, dict)]
+        if deleted and rows:
+            # Not every registry flags ``deleted`` on the version payload; derive it from the
+            # difference between the "all" and "live" version lists.
+            try:
+                live = set(await self.list_versions(subject, deleted=False))
+            except NotFound:
+                live = set()
+            for row in rows:
+                if not row.get("deleted"):
+                    row["deleted"] = int(row["version"]) not in live
+        return rows
 
     async def get_by_id(self, schema_id: int) -> dict[str, Any]:
         data = await self.http.get_json(f"/schemas/ids/{schema_id}")
@@ -145,6 +161,13 @@ class SchemaRegistryClient:
     async def subject_detail(self, subject: str, deleted: bool = False) -> dict[str, Any]:
         versions = await self.get_versions(subject, deleted=deleted)
         if not versions:
+            if deleted:
+                # Registries list soft-deleted versions but refuse to serve their payloads once
+                # every version of the subject is deleted; a permanent delete clears the name.
+                raise NotFound(
+                    f"subject '{subject}' has only soft-deleted versions; the registry cannot "
+                    "serve them. Delete the subject permanently to reclaim the name."
+                )
             raise NotFound(f"subject '{subject}' has no versions")
         config = await self.get_subject_config(subject)
         if not config.get("compatibility"):

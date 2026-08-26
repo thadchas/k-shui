@@ -44,7 +44,9 @@ export function PanelEditor({ open, onOpenChange, panel, suggestions, onSave }: 
     const geo = panelGeometry(base);
     setDraft({
       ...base,
-      queries: base.queries?.length ? base.queries.map((q) => ({ ...q })) : [{ expr: '', legend: '' }],
+      queries: base.queries?.length
+        ? base.queries.map((q) => ({ ...q }))
+        : [{ expr: '', legend: '' }],
       w: base.w ?? geo.w,
       h: base.h ?? geo.h,
     });
@@ -192,7 +194,6 @@ export function PanelEditor({ open, onOpenChange, panel, suggestions, onSave }: 
                 />
               </div>
             ))}
-
           </div>
         </DialogBody>
 

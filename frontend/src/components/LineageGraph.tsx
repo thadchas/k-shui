@@ -108,7 +108,11 @@ function LineageNodeCardImpl({ data }: NodeProps<LineageFlowNode>) {
           : 'border-[var(--border)] hover:border-[color-mix(in_srgb,var(--primary)_45%,var(--border))]',
       )}
     >
-      <Handle type="target" position={Position.Left} className="!size-1.5 !border-0 !bg-[var(--muted)]" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!size-1.5 !border-0 !bg-[var(--muted)]"
+      />
       <span
         className="flex size-8 shrink-0 items-center justify-center rounded-[8px]"
         style={{ background: `color-mix(in srgb, ${style.color} 16%, transparent)` }}
@@ -141,7 +145,11 @@ function LineageNodeCardImpl({ data }: NodeProps<LineageFlowNode>) {
           ) : null}
         </div>
       </div>
-      <Handle type="source" position={Position.Right} className="!size-1.5 !border-0 !bg-[var(--muted)]" />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!size-1.5 !border-0 !bg-[var(--muted)]"
+      />
     </div>
   );
 }
@@ -204,11 +212,7 @@ export function layoutLineage(
     const source = byId.get(e.source);
     const active = ACTIVE.test(source?.status ?? '') || source?.type === 'topic';
     const color =
-      e.kind === 'transforms'
-        ? '#F59E0B'
-        : e.kind === 'consumes'
-          ? '#0EA5E9'
-          : 'var(--muted)';
+      e.kind === 'transforms' ? '#F59E0B' : e.kind === 'consumes' ? '#0EA5E9' : 'var(--muted)';
     const shipStrategy =
       typeof e.meta?.shipStrategy === 'string' ? (e.meta.shipStrategy as string) : null;
     return {

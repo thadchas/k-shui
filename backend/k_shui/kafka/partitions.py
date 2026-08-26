@@ -273,7 +273,9 @@ class PartitionOps:
 
         etype = ElectionType.UNCLEAN if election_type == "unclean" else ElectionType.PREFERRED
         targets = [TopicPartition(t, p) for t, p in partitions] or None
-        fut = self._client().elect_leaders(etype, targets, request_timeout=self.timeout)
+        # confluent-kafka 2.15 mis-parses kwargs for elect_leaders (SystemError: "more argument
+        # specifiers than keyword list entries"), so the client default timeout is used.
+        fut = self._client().elect_leaders(etype, targets)
         result = await self._wait(fut)
         items: list[dict[str, Any]] = []
         succeeded = failed = not_needed = 0

@@ -23,7 +23,10 @@ export function normalizeFocusId(focus: string | null, cluster: string): string 
 }
 
 /** Deep link into the feature page that owns this lineage node, if any. */
-export function lineageNodeLink(node: LineageNodeFull, cluster: string): { to: string; label: string } | null {
+export function lineageNodeLink(
+  node: LineageNodeFull,
+  cluster: string,
+): { to: string; label: string } | null {
   const parts = node.id.split(':');
   const name = parts.slice(2).join(':');
   switch (node.type) {
