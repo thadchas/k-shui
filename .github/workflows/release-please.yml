@@ -1,0 +1,95 @@
+# Conventional Commits in → Semantic Versioning out.
+#
+# Every push to `main` re-computes the next version from the commit messages
+# accumulated since the last release (feat → MINOR, fix/perf → PATCH, `!` or a
+# `BREAKING CHANGE:` footer → MAJOR, or MINOR while we are still pre-1.0) and
+# keeps a single open "chore(release): vX.Y.Z" pull request in sync. That PR is
+# the release: it holds the CHANGELOG entry and the version bump for every
+# artifact. Merging it tags the release and hands off to release.yml, which
+# publishes the wheel, the npm launcher, the image and the chart.
+#
+# Nothing is published until a human merges that pull request.
+name: release-please
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: maintain the release pull request
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # commit the version bump + CHANGELOG, create the tag & release
+      pull-requests: write # open/refresh the release pull request
+    outputs:
+      release_created: ${{ steps.normalize.outputs.release_created }}
+      tag_name: ${{ steps.normalize.outputs.tag_name }}
+      version: ${{ steps.normalize.outputs.version }}
+      pr: ${{ steps.normalize.outputs.pr }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # release-please prefixes its outputs with the package path for every
+      # package except the root one, and which form you get has moved between
+      # versions — read whichever is present instead of betting on one.
+      - name: Normalize release-please outputs
+        id: normalize
+        env:
+          OUTPUTS: ${{ toJSON(steps.release.outputs) }}
+        run: |
+          set -euo pipefail
+          pick() { jq -r --arg k "$1" '.[$k] // .[".--" + $k] // ""' <<<"${OUTPUTS}"; }
+          created=$(pick release_created)
+          tag=$(pick tag_name)
+          version=$(pick version)
+          pr=$(jq -r '.pr // ""' <<<"${OUTPUTS}")
+          {
+            echo "release_created=${created:-false}"
+            echo "tag_name=${tag}"
+            echo "version=${version}"
+            echo "pr=${pr}"
+          } >> "$GITHUB_OUTPUT"
+
+          if [[ "${created}" == "true" ]]; then
+            echo "### 🚀 Released ${tag}" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Handing off to \`release.yml\` to publish PyPI, npm, GHCR and the Helm chart." >> "$GITHUB_STEP_SUMMARY"
+          elif [[ -n "${pr}" ]]; then
+            echo "### 📝 Release pull request updated" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Merge it when you want to cut the next release." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### 😴 Nothing releasable yet" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "No \`feat\`/\`fix\`/\`perf\` commits since the last release." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  publish:
+    name: publish artifacts
+    needs: [release-please]
+    if: needs.release-please.outputs.release_created == 'true'
+    # A called workflow can never hold more than the caller grants it, so the
+    # union of what release.yml's jobs need has to be declared here.
+    permissions:
+      contents: write # append install notes to the GitHub release
+      packages: write # GHCR image + OCI chart
+      id-token: write # PyPI trusted publishing, npm provenance, cosign, SBOM attestation
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+      release-exists: true
+    secrets: inherit

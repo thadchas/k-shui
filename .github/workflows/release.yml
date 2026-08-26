@@ -1,23 +1,107 @@
+# Publish one k-shui release: PyPI wheel, npm launcher, multi-arch image, Helm chart.
+#
+# Three ways in, all of which end up publishing the exact same commit:
+#   1. `workflow_call` — release-please calls this after it merges a release PR
+#      and creates the tag (see release-please.yml). This is the normal path.
+#   2. `push` of a `v*` tag — a hand-cut tag, e.g. the very first release or a
+#      backport from a maintenance branch.
+#   3. `workflow_dispatch` — re-run publishing for a tag that already exists,
+#      after fixing a transient registry failure.
+#
+# The tag is the source of truth for the version, and `resolve` refuses to
+# publish unless the committed version declarations already agree with it —
+# release-please bumps them in the release PR, so they always should.
 name: release
 
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)publish, e.g. v0.2.0"
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag to publish, e.g. v0.2.0"
+        required: true
+        type: string
+      release-exists:
+        description: "The GitHub release already exists (release-please created it); append install notes instead of creating it"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/k-shui
   CHART_NAME: k-shui
 
 jobs:
+  resolve:
+    name: resolve & verify version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      version: ${{ steps.v.outputs.version }}
+      major_minor: ${{ steps.v.outputs.major_minor }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      npm_tag: ${{ steps.v.outputs.npm_tag }}
+    steps:
+      - name: Resolve the tag and parse the semantic version
+        id: v
+        env:
+          # `inputs` is empty for tag pushes, where the ref name is the tag.
+          RAW_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          tag="${RAW_TAG}"
+          version="${tag#v}"
+          # Semantic Versioning 2.0.0 — https://semver.org
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          if ! [[ "${version}" =~ ${semver} ]]; then
+            echo "::error::'${tag}' is not a v-prefixed semantic version (expected e.g. v1.4.0 or v1.4.0-rc.1)"
+            exit 1
+          fi
+          major="${version%%.*}"
+          rest="${version#*.}"
+          minor="${rest%%.*}"
+          if [[ "${version}" == *-* ]]; then prerelease=true; npm_tag=next; else prerelease=false; npm_tag=latest; fi
+          {
+            echo "tag=${tag}"
+            echo "version=${version}"
+            echo "major_minor=${major}.${minor}"
+            echo "prerelease=${prerelease}"
+            echo "npm_tag=${npm_tag}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Publishing ${tag} (version ${version}, prerelease=${prerelease}, npm dist-tag=${npm_tag})" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.v.outputs.tag }}
+
+      # A tag that disagrees with the committed version would ship a wheel whose
+      # `k-shui version` lies. release-please bumps these in the release PR.
+      - name: Every version declaration must match the tag
+        run: python3 scripts/check_versions.py --expect "${{ steps.v.outputs.version }}"
+
   frontend-build:
     name: build frontend static assets
+    needs: [resolve]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -35,15 +119,18 @@ jobs:
 
   pypi:
     name: build & publish PyPI package
-    needs: [frontend-build]
+    needs: [resolve, frontend-build]
     runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/p/k-shui
     permissions:
+      contents: read # actions/checkout — a job that declares permissions gets nothing else
       id-token: write # trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - uses: actions/download-artifact@v8
         with:
           name: static-assets
@@ -66,6 +153,11 @@ jobs:
           assets=$(unzip -l "${whl}" | grep -c 'k_shui/static/assets/')
           echo "static assets in wheel: ${assets}"
           test "${assets}" -gt 0
+      - name: Assert the wheel is versioned like the tag
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          ls dist/k_shui-${{ needs.resolve.outputs.version }}-*.whl
       - name: Publish to PyPI (trusted publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
@@ -73,31 +165,38 @@ jobs:
 
   npm:
     name: publish npm package
+    needs: [resolve]
     runs-on: ubuntu-latest
     permissions:
       id-token: write # npm provenance
       contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
-      - name: Sync version from tag
+      - name: Assert package.json already matches the tag
         working-directory: packages/npm
-        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+        run: |
+          set -euo pipefail
+          declared=$(node -p "require('./package.json').version")
+          test "${declared}" = "${{ needs.resolve.outputs.version }}"
       - name: npm test
         working-directory: packages/npm
         run: npm test
+      # Prereleases land under `next` so `npx k-shui` keeps resolving to stable.
       - name: npm publish
         working-directory: packages/npm
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --tag "${{ needs.resolve.outputs.npm_tag }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   docker:
     name: build, sign & attest multi-arch image
-    needs: [frontend-build]
+    needs: [resolve, frontend-build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -105,6 +204,8 @@ jobs:
       id-token: write # cosign keyless signing + SBOM attestation
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - uses: actions/download-artifact@v8
         with:
           name: static-assets
@@ -120,15 +221,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Explicit `type=raw` tags rather than `type=semver`: when release-please
+      # calls this workflow the triggering ref is `main`, not the tag, so the
+      # semver pattern would have nothing to parse. A prerelease never moves
+      # `latest`.
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=${{ needs.resolve.outputs.version }}
+            type=raw,value=${{ needs.resolve.outputs.major_minor }},enable=${{ needs.resolve.outputs.prerelease == 'false' }}
+            type=raw,value=latest,enable=${{ needs.resolve.outputs.prerelease == 'false' }}
 
       - name: Build & push
         id: build
@@ -141,7 +246,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ needs.resolve.outputs.version }}
             VCS_REF=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -173,12 +278,15 @@ jobs:
 
   helm:
     name: package & push chart (OCI)
+    needs: [resolve]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - uses: azure/setup-helm@v4
         with:
           version: "latest"
@@ -186,14 +294,13 @@ jobs:
       - name: helm lint
         run: helm lint charts/k-shui
 
-      - name: Set chart version from tag
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          sed -i "s/^version: .*/version: ${VERSION}/" charts/k-shui/Chart.yaml
-          sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" charts/k-shui/Chart.yaml
-
+      # Chart.yaml is bumped in the release PR (release-please `extra-files`) and
+      # verified against the tag in `resolve`, so nothing is rewritten here.
       - name: helm package
         run: helm package charts/k-shui --destination dist/
+
+      - name: Assert the packaged chart carries the release version
+        run: test -f "dist/${CHART_NAME}-${{ needs.resolve.outputs.version }}.tgz"
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -202,24 +309,36 @@ jobs:
         run: helm push dist/${CHART_NAME}-*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
 
   github-release:
-    name: create GitHub release
-    needs: [pypi, npm, docker, helm]
+    name: publish GitHub release notes
+    needs: [resolve, pypi, npm, docker, helm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.resolve.outputs.tag }}
           fetch-depth: 0
-      - name: Create release
+      # When release-please already published the release, its CHANGELOG-derived
+      # body is the good one — append the install matrix rather than replace it.
+      - name: Create or annotate the release
         uses: softprops/action-gh-release@v3
         with:
-          generate_release_notes: true
-          name: k-shui ${{ github.ref_name }}
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          name: k-shui ${{ needs.resolve.outputs.tag }}
+          prerelease: ${{ needs.resolve.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.resolve.outputs.prerelease == 'false' }}
+          generate_release_notes: ${{ inputs.release-exists != true }}
+          append_body: ${{ inputs.release-exists == true }}
           body: |
-            k-shui ${{ github.ref_name }}
+            ## Install k-shui ${{ needs.resolve.outputs.version }}
 
-            - PyPI: https://pypi.org/project/k-shui/${{ github.ref_name }}
-            - npm: https://www.npmjs.com/package/k-shui/v/${{ github.ref_name }}
-            - Image: `docker pull ${{ env.IMAGE_NAME }}:${{ github.ref_name }}`
-            - Helm: `helm install k-shui oci://ghcr.io/${{ github.repository_owner }}/charts/k-shui --version ${{ github.ref_name }}`
+            ```bash
+            uvx k-shui@${{ needs.resolve.outputs.version }} serve          # PyPI
+            npx k-shui@${{ needs.resolve.outputs.version }}                # npm launcher
+            docker pull ${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.version }}
+            helm install k-shui oci://ghcr.io/${{ github.repository_owner }}/charts/k-shui \
+              --version ${{ needs.resolve.outputs.version }}
+            ```
+
+            The image is cosign-signed (keyless) and ships an SPDX SBOM attestation.

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "d3e0e250f087b0840e68c80e9e929166cee945e4",
+  "release-type": "simple",
+  "include-component-in-tag": false,
+  "include-v-in-tag": true,
+  "separate-pull-requests": false,
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": false,
+  "draft": false,
+  "prerelease": false,
+  "pull-request-title-pattern": "chore(release): v${version}",
+  "pull-request-header": "## Release ${version}\n\nMerging this pull request bumps every version declaration, updates `CHANGELOG.md`, tags `v${version}` and publishes the wheel, the npm launcher, the container image and the Helm chart. Squash-merge it — do not rebase or edit the title.",
+  "changelog-path": "CHANGELOG.md",
+  "packages": {
+    ".": {
+      "package-name": "k-shui",
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug Fixes" },
+        { "type": "perf", "section": "Performance" },
+        { "type": "revert", "section": "Reverts" },
+        { "type": "refactor", "section": "Refactors" },
+        { "type": "docs", "section": "Documentation" },
+        { "type": "build", "section": "Build & Packaging" },
+        { "type": "ci", "section": "Continuous Integration", "hidden": true },
+        { "type": "test", "section": "Tests", "hidden": true },
+        { "type": "style", "section": "Styling", "hidden": true },
+        { "type": "chore", "section": "Miscellaneous", "hidden": true }
+      ],
+      "extra-files": [
+        "backend/pyproject.toml",
+        "backend/k_shui/__init__.py",
+        "charts/k-shui/Chart.yaml",
+        {
+          "type": "json",
+          "path": "packages/npm/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "frontend/package.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    }
+  }
+}

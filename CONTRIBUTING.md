@@ -60,13 +60,52 @@ pre-commit install
 pre-commit run --all-files
 ```
 
-## Commit messages & PRs
+## Commit messages & pull requests
 
-Use clear, imperative commit messages (`fix: ...`, `feat: ...`, `docs: ...`,
-`chore: ...`). CI (`.github/workflows/ci.yml`) runs backend tests across
-Python 3.11–3.13, frontend lint/build, `helm lint`, a Docker build, and a
-kustomize render on every PR — please make sure it's green before requesting
-review.
+k-shui releases itself from its commit history, so the message format is part of
+the build. Every pull request title **must** be a
+[Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/#summary):
+
+```
+<type>[(optional scope)][!]: <description>
+
+feat(topics): add per-partition purge with a before-offset cutoff
+fix(kafka): recycle the watermark consumer after repeated failed sweeps
+docs(helm): document values-lakestream.yaml
+feat(api)!: require an editor token on the OpenLineage endpoint
+```
+
+Types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`,
+`chore`, `style`, `revert`. Scope is the area you touched (`kafka`, `frontend`,
+`helm`, `auth`, …).
+
+Pull requests are squash-merged, so **the title becomes the commit subject and
+the description becomes the commit body** — and those are the only things
+[release-please](https://github.com/googleapis/release-please) reads when it
+works out the next [semantic version](https://semver.org) and writes
+`CHANGELOG.md`. `feat` produces a minor release, `fix`/`perf` a patch, and a `!`
+plus a `BREAKING CHANGE:` footer at the end of the description a major one
+(minor while we are pre-1.0). Write the description for whoever reads the
+release notes later.
+
+The `pr-lint` workflow enforces this on every pull request. To catch it earlier,
+`pre-commit install` also installs a `commit-msg` hook that runs the same
+validator, and you can check a message directly:
+
+```bash
+make commitlint MSG="feat(topics): add per-partition purge"
+```
+
+Never hand-edit a version number: `version.txt`, `backend/pyproject.toml`,
+`backend/k_shui/__init__.py`, both `package.json` files and
+`charts/k-shui/Chart.yaml` are bumped together by the release automation, and
+`make version-check` (also a CI job) fails if they ever disagree.
+
+CI (`.github/workflows/ci.yml`) runs backend tests across Python 3.11–3.13,
+frontend lint/build, `helm lint`, a Docker build, and a kustomize render on every
+pull request — please make sure it's green before requesting review.
+
+**Full release process:** [`docs/development/releasing.md`](docs/development/releasing.md).
 
 ## Security issues
 

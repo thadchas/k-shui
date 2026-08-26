@@ -2,8 +2,8 @@ apiVersion: v2
 name: k-shui
 description: Kafka Streaming Hub UI — open-source Confluent Control Center replacement unifying Kafka, Connect, Schema Registry, ksqlDB, Flink, Prometheus metrics and stream lineage in one console.
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.1.0 # x-release-please-version
+appVersion: "0.1.0" # x-release-please-version
 kubeVersion: ">=1.25.0-0"
 home: https://github.com/thadchas/k-shui
 sources:
