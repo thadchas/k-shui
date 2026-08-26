@@ -46,7 +46,13 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { TimeRangePicker } from '@/components/ui/time-range-picker';
 import { toast, toastError } from '@/components/ui/toast';
-import { newPanelId, PANEL_TYPES, PANEL_UNITS, promMatrixToSeries, promSeriesName } from './panelUtils';
+import {
+  newPanelId,
+  PANEL_TYPES,
+  PANEL_UNITS,
+  promMatrixToSeries,
+  promSeriesName,
+} from './panelUtils';
 
 export function MetricsExplorePage() {
   const cluster = useClusterId();
@@ -69,7 +75,10 @@ export function MetricsExplorePage() {
   const [panelTitle, setPanelTitle] = useState('');
   const [panelType, setPanelType] = useState('timeseries');
   const [panelUnitValue, setPanelUnitValue] = useState('short');
-  const targetSpec = useDashboardSpec(cluster, addOpen && targetDashboard ? targetDashboard : undefined);
+  const targetSpec = useDashboardSpec(
+    cluster,
+    addOpen && targetDashboard ? targetDashboard : undefined,
+  );
   const update = useUpdateDashboard(cluster);
 
   const userDashboards = useMemo(
@@ -83,10 +92,7 @@ export function MetricsExplorePage() {
     }
   }, [addOpen, targetDashboard, userDashboards]);
 
-  const series = useMemo(
-    () => promMatrixToSeries(rangeQuery.data?.result),
-    [rangeQuery.data],
-  );
+  const series = useMemo(() => promMatrixToSeries(rangeQuery.data?.result), [rangeQuery.data]);
 
   const run = () => {
     const q = expr.trim();
@@ -321,7 +327,8 @@ export function MetricsExplorePage() {
               onClick={() => {
                 const spec = targetSpec.data;
                 if (!spec) return;
-                const rows = spec.rows.length > 0 ? [...spec.rows] : [{ title: 'Row 1', panels: [] }];
+                const rows =
+                  spec.rows.length > 0 ? [...spec.rows] : [{ title: 'Row 1', panels: [] }];
                 const ids = rows.flatMap((r) => r.panels.map((p) => p.id));
                 const last = rows.length - 1;
                 rows[last] = {

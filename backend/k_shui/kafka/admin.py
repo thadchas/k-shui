@@ -755,6 +755,14 @@ def _quorum_to_dict(result: Any) -> dict[str, Any]:
     }
 
 
+def _non_negative(value: Any) -> int | None:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 0 else None
+
+
 def _logdirs_to_dict(result: Any) -> dict[str, Any]:
     brokers: dict[str, Any] = {}
     for broker_id, dirs in (result or {}).items():
@@ -769,10 +777,15 @@ def _logdirs_to_dict(result: Any) -> dict[str, Any]:
                 }
                 for tp, meta in (getattr(info, "replica_infos", {}) or {}).items()
             ]
+            error = getattr(info, "error", None)
             entries.append(
                 {
                     "path": path,
                     "sizeBytes": sum(p["sizeBytes"] or 0 for p in partitions),
+                    # DescribeLogDirs v4+ (Kafka 3.3) reports capacity; older brokers/clients return -1.
+                    "totalBytes": _non_negative(getattr(info, "total_bytes", None)),
+                    "usableBytes": _non_negative(getattr(info, "usable_bytes", None)),
+                    "error": str(error) if error else None,
                     "partitions": partitions,
                 }
             )

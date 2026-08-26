@@ -23,17 +23,17 @@ KRaft, and support for importing your own Grafana JSON dashboards.
 
 ## API endpoints
 
-| Method | Path | Notes |
-|---|---|---|
-| `GET` | `/api/v1/clusters/{c}/metrics/status` | `{configured, url, reachable, buildInfo, targets}` |
-| `GET` | `/api/v1/clusters/{c}/metrics/query?query&time` | Instant PromQL proxy |
-| `GET` | `/api/v1/clusters/{c}/metrics/query_range?query&start&end&step` | Range PromQL proxy |
-| `GET` | `/api/v1/clusters/{c}/metrics/catalog?search` | Metric names + help, for autocomplete |
-| `GET` | `/api/v1/clusters/{c}/metrics/dashboards` | Built-in + user dashboards |
-| `GET` | `/api/v1/clusters/{c}/metrics/dashboards/{id}` | Rows/panels/variables definition |
-| `POST`/`PUT`/`DELETE` | `/api/v1/metrics/dashboards` | User dashboards (SQLite) |
-| `POST` | `/api/v1/metrics/dashboards/import` | Grafana-JSON import |
-| `GET` | `/api/v1/clusters/{c}/metrics/dashboards/{id}/data?range&step&vars` | Evaluates all panels → `{panels:{[panelId]:{series}}}` |
+| Method                | Path                                                                | Notes                                                  |
+| --------------------- | ------------------------------------------------------------------- | ------------------------------------------------------ |
+| `GET`                 | `/api/v1/clusters/{c}/metrics/status`                               | `{configured, url, reachable, buildInfo, targets}`     |
+| `GET`                 | `/api/v1/clusters/{c}/metrics/query?query&time`                     | Instant PromQL proxy                                   |
+| `GET`                 | `/api/v1/clusters/{c}/metrics/query_range?query&start&end&step`     | Range PromQL proxy                                     |
+| `GET`                 | `/api/v1/clusters/{c}/metrics/catalog?search`                       | Metric names + help, for autocomplete                  |
+| `GET`                 | `/api/v1/clusters/{c}/metrics/dashboards`                           | Built-in + user dashboards                             |
+| `GET`                 | `/api/v1/clusters/{c}/metrics/dashboards/{id}`                      | Rows/panels/variables definition                       |
+| `POST`/`PUT`/`DELETE` | `/api/v1/metrics/dashboards`                                        | User dashboards (SQLite)                               |
+| `POST`                | `/api/v1/metrics/dashboards/import`                                 | Grafana-JSON import                                    |
+| `GET`                 | `/api/v1/clusters/{c}/metrics/dashboards/{id}/data?range&step&vars` | Evaluates all panels → `{panels:{[panelId]:{series}}}` |
 
 ## Config required
 

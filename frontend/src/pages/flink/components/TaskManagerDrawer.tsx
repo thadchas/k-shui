@@ -180,10 +180,15 @@ export function TaskManagerDrawer({
               <div>
                 <Row label="Path" value={tm?.path ?? '—'} />
                 <Row label="Data port" value={tm?.dataPort ?? '—'} />
-                <Row label="JMX port" value={tm && tm.jmxPort && tm.jmxPort > 0 ? tm.jmxPort : '—'} />
+                <Row
+                  label="JMX port"
+                  value={tm && tm.jmxPort && tm.jmxPort > 0 ? tm.jmxPort : '—'}
+                />
                 <Row
                   label="Last heartbeat"
-                  value={tm?.timeSinceLastHeartbeat ? formatRelative(tm.timeSinceLastHeartbeat) : '—'}
+                  value={
+                    tm?.timeSinceLastHeartbeat ? formatRelative(tm.timeSinceLastHeartbeat) : '—'
+                  }
                 />
                 <Row label="Physical memory" value={formatBytes(tm?.hardware?.physicalMemory)} />
                 <Row label="Free memory" value={formatBytes(tm?.hardware?.freeMemory)} />
@@ -201,7 +206,11 @@ export function TaskManagerDrawer({
               ) : logList.isLoading ? (
                 <Skeleton className="h-8 w-64" />
               ) : (logList.data?.logs?.length ?? 0) === 0 ? (
-                <EmptyState compact title="No log files" description="This task manager exposes no logs." />
+                <EmptyState
+                  compact
+                  title="No log files"
+                  description="This task manager exposes no logs."
+                />
               ) : (
                 <div className="flex flex-wrap items-center gap-2">
                   <SimpleSelect

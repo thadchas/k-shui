@@ -10,10 +10,20 @@ import {
   Square,
   Trash2,
 } from 'lucide-react';
-import { useConnectorAction, useDeleteConnector } from '@/api/hooks/connect';
+import { useConnectorAction, useDeleteConnector, type ConnectorAction } from '@/api/hooks/connect';
 import type { Connector } from '@/api/types';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +33,74 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast, toastError } from '@/components/ui/toast';
 import { taskCounts } from './connectUtils';
+
+/** Proper past tense for action toasts (`stop` → "stopped", not "stopd"). */
+export const ACTION_PAST_TENSE: Record<ConnectorAction, string> = {
+  pause: 'paused',
+  resume: 'resumed',
+  stop: 'stopped',
+  restart: 'restarted',
+};
+
+export interface StopConnectorDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  connectorName: string;
+  loading?: boolean;
+  onConfirm: () => void | Promise<void>;
+}
+
+/** Explains STOPPED vs PAUSED before stopping a connector. */
+export function StopConnectorDialog({
+  open,
+  onOpenChange,
+  connectorName,
+  loading,
+  onConfirm,
+}: StopConnectorDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <div className="flex items-start gap-3">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--warning)_16%,transparent)]">
+              <Square className="size-4 text-[var(--warning)]" />
+            </span>
+            <div className="space-y-1">
+              <DialogTitle>Stop connector</DialogTitle>
+              <DialogDescription>
+                Stops <span className="font-mono">{connectorName}</span> and releases all of its
+                tasks.
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+        <DialogBody>
+          <ul className="list-disc space-y-1.5 pl-4 text-xs text-[var(--muted)]">
+            <li>
+              <span className="font-mono text-[var(--foreground)]">STOPPED</span> shuts down the
+              connector and its tasks; worker resources are freed and the connector no longer
+              processes records. This is the state required to edit or reset offsets.
+            </li>
+            <li>
+              <span className="font-mono text-[var(--foreground)]">PAUSED</span> keeps tasks
+              allocated but idle, so resuming is faster — offsets stay read-only.
+            </li>
+            <li>Use Resume to bring the connector back to RUNNING afterwards.</li>
+          </ul>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+            Cancel
+          </Button>
+          <Button loading={loading} onClick={() => void onConfirm()}>
+            <Square /> Stop connector
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export interface ConnectorActionsMenuProps {
   cluster: string;
@@ -43,23 +121,31 @@ export function ConnectorActionsMenu({
   labelled,
 }: ConnectorActionsMenuProps) {
   const navigate = useNavigate();
+  const { canEdit } = usePermissions();
   const action = useConnectorAction(cluster, kc);
   const remove = useDeleteConnector(cluster, kc);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmStop, setConfirmStop] = useState(false);
 
   const state = (connector.state ?? '').toUpperCase();
   const counts = taskCounts(connector.tasks);
+  const gate = canEdit ? {} : { disabled: true, title: REQUIRES_EDITOR };
+  const gateHint = canEdit ? null : (
+    <span className="ml-auto pl-3 text-2xs text-[var(--muted)]">{REQUIRES_EDITOR}</span>
+  );
 
   const run = async (
-    kind: 'pause' | 'resume' | 'stop' | 'restart',
+    kind: ConnectorAction,
     options?: { includeTasks?: boolean; onlyFailed?: boolean },
     message?: string,
   ) => {
     try {
       await action.mutateAsync({ name: connector.name, action: kind, ...options });
-      toast.success(message ?? `${connector.name} ${kind}d`);
+      toast.success(message ?? `${connector.name} ${ACTION_PAST_TENSE[kind]}`);
+      return true;
     } catch (e) {
       toastError(`Failed to ${kind} connector`, e);
+      return false;
     }
   };
 
@@ -79,26 +165,32 @@ export function ConnectorActionsMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent>
           {state === 'PAUSED' || state === 'STOPPED' ? (
-            <DropdownMenuItem onSelect={() => void run('resume')}>
-              <Play /> Resume
+            <DropdownMenuItem {...gate} onSelect={() => void run('resume')}>
+              <Play /> Resume{gateHint}
             </DropdownMenuItem>
           ) : (
-            <DropdownMenuItem onSelect={() => void run('pause')}>
-              <Pause /> Pause
+            <DropdownMenuItem {...gate} onSelect={() => void run('pause')}>
+              <Pause /> Pause{gateHint}
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem disabled={state === 'STOPPED'} onSelect={() => void run('stop')}>
-            <Square /> Stop
+          <DropdownMenuItem
+            {...gate}
+            disabled={!canEdit || state === 'STOPPED'}
+            onSelect={() => setConfirmStop(true)}
+          >
+            <Square /> Stop{gateHint}
           </DropdownMenuItem>
           <DropdownMenuItem
+            {...gate}
             onSelect={() =>
               void run('restart', { includeTasks: true }, `${connector.name} restarted`)
             }
           >
-            <RotateCcw /> Restart (with tasks)
+            <RotateCcw /> Restart (with tasks){gateHint}
           </DropdownMenuItem>
           <DropdownMenuItem
-            disabled={counts.failed === 0}
+            {...gate}
+            disabled={!canEdit || counts.failed === 0}
             onSelect={() =>
               void run(
                 'restart',
@@ -107,7 +199,7 @@ export function ConnectorActionsMenu({
               )
             }
           >
-            <RefreshCw /> Restart failed tasks
+            <RefreshCw /> Restart failed tasks{gateHint}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -120,11 +212,21 @@ export function ConnectorActionsMenu({
             <Settings2 /> Edit config
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem destructive onSelect={() => setConfirmDelete(true)}>
-            <Trash2 /> Delete connector
+          <DropdownMenuItem destructive {...gate} onSelect={() => setConfirmDelete(true)}>
+            <Trash2 /> Delete connector{gateHint}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <StopConnectorDialog
+        open={confirmStop}
+        onOpenChange={setConfirmStop}
+        connectorName={connector.name}
+        loading={action.isPending}
+        onConfirm={async () => {
+          if (await run('stop')) setConfirmStop(false);
+        }}
+      />
 
       <ConfirmDestructiveDialog
         open={confirmDelete}

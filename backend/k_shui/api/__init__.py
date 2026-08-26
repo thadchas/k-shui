@@ -20,6 +20,7 @@ ROUTER_MODULES: list[str] = [
     "audit",
     "events",
     "clusters",
+    "partitions",
     "brokers",
     "topics",
     "messages",

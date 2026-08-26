@@ -1,0 +1,296 @@
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowRight, RefreshCw } from 'lucide-react';
+import { useReassign, useReassignPlan } from '@/api/hooks/partitions';
+import type { ReassignPlanItem, ReassignPlanResponse } from '@/api/types';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { CodeBlock } from '@/components/ui/code-block';
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { InlineError } from '@/components/ui/error-state';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
+import { unsupportedFromError } from './ReassignDialog';
+
+export interface PlanDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  clusterId: string;
+  /** Restrict the plan to these topics; empty = whole cluster. */
+  topics?: string[];
+}
+
+const CONFIRM_WORD = 'reassign';
+
+function ReplicaDiff({ item }: { item: ReassignPlanItem }) {
+  const proposedSet = new Set(item.proposed);
+  const currentSet = new Set(item.current);
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1 font-mono text-xs tabular-nums">
+      {item.current.map((id) => (
+        <span
+          key={`c-${id}`}
+          className={cn(!proposedSet.has(id) && 'text-[var(--danger)] line-through')}
+        >
+          {id}
+        </span>
+      ))}
+      <ArrowRight className="size-3 text-[var(--muted)]" aria-label="to" />
+      {item.proposed.map((id, i) => (
+        <span
+          key={`p-${id}`}
+          className={cn(
+            !currentSet.has(id) && 'text-[var(--success)]',
+            i === 0 && item.current[0] !== id && 'underline decoration-dotted',
+          )}
+          title={i === 0 ? 'preferred leader' : undefined}
+        >
+          {id}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * Propose a balanced (rack-aware when racks are known) assignment and let operators inspect
+ * the diff, copy the CLI JSON, or apply it when the backend client supports reassignment.
+ */
+export function PlanDialog({ open, onOpenChange, clusterId, topics = [] }: PlanDialogProps) {
+  const { canEdit } = usePermissions();
+  const plan = useReassignPlan(clusterId);
+  const reassign = useReassign(clusterId);
+  const [onlyChanged, setOnlyChanged] = useState(true);
+  const [typed, setTyped] = useState('');
+  const [unsupportedDetail, setUnsupportedDetail] = useState<string | null>(null);
+
+  const topicsKey = topics.join('\0');
+  const { mutate: requestPlan, reset: resetPlan } = plan;
+  useEffect(() => {
+    if (open) {
+      setTyped('');
+      setUnsupportedDetail(null);
+      requestPlan({ topics: topicsKey ? topicsKey.split('\0') : [] });
+    } else {
+      resetPlan();
+    }
+  }, [open, topicsKey, requestPlan, resetPlan]);
+
+  const data: ReassignPlanResponse | undefined = plan.data;
+  const rows = useMemo(
+    () => (onlyChanged ? (data?.items ?? []).filter((i) => i.changed) : (data?.items ?? [])),
+    [data, onlyChanged],
+  );
+  const json = data ? JSON.stringify(data.reassignmentJson, null, 2) : '';
+  const applySupported = data?.applySupported ?? false;
+  const canApply =
+    canEdit &&
+    applySupported &&
+    (data?.changed ?? 0) > 0 &&
+    typed === CONFIRM_WORD &&
+    !reassign.isPending;
+  const disabledReason = !canEdit
+    ? REQUIRES_EDITOR
+    : !applySupported
+      ? 'Applying needs a newer Kafka client on the backend — copy the JSON and use kafka-reassign-partitions.sh.'
+      : (data?.changed ?? 0) === 0
+        ? 'Nothing to move'
+        : typed !== CONFIRM_WORD
+          ? `Type ${CONFIRM_WORD} to confirm`
+          : undefined;
+
+  const apply = async () => {
+    if (!data) return;
+    try {
+      const result = await reassign.mutateAsync({ partitions: data.reassignmentJson.partitions });
+      const failed = result.items.filter((i) => i.error).length;
+      if (failed) {
+        toast.warning('Rebalance submitted with errors', {
+          description: `${failed} of ${result.items.length} partitions were rejected`,
+        });
+      } else {
+        toast.success('Rebalance started', {
+          description: `${result.items.length} partition(s) are being moved`,
+        });
+      }
+      onOpenChange(false);
+    } catch (e) {
+      const fallback = unsupportedFromError(e);
+      if (fallback) setUnsupportedDetail(fallback.detail);
+      else toastError('Rebalance failed', e);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="xl">
+        <DialogHeader>
+          <DialogTitle>Rebalance plan</DialogTitle>
+          <DialogDescription>
+            {topics.length
+              ? `Proposed replica placement for ${topics.length === 1 ? topics[0] : `${topics.length} topics`}.`
+              : 'Proposed replica placement for every topic in the cluster.'}{' '}
+            Replication factor is preserved, preferred leaders rotate across brokers
+            {data?.rackAware ? ', and replicas are spread across racks' : ''}. Nothing is applied
+            until you confirm.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          {plan.isPending ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-9 w-full" />
+              ))}
+            </div>
+          ) : plan.error ? (
+            <InlineError error={plan.error} onRetry={() => requestPlan({ topics })} />
+          ) : data ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={data.changed > 0 ? 'info' : 'success'}>
+                  {data.changed} of {data.items.length} partitions move
+                </Badge>
+                <Badge variant="secondary">brokers {data.brokers.join(', ')}</Badge>
+                {data.rackAware ? <Badge variant="secondary">rack-aware</Badge> : null}
+                <label className="ml-auto flex items-center gap-2 text-xs text-[var(--muted)]">
+                  <Switch
+                    checked={onlyChanged}
+                    onCheckedChange={setOnlyChanged}
+                    aria-label="Only show partitions that move"
+                  />
+                  Only changes
+                </label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => requestPlan({ topics })}
+                  aria-label="Recompute plan"
+                >
+                  <RefreshCw /> Recompute
+                </Button>
+              </div>
+
+              {rows.length === 0 ? (
+                <EmptyState
+                  compact
+                  title="Already balanced"
+                  description="The proposed assignment matches the current one."
+                />
+              ) : (
+                <div className="max-h-72 overflow-auto rounded-[var(--radius-control)] border border-[var(--border)]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead>Topic</TableHead>
+                        <TableHead numeric>Partition</TableHead>
+                        <TableHead>Current → proposed</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rows.map((item) => (
+                        <TableRow key={`${item.topic}-${item.partition}`}>
+                          <TableCell className="font-mono text-[13px]">{item.topic}</TableCell>
+                          <TableCell numeric>{item.partition}</TableCell>
+                          <TableCell>
+                            <ReplicaDiff item={item} />
+                          </TableCell>
+                          <TableCell>
+                            {item.changed ? (
+                              <Badge variant="info" size="sm">
+                                moves
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" size="sm">
+                                unchanged
+                              </Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {data.changed > 0 ? (
+                <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
+                  <div className="space-y-2">
+                    <CodeBlock title="reassignment.json" code={json} maxHeight={180} />
+                    <CodeBlock title="command" code={data.command} wrap maxHeight={80} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="plan-confirm">
+                      Type{' '}
+                      <span className="font-mono text-[var(--foreground)]">{CONFIRM_WORD}</span> to
+                      confirm
+                    </Label>
+                    <Input
+                      id="plan-confirm"
+                      mono
+                      autoComplete="off"
+                      value={typed}
+                      placeholder={CONFIRM_WORD}
+                      disabled={!applySupported || !canEdit}
+                      onChange={(e) => setTyped(e.target.value)}
+                    />
+                    {!applySupported || unsupportedDetail ? (
+                      <p className="text-xs text-[var(--warning)]">
+                        {unsupportedDetail ??
+                          'Applying from k-shui is not available with the installed Kafka client. Copy the JSON and run the command on a broker host.'}
+                      </p>
+                    ) : (
+                      <p className="text-2xs text-[var(--muted)]">
+                        Moves data between brokers; run during a quiet window and consider a
+                        throttle via the per-partition dialog for large topics.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+          <Tooltip content={disabledReason}>
+            <span>
+              <Button
+                variant="destructive"
+                disabled={!canApply}
+                loading={reassign.isPending}
+                onClick={() => void apply()}
+              >
+                Apply plan
+              </Button>
+            </span>
+          </Tooltip>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -19,6 +19,8 @@ class GroupSummary(Model):
     partitionCount: int = 0
     totalLag: int = 0
     isSimple: bool = False
+    # Worst per-partition time-lag estimate (ms); None when no rate is known yet.
+    maxTimeLagMs: int | None = None
 
 
 class GroupMember(Model):
@@ -39,6 +41,8 @@ class GroupPartition(Model):
     memberId: str | None = None
     clientId: str | None = None
     host: str | None = None
+    # Estimated time behind the log end (ms); None when the produce rate is unknown or zero.
+    timeLagMs: int | None = None
 
 
 class GroupTopicSummary(Model):

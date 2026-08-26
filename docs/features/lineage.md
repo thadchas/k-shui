@@ -22,13 +22,13 @@ k-shui derives itself from Connect/ksqlDB/Flink/consumer-group state.
 
 ## API endpoints
 
-| Method | Path | Notes |
-|---|---|---|
-| `GET` | `/api/v1/clusters/{c}/lineage/graph?focus=&depth=&sources=` | `{nodes, edges}` |
-| `GET` | `/api/v1/clusters/{c}/lineage/nodes/{id}` | Detail: `latestRuns`, schema, facets |
-| `GET` | `/api/v1/clusters/{c}/lineage/search?q` | |
-| `GET` | `/api/v1/clusters/{c}/lineage/namespaces`, `.../datasets?namespace`, `.../jobs?namespace`, `.../runs?jobId` | Marquez passthrough |
-| `POST` | `/api/v1/lineage/openlineage` | OpenLineage event ingest — forwarded to Marquez if configured, else stored locally |
+| Method | Path                                                                                                        | Notes                                                                              |
+| ------ | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `GET`  | `/api/v1/clusters/{c}/lineage/graph?focus=&depth=&sources=`                                                 | `{nodes, edges}`                                                                   |
+| `GET`  | `/api/v1/clusters/{c}/lineage/nodes/{id}`                                                                   | Detail: `latestRuns`, schema, facets                                               |
+| `GET`  | `/api/v1/clusters/{c}/lineage/search?q`                                                                     |                                                                                    |
+| `GET`  | `/api/v1/clusters/{c}/lineage/namespaces`, `.../datasets?namespace`, `.../jobs?namespace`, `.../runs?jobId` | Marquez passthrough                                                                |
+| `POST` | `/api/v1/lineage/openlineage`                                                                               | OpenLineage event ingest — forwarded to Marquez if configured, else stored locally |
 
 ## Config required
 

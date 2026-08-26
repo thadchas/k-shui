@@ -6,6 +6,15 @@ import type { AclQuery, AuditQuery, MessagesQuery, RangeParams, TopicListQuery }
 
 const c = (cluster: string) => ['cluster', cluster] as const;
 
+export interface ConsumerGroupsPageQuery {
+  search?: string;
+  state?: string;
+  page: number;
+  perPage: number;
+  sort?: string;
+  order?: 'asc' | 'desc';
+}
+
 export const qk = {
   /* system */
   info: () => ['info'] as const,
@@ -49,6 +58,8 @@ export const qk = {
   /* consumer groups */
   consumerGroups: (cluster: string, query: { search?: string; state?: string }) =>
     [...c(cluster), 'consumer-groups', query] as const,
+  consumerGroupsPage: (cluster: string, query: ConsumerGroupsPageQuery) =>
+    [...c(cluster), 'consumer-groups', 'page', query] as const,
   consumerGroup: (cluster: string, group: string) =>
     [...c(cluster), 'consumer-groups', group] as const,
   consumerGroupLagHistory: (cluster: string, group: string, range: RangeParams) =>

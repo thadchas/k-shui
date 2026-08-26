@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { Message } from '@/api/types';
-import { formatBytes, formatTimestamp } from '@/lib/format';
+import { formatBytes } from '@/lib/format';
+import { Crosshair } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
 import { JsonViewer } from '@/components/ui/json-viewer';
 import {
@@ -21,6 +23,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  formatMessageTimestamp,
+  isTombstone,
+  keyFilterValue,
+  type TimestampFormat,
+} from './messageUtils';
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -34,9 +42,17 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 export interface MessageDetailDrawerProps {
   message: Message | null;
   onOpenChange: (open: boolean) => void;
+  timestampFormat?: TimestampFormat;
+  /** Offered when set: scope the browser's filter to this record's exact key. */
+  onFollowKey?: (key: string) => void;
 }
 
-export function MessageDetailDrawer({ message, onOpenChange }: MessageDetailDrawerProps) {
+export function MessageDetailDrawer({
+  message,
+  onOpenChange,
+  timestampFormat = 'local',
+  onFollowKey,
+}: MessageDetailDrawerProps) {
   const [view, setView] = useState<'parsed' | 'raw'>('parsed');
   if (!message) return null;
 
@@ -46,15 +62,23 @@ export function MessageDetailDrawer({ message, onOpenChange }: MessageDetailDraw
   const rawValue =
     message.valueRaw ??
     (typeof message.value === 'string' ? message.value : JSON.stringify(message.value, null, 2));
+  const tombstone = isTombstone(message);
 
   return (
     <Sheet open={Boolean(message)} onOpenChange={onOpenChange}>
       <SheetContent size="md" className="sm:max-w-[560px]">
         <SheetHeader>
-          <SheetTitle>
+          <SheetTitle className="flex items-center gap-2">
             Partition {message.partition} · offset {message.offset}
+            {tombstone ? (
+              <Badge variant="warning" size="sm">
+                tombstone
+              </Badge>
+            ) : null}
           </SheetTitle>
-          <SheetDescription>{formatTimestamp(message.timestamp)}</SheetDescription>
+          <SheetDescription>
+            {formatMessageTimestamp(message.timestamp, timestampFormat)}
+          </SheetDescription>
         </SheetHeader>
         <SheetBody className="space-y-5">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -89,7 +113,21 @@ export function MessageDetailDrawer({ message, onOpenChange }: MessageDetailDraw
               <h3 className="text-2xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                 Key
               </h3>
-              <CopyButton value={rawKey ?? ''} />
+              <div className="flex items-center gap-1">
+                {onFollowKey && message.key !== null && message.key !== undefined ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      onFollowKey(keyFilterValue(message.key));
+                      onOpenChange(false);
+                    }}
+                  >
+                    <Crosshair /> Follow key
+                  </Button>
+                ) : null}
+                <CopyButton value={rawKey ?? ''} />
+              </div>
             </div>
             {message.key === null || message.key === undefined ? (
               <p className="rounded-[var(--radius-control)] border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--muted)]">
@@ -111,7 +149,12 @@ export function MessageDetailDrawer({ message, onOpenChange }: MessageDetailDraw
               </h3>
               <CopyButton value={rawValue ?? ''} />
             </div>
-            {view === 'raw' ? (
+            {tombstone ? (
+              <p className="rounded-[var(--radius-control)] border border-dashed border-[color-mix(in_srgb,var(--warning)_50%,transparent)] px-3 py-2 text-xs text-[var(--muted)]">
+                Null value — this is a <strong>tombstone</strong>. On a compacted topic it marks the
+                key for deletion once compaction runs.
+              </p>
+            ) : view === 'raw' ? (
               <pre className="max-h-96 overflow-auto rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface-2)] p-3 font-mono text-[13px] break-all whitespace-pre-wrap">
                 {rawValue}
               </pre>

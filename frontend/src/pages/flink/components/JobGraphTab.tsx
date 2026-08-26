@@ -62,7 +62,11 @@ function VertexNodeImpl({ data }: NodeProps<VertexFlowNode>) {
       )}
       style={{ width: WIDTH, height: HEIGHT }}
     >
-      <Handle type="target" position={Position.Left} className="!size-1.5 !border-0 !bg-[var(--muted)]" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!size-1.5 !border-0 !bg-[var(--muted)]"
+      />
       <div className="flex items-start gap-2">
         <span className="mt-1 size-2 shrink-0 rounded-full" style={{ background: color }} />
         <p
@@ -98,7 +102,11 @@ function VertexNodeImpl({ data }: NodeProps<VertexFlowNode>) {
           />
         </span>
       </div>
-      <Handle type="source" position={Position.Right} className="!size-1.5 !border-0 !bg-[var(--muted)]" />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!size-1.5 !border-0 !bg-[var(--muted)]"
+      />
     </div>
   );
 }

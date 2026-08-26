@@ -53,7 +53,7 @@ export function FlinkClusterPage() {
         meta={
           <div className="flex items-center gap-2">
             {info ? <StatusPill status={info.status} /> : null}
-            {ov?.flinkVersion ?? info?.version ? (
+            {(ov?.flinkVersion ?? info?.version) ? (
               <Badge variant="secondary">v{ov?.flinkVersion ?? info?.version}</Badge>
             ) : null}
           </div>

@@ -8,7 +8,7 @@ import httpx
 import pytest
 import respx
 
-from tests.conftest_integrations import CONNECT_NAME, CONNECT_URL, base
+from tests.conftest_integrations import CONNECT_NAME, CONNECT_URL, base, build_app
 
 pytest_plugins = ["tests.conftest_integrations"]
 
@@ -235,6 +235,35 @@ async def test_delete_connector(api, kc_mock):
     route = kc_mock.delete("/connectors/audit-sink").mock(return_value=httpx.Response(204))
     assert (await api.delete(KC + "/connectors/audit-sink")).status_code == 204
     assert route.called
+
+
+async def test_validate_is_viewer_level(integration_settings, kc_mock):
+    from httpx import ASGITransport, AsyncClient
+
+    from k_shui.config import AuthConfig, BasicAuthUser
+    from k_shui.core.auth import Principal, create_token
+
+    integration_settings.auth = AuthConfig(
+        type="basic",
+        jwtSecret="s",
+        users=[BasicAuthUser(username="vi", password="vipw", role="viewer")],
+    )
+    token, _ = create_token(integration_settings, Principal(username="vi", role="viewer"))
+    headers = {"Authorization": f"Bearer {token}"}
+    kc_mock.put("/connector-plugins/com.example.SinkConnector/config/validate").mock(
+        return_value=httpx.Response(
+            200, json={"name": "com.example.SinkConnector", "error_count": 0, "configs": []}
+        )
+    )
+    app = build_app(integration_settings)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://itest") as client:
+        resp = await client.put(
+            KC + "/plugins/com.example.SinkConnector/validate", json={"name": "x"}, headers=headers
+        )
+        assert resp.status_code == 200, resp.text
+        resp = await client.post(KC + "/connectors", json={"name": "x", "config": {}}, headers=headers)
+        assert resp.status_code == 403
+    await app.state.registry.aclose()
 
 
 async def test_plugins_and_validate(api, kc_mock):

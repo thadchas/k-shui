@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Check, Database, Pencil, X } from 'lucide-react';
 import { useSchemaGlobalConfig, useUpdateSchemaGlobalConfig } from '@/api/hooks/schemas';
 import type { Compatibility, SchemaRegistryInfo } from '@/api/types';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { InlineError } from '@/components/ui/error-state';
@@ -30,6 +31,7 @@ export function RegistryInfoCard({
 }: RegistryInfoCardProps) {
   const config = useSchemaGlobalConfig(cluster);
   const updateConfig = useUpdateSchemaGlobalConfig(cluster);
+  const { canEdit } = usePermissions();
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Compatibility>('BACKWARD');
@@ -135,14 +137,19 @@ export function RegistryInfoCard({
             >
               <Badge variant="outline">{config.data?.compatibility ?? '—'}</Badge>
             </Tooltip>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label="Edit global compatibility"
-              onClick={() => setEditing(true)}
-            >
-              <Pencil />
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Edit global compatibility"
+                  disabled={!canEdit}
+                  onClick={() => setEditing(true)}
+                >
+                  <Pencil />
+                </Button>
+              </span>
+            </Tooltip>
           </span>
         )}
       </Field>

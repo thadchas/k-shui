@@ -15,6 +15,12 @@ export interface KsqlResultsGridProps {
   error?: unknown;
   queryId?: string | null;
   maxHeight?: number;
+  /** Total rows received (may exceed `rows.length` once the ring buffer evicts). */
+  received?: number;
+  /** Ring-buffer cap the run was started with. */
+  maxRows?: number;
+  /** Push (unbounded, EMIT CHANGES) or pull (bounded) query. */
+  queryMode?: 'push' | 'pull' | null;
 }
 
 function renderCell(value: unknown): string {
@@ -38,7 +44,11 @@ export function KsqlResultsGrid({
   error,
   queryId,
   maxHeight = 420,
+  received,
+  maxRows,
+  queryMode,
 }: KsqlResultsGridProps) {
+  const dropped = received !== undefined && received > rows.length;
   const csvRows = useMemo(
     () =>
       rows.map((row) =>
@@ -55,7 +65,23 @@ export function KsqlResultsGrid({
     <div className="flex min-h-0 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-medium">Results</span>
-        <Badge variant="secondary">{rows.length} rows</Badge>
+        {queryMode ? (
+          <Badge
+            variant={queryMode === 'push' ? 'info' : 'secondary'}
+            title={
+              queryMode === 'push'
+                ? 'Push query (EMIT CHANGES / no key predicate): streams until stopped. Rows are kept in a ring buffer.'
+                : 'Pull query: returns the current state and completes.'
+            }
+          >
+            {queryMode === 'push' ? 'push (unbounded)' : 'pull'}
+          </Badge>
+        ) : null}
+        <Badge variant="secondary">
+          {dropped
+            ? `showing last ${rows.length} of ${received} received`
+            : `${rows.length} rows${maxRows && rows.length >= maxRows ? ` (limit ${maxRows})` : ''}`}
+        </Badge>
         {streaming ? (
           <Badge variant="warning">streaming…</Badge>
         ) : finished ? (

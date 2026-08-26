@@ -20,11 +20,12 @@ from k_shui.api.schemas.schemas import (
     SubjectDetail,
     SubjectSummary,
 )
+from k_shui.core.auth import require_editor, require_viewer
 from k_shui.core.registry import ClusterContext, get_cluster
 from k_shui.integrations.audit import audit, publish
 from k_shui.integrations.schema_registry import get_schema_registry, parse_version
 
-router = APIRouter(tags=["schemas"])
+router = APIRouter(tags=["schemas"], dependencies=[Depends(require_viewer)])
 BASE = "/clusters/{cluster_id}/schemas"
 
 
@@ -38,7 +39,7 @@ async def global_config(ctx: ClusterContext = Depends(get_cluster)) -> Any:
     return await get_schema_registry(ctx).get_global_config()
 
 
-@router.put(BASE + "/config", response_model=ConfigResult)
+@router.put(BASE + "/config", response_model=ConfigResult, dependencies=[Depends(require_editor)])
 async def set_global_config(
     request: Request, body: ConfigBody, ctx: ClusterContext = Depends(get_cluster)
 ) -> Any:
@@ -63,7 +64,7 @@ async def subject_detail(
     return await get_schema_registry(ctx).subject_detail(subject, deleted=deleted)
 
 
-@router.delete(BASE + "/subjects/{subject}")
+@router.delete(BASE + "/subjects/{subject}", dependencies=[Depends(require_editor)])
 async def delete_subject(
     request: Request,
     subject: str,
@@ -85,7 +86,9 @@ async def subject_config(subject: str, ctx: ClusterContext = Depends(get_cluster
     return config
 
 
-@router.put(BASE + "/subjects/{subject}/config", response_model=ConfigResult)
+@router.put(
+    BASE + "/subjects/{subject}/config", response_model=ConfigResult, dependencies=[Depends(require_editor)]
+)
 async def set_subject_config(
     request: Request, subject: str, body: ConfigBody, ctx: ClusterContext = Depends(get_cluster)
 ) -> Any:
@@ -96,7 +99,9 @@ async def set_subject_config(
     return result
 
 
-@router.delete(BASE + "/subjects/{subject}/config", response_model=ConfigResult)
+@router.delete(
+    BASE + "/subjects/{subject}/config", response_model=ConfigResult, dependencies=[Depends(require_editor)]
+)
 async def reset_subject_config(
     request: Request, subject: str, ctx: ClusterContext = Depends(get_cluster)
 ) -> Any:
@@ -110,7 +115,12 @@ async def get_version(subject: str, version: str, ctx: ClusterContext = Depends(
     return await get_schema_registry(ctx).get_version(subject, parse_version(version))
 
 
-@router.post(BASE + "/subjects/{subject}/versions", response_model=RegisterSchemaResult, status_code=201)
+@router.post(
+    BASE + "/subjects/{subject}/versions",
+    response_model=RegisterSchemaResult,
+    status_code=201,
+    dependencies=[Depends(require_editor)],
+)
 async def register_schema(
     request: Request,
     subject: str,
@@ -129,7 +139,7 @@ async def register_schema(
     return result
 
 
-@router.delete(BASE + "/subjects/{subject}/versions/{version}")
+@router.delete(BASE + "/subjects/{subject}/versions/{version}", dependencies=[Depends(require_editor)])
 async def delete_version(
     request: Request,
     subject: str,
@@ -144,7 +154,11 @@ async def delete_version(
     return {"subject": subject, "version": deleted, "permanent": permanent}
 
 
-@router.post(BASE + "/subjects/{subject}/compatibility", response_model=CompatibilityResult)
+@router.post(
+    BASE + "/subjects/{subject}/compatibility",
+    response_model=CompatibilityResult,
+    dependencies=[Depends(require_editor)],
+)
 async def check_compatibility(
     subject: str, body: CompatibilityRequest, ctx: ClusterContext = Depends(get_cluster)
 ) -> Any:
@@ -154,6 +168,7 @@ async def check_compatibility(
         schema_type=body.schemaType,
         references=body.references,
         version=body.version,
+        normalize=body.normalize,
     )
 
 

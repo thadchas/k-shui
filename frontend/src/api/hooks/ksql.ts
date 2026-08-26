@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, sse } from '@/api/client';
 import { qk } from '@/api/keys';
 import type {
+  KsqlCloseQueryResponse,
   KsqlCluster,
   KsqlHeaderEvent,
   KsqlHistoryEntry,
@@ -74,6 +75,14 @@ export function useTerminateKsqlQuery(cluster: string, k: string) {
   });
 }
 
+/** Close a transient push query by id (`POST .../close-query`). */
+export function useCloseKsqlQuery(cluster: string, k: string) {
+  return useMutation({
+    mutationFn: (queryId: string) =>
+      api.post<KsqlCloseQueryResponse>(`/clusters/${cluster}/ksql/${k}/close-query`, { queryId }),
+  });
+}
+
 /* -------------------------------------------------------------------------- *
  * Additions for the ksqlDB page: DESCRIBE EXTENDED + push-query SSE streaming.
  * -------------------------------------------------------------------------- */
@@ -107,6 +116,10 @@ export interface KsqlStreamState {
   columnTypes: string[];
   queryId: string | null;
   rows: unknown[][];
+  /** Total rows received from the server, including any evicted from the ring buffer. */
+  received: number;
+  /** Ring-buffer cap the current run was started with. */
+  maxRows: number;
   streaming: boolean;
   error: Error | null;
   finished: boolean;
@@ -115,6 +128,7 @@ export interface KsqlStreamState {
   clear: () => void;
 }
 
+export const KSQL_ROW_LIMITS = [500, 2000, 10000] as const;
 const MAX_ROWS_DEFAULT = 2000;
 
 /**
@@ -129,6 +143,8 @@ export function useKsqlQueryStream(
   const [columnTypes, setColumnTypes] = useState<string[]>([]);
   const [queryId, setQueryId] = useState<string | null>(null);
   const [rows, setRows] = useState<unknown[][]>([]);
+  const [received, setReceived] = useState(0);
+  const [maxRows, setMaxRows] = useState(MAX_ROWS_DEFAULT);
   const [streaming, setStreaming] = useState(false);
   const [finished, setFinished] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -143,6 +159,7 @@ export function useKsqlQueryStream(
     if (bufferRef.current.length === 0) return;
     const batch = bufferRef.current;
     bufferRef.current = [];
+    setReceived((n) => n + batch.length);
     setRows((prev) => {
       const next = prev.concat(batch);
       return next.length > maxRowsRef.current ? next.slice(next.length - maxRowsRef.current) : next;
@@ -164,6 +181,7 @@ export function useKsqlQueryStream(
   const clear = useCallback(() => {
     bufferRef.current = [];
     setRows([]);
+    setReceived(0);
     setColumns([]);
     setColumnTypes([]);
     setQueryId(null);
@@ -172,12 +190,14 @@ export function useKsqlQueryStream(
   }, []);
 
   const start = useCallback(
-    (request: KsqlQueryRequest, maxRows = MAX_ROWS_DEFAULT) => {
+    (request: KsqlQueryRequest, limit = MAX_ROWS_DEFAULT) => {
       if (!cluster || !k) return;
       abortRef.current?.();
       bufferRef.current = [];
-      maxRowsRef.current = Math.max(maxRows, 1);
+      maxRowsRef.current = Math.max(limit, 1);
+      setMaxRows(maxRowsRef.current);
       setRows([]);
+      setReceived(0);
       setColumns([]);
       setColumnTypes([]);
       setQueryId(null);
@@ -208,6 +228,9 @@ export function useKsqlQueryStream(
                   ? String((payload as { message: unknown }).message)
                   : String(payload);
             setError(new Error(detail));
+            flush();
+            setFinished(true);
+            setStreaming(false);
           },
           end: () => {
             flush();
@@ -216,7 +239,9 @@ export function useKsqlQueryStream(
           },
         },
         onError: (e) => {
+          flush();
           setError(e instanceof Error ? e : new Error(String(e)));
+          setFinished(true);
           setStreaming(false);
         },
         onClose: () => {
@@ -236,5 +261,18 @@ export function useKsqlQueryStream(
     [],
   );
 
-  return { columns, columnTypes, queryId, rows, streaming, finished, error, start, stop, clear };
+  return {
+    columns,
+    columnTypes,
+    queryId,
+    rows,
+    received,
+    maxRows,
+    streaming,
+    finished,
+    error,
+    start,
+    stop,
+    clear,
+  };
 }

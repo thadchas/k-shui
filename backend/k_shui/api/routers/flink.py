@@ -15,12 +15,15 @@ from k_shui.api.schemas.flink import (
     SqlSessionRequest,
     SqlStatementRequest,
 )
+from k_shui.config import Settings
+from k_shui.core.auth import Principal, enforce_mutation, non_mutating, require_editor, require_viewer
 from k_shui.core.errors import IntegrationNotConfigured
-from k_shui.core.registry import ClusterContext, get_cluster
+from k_shui.core.registry import ClusterContext, get_cluster, get_settings
+from k_shui.core.sqlguard import FLINK_READ_ONLY, is_read_only_sql
 from k_shui.integrations.audit import audit, publish
 from k_shui.integrations.flink import all_flink, flink_summaries, get_flink
 
-router = APIRouter(tags=["flink"])
+router = APIRouter(tags=["flink"], dependencies=[Depends(require_viewer)])
 BASE = "/clusters/{cluster_id}/flink"
 FC = BASE + "/{flink_name}"
 
@@ -158,7 +161,7 @@ async def vertex_metrics(
     return await get_flink(ctx, flink_name).vertex_metrics(jid, vertex_id, get)
 
 
-@router.patch(FC + "/jobs/{jid}")
+@router.patch(FC + "/jobs/{jid}", dependencies=[Depends(require_editor)])
 async def cancel_job(
     request: Request,
     flink_name: str,
@@ -172,7 +175,7 @@ async def cancel_job(
     return result
 
 
-@router.post(FC + "/jobs/{jid}/savepoints")
+@router.post(FC + "/jobs/{jid}/savepoints", dependencies=[Depends(require_editor)])
 async def trigger_savepoint(
     request: Request,
     flink_name: str,
@@ -262,7 +265,7 @@ async def jars(flink_name: str, ctx: ClusterContext = Depends(get_cluster)) -> d
     return await get_flink(ctx, flink_name).jars()
 
 
-@router.post(FC + "/jars/upload")
+@router.post(FC + "/jars/upload", dependencies=[Depends(require_editor)])
 async def upload_jar(
     request: Request,
     flink_name: str,
@@ -275,7 +278,7 @@ async def upload_jar(
     return result
 
 
-@router.post(FC + "/jars/{jar_id}/run")
+@router.post(FC + "/jars/{jar_id}/run", dependencies=[Depends(require_editor)])
 async def run_jar(
     request: Request,
     flink_name: str,
@@ -297,7 +300,7 @@ async def run_jar(
     return result
 
 
-@router.delete(FC + "/jars/{jar_id}", status_code=204)
+@router.delete(FC + "/jars/{jar_id}", status_code=204, dependencies=[Depends(require_editor)])
 async def delete_jar(
     request: Request, flink_name: str, jar_id: str, ctx: ClusterContext = Depends(get_cluster)
 ) -> None:
@@ -311,6 +314,7 @@ async def sql_info(flink_name: str, ctx: ClusterContext = Depends(get_cluster)) 
 
 
 @router.post(FC + "/sql/sessions")
+@non_mutating
 async def sql_session(
     flink_name: str,
     ctx: ClusterContext = Depends(get_cluster),
@@ -323,13 +327,20 @@ async def sql_session(
 
 
 @router.post(FC + "/sql/sessions/{session}/statements")
+@non_mutating
 async def sql_statement(
     request: Request,
     flink_name: str,
     session: str,
     body: SqlStatementRequest,
     ctx: ClusterContext = Depends(get_cluster),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_viewer),
 ) -> dict[str, Any]:
+    """Run a statement. Read-only SQL (SELECT/SHOW/DESCRIBE/EXPLAIN/...) is open to viewers and
+    read-only clusters; anything else needs the editor role and a writable cluster."""
+    if not is_read_only_sql(body.statement, FLINK_READ_ONLY):
+        enforce_mutation(request, settings, principal, "editor")
     client = get_flink(ctx, flink_name)
     if client.sql_gateway_url is None:
         return {"supported": False, "reason": "sqlGatewayUrl not configured"}
@@ -351,7 +362,17 @@ async def sql_result(
     return await client.sql_result(session, operation, token)
 
 
-@router.delete(FC + "/sql/sessions/{session}")
+@router.delete(FC + "/sql/sessions/{session}/operations/{operation}", dependencies=[Depends(require_editor)])
+async def sql_cancel_operation(
+    flink_name: str, session: str, operation: str, ctx: ClusterContext = Depends(get_cluster)
+) -> dict[str, Any]:
+    client = get_flink(ctx, flink_name)
+    if client.sql_gateway_url is None:
+        return {"supported": False, "reason": "sqlGatewayUrl not configured"}
+    return await client.sql_cancel_operation(session, operation)
+
+
+@router.delete(FC + "/sql/sessions/{session}", dependencies=[Depends(require_editor)])
 async def sql_close_session(
     flink_name: str, session: str, ctx: ClusterContext = Depends(get_cluster)
 ) -> dict[str, Any]:

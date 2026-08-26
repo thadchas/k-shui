@@ -14,6 +14,7 @@ import {
   ScrollText,
   Server,
   Settings,
+  Share2,
   Shield,
   Users,
   Workflow,
@@ -47,8 +48,9 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: 'Brokers', path: '/brokers', icon: Server },
       { label: 'Topics', path: '/topics', icon: Layers },
       { label: 'Consumers', path: '/consumers', icon: Users },
+      { label: 'Share groups', path: '/share-groups', icon: Share2 },
       { label: 'Security', path: '/security', icon: Shield },
-      { label: 'Settings', path: '/settings', icon: Settings },
+      { label: 'Cluster settings', path: '/settings', icon: Settings },
     ],
   },
   {

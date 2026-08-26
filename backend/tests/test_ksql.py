@@ -8,7 +8,7 @@ import httpx
 import pytest
 import respx
 
-from tests.conftest_integrations import KSQL_NAME, KSQL_URL, base
+from tests.conftest_integrations import KSQL_NAME, KSQL_URL, base, build_app
 
 pytest_plugins = ["tests.conftest_integrations"]
 
@@ -76,6 +76,32 @@ async def test_statement_appends_semicolon_and_records_history(api, ksql_mock):
     assert history[0]["kind"] == "statement"
     assert history[0]["ok"] is True
     assert history[0]["server"] == KSQL_NAME
+
+
+async def test_statement_viewer_gate(integration_settings, ksql_mock):
+    from httpx import ASGITransport, AsyncClient
+
+    from k_shui.config import AuthConfig, BasicAuthUser
+    from k_shui.core.auth import Principal, create_token
+
+    integration_settings.auth = AuthConfig(
+        type="basic",
+        jwtSecret="s",
+        users=[BasicAuthUser(username="vi", password="vipw", role="viewer")],
+    )
+    token, _ = create_token(integration_settings, Principal(username="vi", role="viewer"))
+    headers = {"Authorization": f"Bearer {token}"}
+    route = ksql_mock.post("/ksql").mock(return_value=httpx.Response(200, json=[{"streams": []}]))
+    app = build_app(integration_settings)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://itest") as client:
+        ok = await client.post(KS + "/statement", json={"sql": "SHOW STREAMS"}, headers=headers)
+        assert ok.status_code == 200, ok.text
+        denied = await client.post(
+            KS + "/statement", json={"sql": "SHOW STREAMS; DROP STREAM s"}, headers=headers
+        )
+        assert denied.status_code == 403
+        assert route.call_count == 1
+    await app.state.registry.aclose()
 
 
 async def test_statement_error_is_upstream_problem_and_history_records_failure(api, ksql_mock):
@@ -172,6 +198,21 @@ async def test_queries_and_terminate(api, ksql_mock):
 
     resp = await api.delete(KS + "/queries/CSAS_1")
     assert resp.json()["terminated"] is True
+
+
+async def test_close_query_posts_query_id(api, ksql_mock):
+    route = ksql_mock.post("/close-query").mock(return_value=httpx.Response(200, json={}))
+    resp = await api.post(f"{KS}/close-query", json={"queryId": "transient_123"})
+    assert resp.status_code == 200
+    assert resp.json() == {"queryId": "transient_123", "closed": True}
+    assert json.loads(route.calls.last.request.content) == {"queryId": "transient_123"}
+
+
+async def test_close_query_error_is_upstream_problem(api, ksql_mock):
+    ksql_mock.post("/close-query").mock(return_value=httpx.Response(400, json={"message": "no such query"}))
+    resp = await api.post(f"{KS}/close-query", json={"queryId": "nope"})
+    assert resp.status_code >= 400
+    assert "no such query" in resp.text
 
 
 async def test_describe(api, ksql_mock):

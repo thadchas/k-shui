@@ -65,6 +65,10 @@ class Broker(Model):
     leaderCount: int = 0
     underReplicatedPartitions: int = 0
     logDirSizeBytes: int | None = None
+    # Disk capacity/free space summed over the broker's log dirs (DescribeLogDirs totalBytes/usableBytes,
+    # Kafka >= 3.3 with a client that exposes them); None when the client cannot report it.
+    logDirTotalBytes: int | None = None
+    logDirUsableBytes: int | None = None
     status: str = "online"
     version: str | None = None
 
@@ -79,7 +83,29 @@ class LogDirPartition(Model):
 class LogDir(Model):
     path: str
     sizeBytes: int | None = None
+    totalBytes: int | None = None
+    usableBytes: int | None = None
+    # Broker-reported error for this directory (e.g. KAFKA_STORAGE_ERROR when it is offline).
+    error: str | None = None
     partitions: list[LogDirPartition] = []
+
+
+class UnhealthyPartition(Model):
+    topic: str
+    partition: int
+    leader: int | None = None
+    replicas: list[int] = []
+    isr: list[int] = []
+    # Any of: offline | underReplicated | nonPreferredLeader
+    reasons: list[str] = []
+
+
+class UnhealthyPartitionsResponse(Model):
+    items: list[UnhealthyPartition] = []
+    offline: int = 0
+    underReplicated: int = 0
+    nonPreferredLeader: int = 0
+    scannedPartitions: int = 0
 
 
 __all__ = [
@@ -90,4 +116,6 @@ __all__ = [
     "KraftQuorum",
     "LogDir",
     "LogDirPartition",
+    "UnhealthyPartition",
+    "UnhealthyPartitionsResponse",
 ]

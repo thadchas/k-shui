@@ -7,6 +7,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useCreateTopic } from '@/api/hooks/topics';
 import { useBrokers } from '@/api/hooks/brokers';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { RETENTION_PRESETS, formatDuration } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardToolbarHeader } from '@/components/ui/card';
@@ -31,6 +32,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 
 const TOPIC_NAME_RE = /^[a-zA-Z0-9._-]+$/;
 
@@ -45,11 +47,7 @@ const schema = z.object({
   // explicitly. These fields are bound to <input type="number">, which hands react-hook-form
   // a string, so pin the input type to keep `z.input<typeof schema>` assignable to the DOM.
   partitions: z.coerce.number<string | number>().int().min(1, 'At least 1 partition').max(100_000),
-  replicationFactor: z.coerce
-    .number<string | number>()
-    .int()
-    .min(1, 'At least 1 replica')
-    .max(32),
+  replicationFactor: z.coerce.number<string | number>().int().min(1, 'At least 1 replica').max(32),
   cleanupPolicy: z.enum(['delete', 'compact', 'compact,delete']),
   retentionMs: z.coerce.number<string | number>().int(),
   minInsyncReplicas: z.coerce.number<string | number>().int().min(1).max(32),
@@ -71,6 +69,7 @@ const CONFIG_SUGGESTIONS = [
 
 export function NewTopicPage() {
   const cluster = useClusterId();
+  const { canEdit } = usePermissions();
   const navigate = useNavigate();
   const createTopic = useCreateTopic(cluster);
   const brokers = useBrokers(cluster);
@@ -89,6 +88,7 @@ export function NewTopicPage() {
   });
 
   const onSubmit = form.handleSubmit(async (raw) => {
+    if (!canEdit) return;
     const values = schema.parse(raw);
     const configs: Record<string, string> = {
       'cleanup.policy': values.cleanupPolicy,
@@ -290,9 +290,13 @@ export function NewTopicPage() {
             >
               Cancel
             </Button>
-            <Button type="submit" loading={createTopic.isPending}>
-              Create topic
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button type="submit" loading={createTopic.isPending} disabled={!canEdit}>
+                  Create topic
+                </Button>
+              </span>
+            </Tooltip>
           </div>
         </form>
       </Form>

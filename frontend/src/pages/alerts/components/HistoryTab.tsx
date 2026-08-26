@@ -14,12 +14,7 @@ import { SimpleSelect } from '@/components/ui/select';
 import { StatusPill } from '@/components/ui/status-pill';
 import { Tooltip } from '@/components/ui/tooltip';
 import { toast, toastError } from '@/components/ui/toast';
-import {
-  COMPONENTS,
-  componentIcon,
-  isAlertsUnavailable,
-  severityTone,
-} from '../alertsLib';
+import { COMPONENTS, componentIcon, isAlertsUnavailable, severityTone } from '../alertsLib';
 
 const STATUSES = [
   { label: 'All statuses', value: 'all' },
@@ -126,16 +121,11 @@ export function HistoryTab() {
         cell: ({ row }) => (
           <span className="font-mono tabular-nums">
             <span
-              className={cn(
-                row.original.status === 'firing' ? 'text-[var(--danger)]' : undefined,
-              )}
+              className={cn(row.original.status === 'firing' ? 'text-[var(--danger)]' : undefined)}
             >
               {formatDecimal(row.original.value)}
             </span>
-            <span className="text-[var(--muted)]">
-              {' '}
-              vs {formatDecimal(row.original.threshold)}
-            </span>
+            <span className="text-[var(--muted)]"> vs {formatDecimal(row.original.threshold)}</span>
           </span>
         ),
       },
@@ -165,8 +155,7 @@ export function HistoryTab() {
             );
           }
           const ms =
-            new Date(row.original.resolvedAt).getTime() -
-            new Date(row.original.firedAt).getTime();
+            new Date(row.original.resolvedAt).getTime() - new Date(row.original.firedAt).getTime();
           return (
             <Tooltip content={formatTimestamp(row.original.resolvedAt)}>
               <span className="text-2xs text-[var(--muted)]">

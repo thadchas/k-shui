@@ -10,6 +10,8 @@ import {
 } from '@/api/hooks/flink';
 import type { FlinkJar } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { useUrlState } from '@/hooks/useUrlState';
 import { formatTimestamp } from '@/lib/format';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { Badge } from '@/components/ui/badge';
@@ -38,6 +40,7 @@ import { Label } from '@/components/ui/label';
 import { PageHeader } from '@/components/ui/page-header';
 import { SimpleSelect } from '@/components/ui/select';
 import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 
 interface RunForm {
   entryClass: string;
@@ -70,7 +73,13 @@ export function FlinkJarsPage() {
   const [runTarget, setRunTarget] = useState<FlinkJar | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FlinkJar | null>(null);
   const [form, setForm] = useState<RunForm>(EMPTY_FORM);
-  const [search, setSearch] = useState('');
+  const [{ q: search }, setUrl] = useUrlState({ q: '' });
+  const setSearch = (q: string) => setUrl({ q });
+  const { canEdit } = usePermissions();
+  const gate = canEdit ? {} : { disabled: true, title: REQUIRES_EDITOR };
+  const gateHint = canEdit ? null : (
+    <span className="ml-auto pl-3 text-2xs text-[var(--muted)]">{REQUIRES_EDITOR}</span>
+  );
 
   const columns = useMemo<ColumnDef<FlinkJar>[]>(
     () => [
@@ -154,9 +163,17 @@ export function FlinkJarsPage() {
                 });
               }}
             />
-            <Button loading={upload.isPending} onClick={() => fileRef.current?.click()}>
-              <Upload /> Upload JAR
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button
+                  loading={upload.isPending}
+                  disabled={!canEdit}
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <Upload /> Upload JAR
+                </Button>
+              </span>
+            </Tooltip>
           </>
         }
       />
@@ -171,7 +188,8 @@ export function FlinkJarsPage() {
         onGlobalFilterChange={setSearch}
         searchPlaceholder="Search JARs…"
         rowLabel="JARs"
-        onRowClick={openRun}
+        caption={`Uploaded JARs on ${fc}`}
+        onRowClick={canEdit ? openRun : undefined}
         rowActions={(jar) => (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -180,12 +198,12 @@ export function FlinkJarsPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
-              <DropdownMenuItem onSelect={() => openRun(jar)}>
-                <Play /> Run…
+              <DropdownMenuItem {...gate} onSelect={() => openRun(jar)}>
+                <Play /> Run…{gateHint}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem destructive onSelect={() => setDeleteTarget(jar)}>
-                <Trash2 /> Delete
+              <DropdownMenuItem destructive {...gate} onSelect={() => setDeleteTarget(jar)}>
+                <Trash2 /> Delete{gateHint}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -200,9 +218,11 @@ export function FlinkJarsPage() {
                 : 'Upload a packaged Flink application to submit it to this session cluster.'
             }
             action={
-              <Button onClick={() => fileRef.current?.click()}>
-                <Upload /> Upload JAR
-              </Button>
+              canEdit ? (
+                <Button onClick={() => fileRef.current?.click()}>
+                  <Upload /> Upload JAR
+                </Button>
+              ) : undefined
             }
           />
         }
@@ -292,6 +312,7 @@ export function FlinkJarsPage() {
             </Button>
             <Button
               loading={runJar.isPending}
+              disabled={!canEdit}
               onClick={() => {
                 if (!runTarget) return;
                 runJar.mutate(
@@ -330,6 +351,7 @@ export function FlinkJarsPage() {
             cluster. Running jobs are not affected.
           </>
         }
+        confirmText={deleteTarget?.name}
         confirmLabel="Delete JAR"
         loading={remove.isPending}
         onConfirm={() => {

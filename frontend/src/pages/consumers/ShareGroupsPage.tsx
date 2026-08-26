@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Share2 } from 'lucide-react';
 import { useShareGroups } from '@/api/hooks/consumerGroups';
@@ -9,12 +9,13 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { DataTable } from '@/components/ui/data-table';
 import { EmptyState } from '@/components/ui/empty-state';
-import { ErrorState } from '@/components/ui/error-state';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatusPill } from '@/components/ui/status-pill';
+import { formatTimeLag } from './lag';
 
 export function ShareGroupsPage() {
   const cluster = useClusterId();
+  const [search, setSearch] = useState('');
   const { data, isLoading, error, refetch } = useShareGroups(cluster);
 
   const columns = useMemo<ColumnDef<ConsumerGroupSummary>[]>(
@@ -39,6 +40,12 @@ export function ShareGroupsPage() {
         meta: { numeric: true, label: 'Lag' },
         cell: ({ row }) => formatCompact(row.original.totalLag),
       },
+      {
+        accessorKey: 'maxTimeLagMs',
+        header: 'Lag (time)',
+        meta: { numeric: true, label: 'Lag (time)' },
+        cell: ({ row }) => formatTimeLag(row.original.maxTimeLagMs),
+      },
     ],
     [],
   );
@@ -53,9 +60,7 @@ export function ShareGroupsPage() {
         meta={data?.items ? <Badge variant="secondary">{data.items.length}</Badge> : null}
       />
 
-      {error ? (
-        <ErrorState error={error} onRetry={() => void refetch()} />
-      ) : unsupported ? (
+      {unsupported && !error ? (
         <Card>
           <EmptyState
             icon={Share2}
@@ -68,8 +73,14 @@ export function ShareGroupsPage() {
           columns={columns}
           data={data?.items ?? []}
           loading={isLoading}
-          hideToolbar
+          error={error}
+          onRetry={() => void refetch()}
+          globalFilter={search}
+          onGlobalFilterChange={setSearch}
+          searchPlaceholder="Search share groups…"
+          defaultSorting={[{ id: 'totalLag', desc: true }]}
           rowLabel="share groups"
+          caption="Share groups in this cluster with state, members and lag"
           emptyState={<EmptyState icon={Share2} title="No share groups" />}
         />
       )}

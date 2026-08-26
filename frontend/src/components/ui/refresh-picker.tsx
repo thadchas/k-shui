@@ -51,13 +51,14 @@ export function RefreshPicker({ onRefresh, refreshing, className }: RefreshPicke
           <RefreshCw className={cn(refreshing && 'animate-spin')} />
         </Button>
       </Tooltip>
-      <span className="h-4 w-px bg-[var(--border)]" />
+      <span className="hidden h-4 w-px bg-[var(--border)] md:block" />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
             size="sm"
-            className="rounded-l-none px-2 text-xs tabular-nums text-[var(--muted)]"
+            className="hidden rounded-l-none px-2 text-xs tabular-nums text-[var(--muted)] md:inline-flex"
+            aria-label={`Auto refresh: ${current.label}`}
           >
             {current.label}
           </Button>

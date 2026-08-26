@@ -14,6 +14,7 @@ import type {
   ReplicationOverview,
   ReplicationResponse,
   SeriesResponse,
+  UnhealthyPartitionsResponse,
 } from '@/api/types';
 
 export function useClusters() {
@@ -62,6 +63,18 @@ export function useKRaftQuorum(cluster: string | undefined, enabled = true) {
     queryFn: () => api.get<KRaftQuorum>(`/clusters/${cluster}/kraft/quorum`),
     enabled: Boolean(cluster) && enabled,
     retry: false,
+  });
+}
+
+/** Cluster-wide offline / under-replicated / non-preferred-leader partitions. */
+export function useUnhealthyPartitions(cluster: string | undefined, enabled = true) {
+  const refetchInterval = useRefetchInterval();
+  return useQuery({
+    queryKey: [...clusterScope(cluster ?? ''), 'partitions-unhealthy'] as const,
+    queryFn: () =>
+      api.get<UnhealthyPartitionsResponse>(`/clusters/${cluster}/partitions/unhealthy`),
+    enabled: Boolean(cluster) && enabled,
+    refetchInterval,
   });
 }
 

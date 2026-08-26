@@ -11,14 +11,24 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
-from k_shui.api.schemas.ksql import KsqlHistoryEntry, KsqlQuery, KsqlRequest, KsqlServer, KsqlSource
+from k_shui.api.schemas.ksql import (
+    KsqlCloseQueryRequest,
+    KsqlHistoryEntry,
+    KsqlQuery,
+    KsqlRequest,
+    KsqlServer,
+    KsqlSource,
+)
+from k_shui.config import Settings
+from k_shui.core.auth import Principal, enforce_mutation, non_mutating, require_editor, require_viewer
 from k_shui.core.errors import IntegrationNotConfigured
-from k_shui.core.registry import ClusterContext, get_cluster
+from k_shui.core.registry import ClusterContext, get_cluster, get_settings
+from k_shui.core.sqlguard import KSQL_READ_ONLY, is_read_only_sql
 from k_shui.integrations.audit import audit
 from k_shui.integrations.ksql import all_ksql, get_ksql
 from k_shui.integrations.memstore import ksql_ring, next_id
 
-router = APIRouter(tags=["ksql"])
+router = APIRouter(tags=["ksql"], dependencies=[Depends(require_viewer)])
 BASE = "/clusters/{cluster_id}/ksql"
 KS = BASE + "/{ksql_name}"
 
@@ -64,9 +74,19 @@ async def server_info(ksql_name: str, ctx: ClusterContext = Depends(get_cluster)
 
 
 @router.post(KS + "/statement")
+@non_mutating
 async def run_statement(
-    request: Request, ksql_name: str, body: KsqlRequest, ctx: ClusterContext = Depends(get_cluster)
+    request: Request,
+    ksql_name: str,
+    body: KsqlRequest,
+    ctx: ClusterContext = Depends(get_cluster),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_viewer),
 ) -> list[dict[str, Any]]:
+    """Read-only statements (SHOW/LIST/DESCRIBE/EXPLAIN/PRINT/SELECT) are open to viewers and
+    read-only clusters; CREATE/DROP/INSERT/TERMINATE need the editor role and a writable cluster."""
+    if not is_read_only_sql(body.sql, KSQL_READ_ONLY):
+        enforce_mutation(request, settings, principal, "editor")
     client = get_ksql(ctx, ksql_name)
     try:
         result = await client.statement(body.sql, body.properties)
@@ -79,6 +99,7 @@ async def run_statement(
 
 
 @router.post(KS + "/query")
+@non_mutating
 async def run_query(
     request: Request, ksql_name: str, body: KsqlRequest, ctx: ClusterContext = Depends(get_cluster)
 ) -> StreamingResponse:
@@ -118,13 +139,24 @@ async def list_queries(ksql_name: str, ctx: ClusterContext = Depends(get_cluster
     return await get_ksql(ctx, ksql_name).queries()
 
 
-@router.delete(KS + "/queries/{query_id}")
+@router.delete(KS + "/queries/{query_id}", dependencies=[Depends(require_editor)])
 async def terminate_query(
     request: Request, ksql_name: str, query_id: str, ctx: ClusterContext = Depends(get_cluster)
 ) -> dict[str, Any]:
     result = await get_ksql(ctx, ksql_name).terminate(query_id)
     await audit(request, "ksql.terminate", f"ksql/{ksql_name}/{query_id}", {})
     return {"queryId": query_id, "terminated": True, "result": result}
+
+
+@router.post(KS + "/close-query")
+@non_mutating
+async def close_query(
+    request: Request, ksql_name: str, body: KsqlCloseQueryRequest, ctx: ClusterContext = Depends(get_cluster)
+) -> dict[str, Any]:
+    """Close a transient push query (``/close-query``) — persistent queries use TERMINATE."""
+    result = await get_ksql(ctx, ksql_name).close_query(body.queryId)
+    await audit(request, "ksql.close_query", f"ksql/{ksql_name}/{body.queryId}", {})
+    return result
 
 
 @router.get(KS + "/streams/{name}")

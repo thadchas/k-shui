@@ -1,4 +1,4 @@
-import type { Compatibility, SchemaType } from '@/api/types';
+import type { Compatibility, SchemaReference, SchemaType } from '@/api/types';
 import type { EditorLanguage } from '@/components/CodeEditor';
 
 export const SCHEMA_TYPES: SchemaType[] = ['AVRO', 'PROTOBUF', 'JSON'];
@@ -60,7 +60,8 @@ export function schemaFileExtension(type: SchemaType | undefined): string {
   }
 }
 
-export type SubjectStrategy = 'TopicNameStrategy' | 'RecordNameStrategy' | 'TopicRecordNameStrategy';
+export type SubjectStrategy =
+  'TopicNameStrategy' | 'RecordNameStrategy' | 'TopicRecordNameStrategy';
 
 export const SUBJECT_STRATEGIES: { label: string; value: SubjectStrategy; hint: string }[] = [
   {
@@ -139,5 +140,75 @@ export function schemaTemplate(type: SchemaType): string {
       return JSON_TEMPLATE;
     default:
       return AVRO_TEMPLATE;
+  }
+}
+
+/**
+ * Minimal client-side sanity check for a protobuf schema: balanced braces,
+ * a `syntax = "..."` declaration and at least one `message` (or `enum`) definition.
+ * Returns `null` when the text looks well-formed, otherwise a human-readable reason.
+ */
+export function validateProtobuf(text: string): string | null {
+  const source = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  if (!source.trim()) return 'Schema is empty';
+  let depth = 0;
+  for (const ch of source) {
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth < 0) return 'Unbalanced braces: unexpected "}"';
+    }
+  }
+  if (depth > 0) return `Unbalanced braces: ${depth} unclosed "{"`;
+  if (!/^\s*syntax\s*=\s*["'](proto2|proto3)["']\s*;/m.test(source)) {
+    return 'Missing `syntax = "proto3";` (or proto2) declaration';
+  }
+  if (!/\b(message|enum)\s+[A-Za-z_][A-Za-z0-9_]*\s*\{/.test(source)) {
+    return 'No `message` definition found';
+  }
+  return null;
+}
+
+/** Validate any schema type client-side; `null` means "looks fine". */
+export function validateSchemaText(text: string, type: SchemaType): string | null {
+  if (type === 'PROTOBUF') return validateProtobuf(text);
+  if (!text.trim()) return 'Schema is empty';
+  try {
+    JSON.parse(text);
+    return null;
+  } catch (e) {
+    return e instanceof Error ? e.message : 'Invalid JSON';
+  }
+}
+
+/** Serialise references for the `?refs=` deep link into the New schema page. */
+export function encodeReferencesParam(references: SchemaReference[] | undefined): string | null {
+  if (!references?.length) return null;
+  try {
+    return JSON.stringify(
+      references.map((r) => ({ name: r.name, subject: r.subject, version: r.version })),
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function decodeReferencesParam(raw: string | null): SchemaReference[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (r): r is { name: unknown; subject: unknown; version: unknown } =>
+          typeof r === 'object' && r !== null && 'name' in r && 'subject' in r,
+      )
+      .map((r) => ({
+        name: String(r.name ?? ''),
+        subject: String(r.subject ?? ''),
+        version: Number(r.version) > 0 ? Number(r.version) : 1,
+      }));
+  } catch {
+    return [];
   }
 }

@@ -12,15 +12,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import {
-  Compass,
-  Maximize2,
-  MoreHorizontal,
-  Pencil,
-  Trash2,
-  MoveDown,
-  MoveUp,
-} from 'lucide-react';
+import { Compass, Maximize2, MoreHorizontal, Pencil, Trash2, MoveDown, MoveUp } from 'lucide-react';
 import type { DashboardPanelSpec, SeriesResponse } from '@/api/types';
 import { chartColor, seriesLabel } from '@/lib/charts';
 import { formatUnit } from '@/lib/format';
@@ -317,7 +309,10 @@ export function Panel({
     >
       <div className="flex items-start justify-between gap-2 px-4 pb-1 pt-3">
         <div className="min-w-0">
-          <p className="truncate text-xs font-semibold text-[var(--foreground)]" title={panel.title}>
+          <p
+            className="truncate text-xs font-semibold text-[var(--foreground)]"
+            title={panel.title}
+          >
             {panel.title}
           </p>
           {panel.description ? (

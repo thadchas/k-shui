@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { AlertTriangle, Boxes, Server } from 'lucide-react';
 import { useClusters } from '@/api/hooks/clusters';
 import type { ClusterSummary } from '@/api/types';
@@ -58,7 +58,15 @@ function FeatureChips({ features }: { features: ClusterSummary['features'] }) {
   );
 }
 
-function ClusterCard({ cluster, onOpen }: { cluster: ClusterSummary; onOpen: () => void }) {
+function ClusterCard({
+  cluster,
+  href,
+  onOpen,
+}: {
+  cluster: ClusterSummary;
+  href: string;
+  onOpen: () => void;
+}) {
   const brokersDown = cluster.brokerCount - cluster.onlineBrokers;
   const hasIssue =
     cluster.underReplicatedPartitions > 0 || cluster.offlinePartitions > 0 || brokersDown > 0;
@@ -79,7 +87,15 @@ function ClusterCard({ cluster, onOpen }: { cluster: ClusterSummary; onOpen: () 
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="truncate text-base font-semibold">{cluster.name}</h3>
+            <h3 className="truncate text-base font-semibold">
+              <Link
+                to={href}
+                className="hover:text-[var(--primary)] focus-visible:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {cluster.name}
+              </Link>
+            </h3>
             {hasIssue ? (
               <AlertTriangle className="size-3.5 shrink-0 text-[var(--warning)]" />
             ) : null}
@@ -166,6 +182,7 @@ export function ClustersPage() {
             <ClusterCard
               key={cluster.id}
               cluster={cluster}
+              href={`/c/${cluster.id}/overview`}
               onOpen={() => void navigate(`/c/${cluster.id}/overview`)}
             />
           ))}

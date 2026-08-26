@@ -10,12 +10,7 @@ import {
   useUpdateAlertTrigger,
 } from '@/api/hooks/alerts';
 import { useClusters } from '@/api/hooks/clusters';
-import type {
-  AlertComponent,
-  AlertCondition,
-  AlertMetricDef,
-  AlertSeverity,
-} from '@/api/types';
+import type { AlertComponent, AlertCondition, AlertMetricDef, AlertSeverity } from '@/api/types';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -192,9 +187,7 @@ function TriggerForm({ id }: { id?: string }) {
     return <ErrorState error={existing.error} onRetry={() => void existing.refetch()} />;
   }
 
-  const targetLabel = form.usePattern
-    ? form.targetRegex || 'any'
-    : form.targetName || 'any';
+  const targetLabel = form.usePattern ? form.targetRegex || 'any' : form.targetName || 'any';
 
   return (
     <div className="space-y-5">
@@ -232,10 +225,11 @@ function TriggerForm({ id }: { id?: string }) {
           Preview
         </p>
         <p className="mt-1.5 text-sm leading-6 text-[var(--foreground)]">
-          Fire{' '}
-          <StatusPill status={form.severity} tone={severityTone(form.severity)} /> when{' '}
+          Fire <StatusPill status={form.severity} tone={severityTone(form.severity)} /> when{' '}
           {componentLabel(form.component).toLowerCase()}{' '}
-          <span className="rounded bg-[var(--surface-2)] px-1 font-mono text-xs">{targetLabel}</span>{' '}
+          <span className="rounded bg-[var(--surface-2)] px-1 font-mono text-xs">
+            {targetLabel}
+          </span>{' '}
           {isCustom ? (
             <span className="rounded bg-[var(--surface-2)] px-1 font-mono text-xs">
               {form.promql || 'promql'}
@@ -245,7 +239,9 @@ function TriggerForm({ id }: { id?: string }) {
           )}{' '}
           <span className="font-mono">{conditionSymbol(form.condition)}</span>{' '}
           <span className="font-mono tabular-nums">{form.value || '0'}</span>
-          {selectedMetric?.unit ? <span className="text-[var(--muted)]"> {selectedMetric.unit}</span> : null}{' '}
+          {selectedMetric?.unit ? (
+            <span className="text-[var(--muted)]"> {selectedMetric.unit}</span>
+          ) : null}{' '}
           {Number(form.bufferSeconds) > 0 ? (
             <>
               for <span className="font-mono tabular-nums">{form.bufferSeconds}s</span>
@@ -253,11 +249,7 @@ function TriggerForm({ id }: { id?: string }) {
           ) : (
             'immediately'
           )}{' '}
-          on{' '}
-          <span className="font-mono">
-            {body.clusterId ?? 'all clusters'}
-          </span>
-          .
+          on <span className="font-mono">{body.clusterId ?? 'all clusters'}</span>.
         </p>
       </Card>
 
@@ -435,9 +427,7 @@ function TriggerForm({ id }: { id?: string }) {
                 onValuesChange={(v) => patch({ actionIds: v })}
                 placeholder="Select notification actions…"
                 searchPlaceholder="Search actions…"
-                emptyText={
-                  actions.isLoading ? 'Loading…' : 'No actions configured yet'
-                }
+                emptyText={actions.isLoading ? 'Loading…' : 'No actions configured yet'}
                 summary={(v) => `${v.length} action${v.length === 1 ? '' : 's'}`}
               />
               {form.actionIds.length > 0 ? (

@@ -6,7 +6,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from k_shui.api.routers._common import paginate_sort, sampler_for, schema_flags, topic_rate
+from k_shui.api.routers._common import (
+    ORDER_PATTERN,
+    TOPIC_SORT_KEYS,
+    paginate_sort,
+    sampler_for,
+    schema_flags,
+    topic_rate,
+)
 from k_shui.api.schemas.common import Ack, ConfigEntry, ConfigUpdate, Page, SeriesResponse
 from k_shui.api.schemas.group import TopicConsumer
 from k_shui.api.schemas.topic import (
@@ -46,7 +53,7 @@ async def list_topics(
     search: str | None = Query(None),
     showInternal: bool = Query(False),
     sort: str | None = Query(None),
-    order: str = Query("asc"),
+    order: str = Query("asc", pattern=ORDER_PATTERN),
     page: Pagination = Depends(pagination),
     ctx: ClusterContext = Depends(get_cluster),
     principal: Principal = Depends(require_viewer),
@@ -56,7 +63,7 @@ async def list_topics(
     if search:
         needle = search.lower()
         topics = [t for t in topics if needle in t["name"].lower()]
-    topics = paginate_sort(topics, sort, order)
+    topics = paginate_sort(topics, sort, order, TOPIC_SORT_KEYS)
     total = len(topics)
     window = page.slice(topics)
     names = [t["name"] for t in window]

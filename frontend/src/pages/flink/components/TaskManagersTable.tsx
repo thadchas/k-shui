@@ -98,6 +98,7 @@ export function TaskManagersTable({ cluster, flinkCluster }: TaskManagersTablePr
         globalFilter={search}
         onGlobalFilterChange={setSearch}
         searchPlaceholder="Search task managers…"
+        caption="Flink task managers"
         rowLabel="task managers"
         onRowClick={(tm) => setSelected(tm)}
         isRowSelected={(tm) => tm.id === selected?.id}

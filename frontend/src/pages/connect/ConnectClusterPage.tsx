@@ -1,17 +1,31 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import type { ColumnDef } from '@tanstack/react-table';
-import { ArrowLeft, Cable, Pause, Play, Plus, Puzzle, RotateCcw, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  Cable,
+  Pause,
+  Play,
+  Plus,
+  Puzzle,
+  RefreshCw,
+  RotateCcw,
+  Square,
+  Trash2,
+} from 'lucide-react';
 import {
   useConnectCluster,
   useConnectClusters,
   useConnectorAction,
   useConnectors,
   useDeleteConnector,
+  type ConnectorAction,
 } from '@/api/hooks/connect';
 import type { Connector } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
 import { useDebounced } from '@/hooks/useDebounced';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { useUrlState } from '@/hooks/useUrlState';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,26 +33,42 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DataTable } from '@/components/ui/data-table';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PageHeader } from '@/components/ui/page-header';
+import { RefreshPicker } from '@/components/ui/refresh-picker';
 import { SimpleSelect } from '@/components/ui/select';
 import { StatusPill } from '@/components/ui/status-pill';
 import { toast, toastError } from '@/components/ui/toast';
 import { Tooltip } from '@/components/ui/tooltip';
-import { ConnectorActionsMenu } from './components/ConnectorActions';
+import {
+  ACTION_PAST_TENSE,
+  ConnectorActionsMenu,
+  StopConnectorDialog,
+} from './components/ConnectorActions';
 import { TasksMiniBar } from './components/TasksMiniBar';
-import { CONNECTOR_STATES, connectorStateTone, shortClass } from './components/connectUtils';
+import {
+  CONNECTOR_STATES,
+  connectorStateTone,
+  shortClass,
+  taskCounts,
+} from './components/connectUtils';
 
 export function ConnectClusterPage() {
   const cluster = useClusterId();
   const { kc: kcParam = '' } = useParams<{ kc: string }>();
   const kc = decodeURIComponent(kcParam);
-  const navigate = useNavigate();
+  const { canEdit } = usePermissions();
 
-  const [search, setSearch] = useState('');
+  const [{ q: search, state: stateFilter, type: typeFilter }, setUrl] = useUrlState({
+    q: '',
+    state: 'all',
+    type: 'all',
+  });
+  const setSearch = (q: string) => setUrl({ q });
+  const setStateFilter = (state: string) => setUrl({ state });
+  const setTypeFilter = (type: string) => setUrl({ type });
   const debouncedSearch = useDebounced(search, 300);
-  const [stateFilter, setStateFilter] = useState<string>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDelete, setBulkDelete] = useState(false);
+  const [bulkStop, setBulkStop] = useState(false);
 
   const query = useMemo(
     () => ({
@@ -193,7 +223,11 @@ export function ConnectClusterPage() {
     [allSelected, someSelected, rows, selected, cluster],
   );
 
-  const runBulk = async (kind: 'pause' | 'resume' | 'restart') => {
+  const selectedFailedTasks = rows
+    .filter((r) => selected.has(r.name))
+    .reduce((sum, r) => sum + taskCounts(r.tasks).failed, 0);
+
+  const runBulk = async (kind: ConnectorAction, options?: { onlyFailed?: boolean }) => {
     const names = Array.from(selected);
     const results = await Promise.allSettled(
       names.map((name) =>
@@ -201,13 +235,23 @@ export function ConnectClusterPage() {
           name,
           action: kind,
           includeTasks: kind === 'restart' ? true : undefined,
+          onlyFailed: options?.onlyFailed,
         }),
       ),
     );
     const failed = results.filter((r) => r.status === 'rejected').length;
-    if (failed === 0) toast.success(`${names.length} connector(s) ${kind}d`);
-    else toast.error(`${failed} of ${names.length} connectors failed to ${kind}`);
+    const noun = `${names.length} connector${names.length === 1 ? '' : 's'}`;
+    if (failed === 0) {
+      toast.success(
+        options?.onlyFailed
+          ? `Restarted failed tasks on ${noun}`
+          : `${noun} ${ACTION_PAST_TENSE[kind]}`,
+      );
+    } else {
+      toast.error(`${failed} of ${names.length} connectors failed to ${kind}`);
+    }
     void connectors.refetch();
+    return failed === 0;
   };
 
   const clusterMissing =
@@ -238,11 +282,28 @@ export function ConnectClusterPage() {
                 <Puzzle /> Plugins
               </Link>
             </Button>
-            <Button asChild>
-              <Link to={`${base}/connectors/new`}>
-                <Plus /> New connector
-              </Link>
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button asChild={canEdit} disabled={!canEdit}>
+                  {canEdit ? (
+                    <Link to={`${base}/connectors/new`}>
+                      <Plus /> New connector
+                    </Link>
+                  ) : (
+                    <>
+                      <Plus /> New connector
+                    </>
+                  )}
+                </Button>
+              </span>
+            </Tooltip>
+            <RefreshPicker
+              onRefresh={() => {
+                void connectors.refetch();
+                void connectClusters.refetch();
+              }}
+              refreshing={connectors.isFetching}
+            />
           </>
         }
       />
@@ -266,18 +327,89 @@ export function ConnectClusterPage() {
       {selected.size > 0 ? (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--primary)_35%,var(--border))] bg-[color-mix(in_srgb,var(--primary)_8%,transparent)] px-3 py-2">
           <span className="text-xs font-medium">{selected.size} selected</span>
-          <Button size="sm" variant="outline" onClick={() => void runBulk('resume')}>
-            <Play /> Resume
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void runBulk('pause')}>
-            <Pause /> Pause
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void runBulk('restart')}>
-            <RotateCcw /> Restart
-          </Button>
-          <Button size="sm" variant="destructive" onClick={() => setBulkDelete(true)}>
-            <Trash2 /> Delete
-          </Button>
+          {!canEdit ? (
+            <span className="text-2xs text-[var(--muted)]">{REQUIRES_EDITOR}</span>
+          ) : null}
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEdit}
+                onClick={() => void runBulk('resume')}
+              >
+                <Play /> Resume
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEdit}
+                onClick={() => void runBulk('pause')}
+              >
+                <Pause /> Pause
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEdit}
+                onClick={() => setBulkStop(true)}
+              >
+                <Square /> Stop
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEdit}
+                onClick={() => void runBulk('restart')}
+              >
+                <RotateCcw /> Restart
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip
+            content={
+              !canEdit
+                ? REQUIRES_EDITOR
+                : selectedFailedTasks === 0
+                  ? 'No failed tasks in the selection'
+                  : `Restart ${selectedFailedTasks} failed task${selectedFailedTasks === 1 ? '' : 's'} only`
+            }
+          >
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEdit || selectedFailedTasks === 0}
+                onClick={() => void runBulk('restart', { onlyFailed: true })}
+              >
+                <RefreshCw /> Restart failed tasks
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={!canEdit}
+                onClick={() => setBulkDelete(true)}
+              >
+                <Trash2 /> Delete
+              </Button>
+            </span>
+          </Tooltip>
           <Button
             size="sm"
             variant="ghost"
@@ -300,9 +432,8 @@ export function ConnectClusterPage() {
         searchPlaceholder="Search connectors…"
         defaultSorting={[{ id: 'name', desc: false }]}
         isRowSelected={(row) => selected.has(row.name)}
-        onRowClick={(connector) =>
-          void navigate(`${base}/connectors/${encodeURIComponent(connector.name)}`)
-        }
+        getRowHref={(connector) => `${base}/connectors/${encodeURIComponent(connector.name)}`}
+        caption={`Connectors on ${kc}`}
         rowActions={(connector) => (
           <ConnectorActionsMenu
             cluster={cluster}
@@ -351,14 +482,30 @@ export function ConnectClusterPage() {
                 : 'Create a connector to move data in or out of Kafka.'
             }
             action={
-              <Button asChild>
-                <Link to={`${base}/connectors/new`}>
-                  <Plus /> New connector
-                </Link>
-              </Button>
+              canEdit ? (
+                <Button asChild>
+                  <Link to={`${base}/connectors/new`}>
+                    <Plus /> New connector
+                  </Link>
+                </Button>
+              ) : undefined
             }
           />
         }
+      />
+
+      <StopConnectorDialog
+        open={bulkStop}
+        onOpenChange={setBulkStop}
+        connectorName={
+          selected.size === 1
+            ? Array.from(selected)[0]
+            : `${selected.size} selected connector${selected.size === 1 ? '' : 's'}`
+        }
+        loading={action.isPending}
+        onConfirm={async () => {
+          if (await runBulk('stop')) setBulkStop(false);
+        }}
       />
 
       <ConfirmDestructiveDialog

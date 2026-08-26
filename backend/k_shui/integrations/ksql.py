@@ -135,6 +135,18 @@ class KsqlClient:
     async def terminate(self, query_id: str) -> list[dict[str, Any]]:
         return await self.statement(f"TERMINATE {query_id};")
 
+    async def close_query(self, query_id: str) -> dict[str, Any]:
+        """Close a transient (push) query via ``POST /close-query``."""
+        resp = await self.http.request(
+            "POST",
+            "/close-query",
+            json={"queryId": query_id},
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        if not resp.is_success:
+            raise _ksql_error(resp.status_code, resp.text)
+        return {"queryId": query_id, "closed": True}
+
     # ---------------------------------------------------------------- querying
 
     async def query_stream(

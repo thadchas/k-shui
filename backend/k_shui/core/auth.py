@@ -20,6 +20,7 @@ log = get_logger(__name__)
 
 ROLE_RANK = {"viewer": 0, "editor": 1, "admin": 2}
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+NON_MUTATING_ATTR = "__kshui_non_mutating__"
 JWT_ALG = "HS256"
 
 
@@ -203,15 +204,44 @@ def _read_only_for(request: Request, settings: Settings) -> str | None:
     return None
 
 
-def require_role(minimum: str = "viewer") -> Any:
-    """Dependency factory enforcing a minimum role plus read-only mode on mutating verbs."""
+def non_mutating(endpoint: Any) -> Any:
+    """Mark a POST/PUT endpoint as read-only (a planner, a validator, a query) so read-only mode
+    does not block it. Apply directly on the handler (below the ``@router.<verb>`` decorator)."""
+    setattr(endpoint, NON_MUTATING_ATTR, True)
+    return endpoint
+
+
+def is_mutating(request: Request) -> bool:
+    if request.method not in MUTATING_METHODS:
+        return False
+    return not getattr(request.scope.get("endpoint"), NON_MUTATING_ATTR, False)
+
+
+def enforce_mutation(
+    request: Request, settings: Settings, principal: Principal, minimum: str = "editor"
+) -> None:
+    """Apply the mutating-verb checks by hand, for handlers that decide at runtime whether the
+    request mutates anything (e.g. a SQL endpoint that also serves ``SELECT``)."""
+    reason = _read_only_for(request, settings)
+    if reason:
+        raise ReadOnly(reason)
+    if not principal.can(minimum):
+        raise Forbidden(f"role '{minimum}' required (you are '{principal.role}')")
+
+
+def require_role(minimum: str = "viewer", mutating: bool | None = None) -> Any:
+    """Dependency factory enforcing a minimum role plus read-only mode on mutating verbs.
+
+    ``mutating=False`` skips the read-only check regardless of the verb; by default it is
+    derived from the verb and the :func:`non_mutating` marker on the endpoint.
+    """
 
     async def dependency(
         request: Request,
         settings: Settings = Depends(get_settings),
         principal: Principal = Depends(get_principal),
     ) -> Principal:
-        if request.method in MUTATING_METHODS:
+        if is_mutating(request) if mutating is None else mutating:
             reason = _read_only_for(request, settings)
             if reason:
                 raise ReadOnly(reason)
@@ -236,8 +266,11 @@ __all__ = [
     "authenticate",
     "create_token",
     "decode_token",
+    "enforce_mutation",
     "get_principal",
     "hash_password",
+    "is_mutating",
+    "non_mutating",
     "optional_principal",
     "require_admin",
     "require_editor",

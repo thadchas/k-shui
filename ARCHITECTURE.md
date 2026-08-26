@@ -63,32 +63,39 @@ k-shui/
 ```yaml
 server:
   host: 0.0.0.0
-  port: 8090            # default
-  basePath: /           # for ingress sub-path
-  cors: []              # extra origins
+  port: 8090 # default
+  basePath: / # for ingress sub-path
+  cors: [] # extra origins
 auth:
-  type: none            # none | basic | oidc
-  users:                # for basic
+  type: none # none | basic | oidc
+  users: # for basic
     - username: admin
-      password: "$argon2..."  # or plaintext for dev
-      role: admin       # admin | editor | viewer
-  oidc: {issuer:, clientId:, clientSecret:, scopes: [openid, profile, email], rolesClaim: roles}
+      password: "$argon2..." # or plaintext for dev
+      role: admin # admin | editor | viewer
+  oidc:
+    {
+      issuer,
+      clientId,
+      clientSecret,
+      scopes: [openid, profile, email],
+      rolesClaim: roles,
+    }
 database:
-  url: sqlite+aiosqlite:///./k-shui.db     # or postgresql+asyncpg://...
+  url: sqlite+aiosqlite:///./k-shui.db # or postgresql+asyncpg://...
 telemetry:
-  metrics: true         # /metrics prometheus
-  otlpEndpoint: null    # OpenTelemetry traces
+  metrics: true # /metrics prometheus
+  otlpEndpoint: null # OpenTelemetry traces
 alerts:
   evaluationIntervalSeconds: 30
 clusters:
-  - id: local           # url-safe, unique
+  - id: local # url-safe, unique
     name: lakestream (kind)
     bootstrapServers: localhost:9094
-    properties: {}      # raw librdkafka props (security.protocol, sasl.*, ssl.*)
+    properties: {} # raw librdkafka props (security.protocol, sasl.*, ssl.*)
     schemaRegistry:
-      url: http://localhost:8084/apis/ccompat/v7   # Confluent-compatible API (Apicurio ccompat or Confluent SR)
-      type: apicurio    # confluent | apicurio | karapace
-      auth: {username:, password:}
+      url: http://localhost:8084/apis/ccompat/v7 # Confluent-compatible API (Apicurio ccompat or Confluent SR)
+      type: apicurio # confluent | apicurio | karapace
+      auth: { username, password }
     connect:
       - name: lakestream-connect
         url: http://localhost:8083
@@ -101,12 +108,12 @@ clusters:
         sqlGatewayUrl: null
     prometheus:
       url: http://localhost:9090
-      labels: {cluster: lakestream}   # label selectors added to every PromQL
+      labels: { cluster: lakestream } # label selectors added to every PromQL
     lineage:
       type: marquez
       url: http://localhost:3001/api/v1
       namespaces: []
-    metricsMode: prometheus   # prometheus | jmx-off (fallback to admin API sampled metrics)
+    metricsMode: prometheus # prometheus | jmx-off (fallback to admin API sampled metrics)
 ```
 
 Backend `Settings` (pydantic-settings) loads YAML from `--config`, `KSHUI_CONFIG`, `./k-shui.yaml`,
@@ -119,7 +126,19 @@ Common: pagination `?page=1&perPage=50` → `{items, page, perPage, total}`. Tim
 `?range=1h|6h|24h|7d` or `?start=&end=&step=`. Time series: `{series:[{name, labels, points:[[tsMs, value]]}]}`.
 Every mutating call is audited. Every route is prefixed with `/api/v1`.
 
+**Roles (enforced on every router when `auth` is enabled):** `GET` routes require `viewer`;
+`POST|PUT|PATCH|DELETE` require `editor`; user management and **unclean** leader election require
+`admin`. Endpoints marked `@non_mutating` are viewer-level POSTs that also bypass `readOnly`:
+`ksql/{k}/query`, `ksql/{k}/close-query`, `partitions/reassign/plan`, `flink/{f}/sql/sessions`,
+`connect/{k}/plugins/{class}/validate`. SQL statement endpoints (`ksql/{k}/statement`,
+`flink/{f}/sql/sessions/{s}/statements`) are classified server-side: read-only SQL
+(`SELECT|WITH|SHOW|DESCRIBE|EXPLAIN|LIST|PRINT|HELP`) is viewer-level, anything else needs `editor`
+and a writable cluster. `POST .../lineage/openlineage` (ingest) is an editor mutation.
+Server/cluster `readOnly` blocks editors too. `sort` params are whitelisted per endpoint (400 on
+unknown keys); `order` is `asc|desc`.
+
 ### System
+
 - `GET /info` → `{version, uptimeSeconds, auth:{type, enabled}, features:{...}, clusters:[{id,name}]}`
 - `GET /healthz`, `GET /readyz` (root-level, not under /api), `GET /metrics` (root-level, Prometheus)
 - `GET /events` → SSE stream of `{type, clusterId, ts, payload}` (alert.fired, alert.resolved, topic.created, connector.failed, …)
@@ -127,18 +146,28 @@ Every mutating call is audited. Every route is prefixed with `/api/v1`.
 - `GET /audit?page&perPage&clusterId&user&action` → `{items:[{id, ts, user, action, resource, clusterId, details, ip}]}`
 
 ### Clusters
+
 - `GET /clusters` → `[{id, name, status:'online'|'degraded'|'offline', version, controllerId, brokerCount, onlineBrokers, topicCount, partitionCount, underReplicatedPartitions, offlinePartitions, inSyncReplicasPct, bytesInPerSec, bytesOutPerSec, features:{schemaRegistry,connect,ksqldb,flink,prometheus,lineage}}]`
 - `GET /clusters/{c}` → same plus `{clusterId (kafka), listeners, kraft:{leaderId, epoch, voters, observers}}`
 - `GET /clusters/{c}/health` → `{status, checks:[{name, status, message}]}`
+- `GET /clusters/{c}/partitions/unhealthy` → `{items:[{topic, partition, leader, replicas, isr, reasons:['offline'|'underReplicated'|'nonPreferredLeader']}], offline, underReplicated, nonPreferredLeader, scannedPartitions}` (worst first)
+- `GET /clusters/{c}/partitions/capabilities` → `{clientVersion, electLeaders, reassign, listReassignments}` (feature-detected on the Kafka client)
+- `POST /clusters/{c}/partitions/elect-leaders {partitions:[{topic,partition}], electionType:'preferred'|'unclean'}` (empty = all) → `{electionType, items:[{topic, partition, status:'elected'|'notNeeded'|'failed', error?}], succeeded, failed, notNeeded}` — audited `partitions.elect_leaders`
+- `GET /clusters/{c}/partitions/reassignments` → `{supported, reason?, throttled, items:[{topic, partition, replicas, addingReplicas, removingReplicas}]}` (`throttled` = any broker carries a replication-throttle rate)
+- `DELETE /clusters/{c}/partitions/throttle {topics?:[…]}` → removes `leader/follower.replication.throttled.rate` from every broker and `*.replication.throttled.replicas` from the topics (default: all topics carrying it) — audited `partitions.throttle_cleared`. Throttles set by `reassign` are applied only to partitions the controller accepted and are never cleared automatically; the 501 `command` chains `--verify` for the CLI path
+- `POST /clusters/{c}/partitions/reassign/plan {topics:[…], brokers?:[…]}` → `{items:[{topic, partition, current, proposed, changed}], reassignmentJson, command}` — rack-aware balanced plan, RF preserved, never applies (viewer)
+- `POST /clusters/{c}/partitions/reassign {partitions:[{topic, partition, replicas:[…]}], throttleBytesPerSec?}` → `202 {…}` — audited `partitions.reassign`; when the client lacks `alter_partition_reassignments` → `501 unsupported-feature` problem carrying `reassignmentJson` + a `kafka-reassign-partitions.sh` `command` for manual execution
 - `GET /clusters/{c}/overview/metrics?range=` → series: bytesIn, bytesOut, messagesIn, requestRate, activeControllers, underReplicated, offlinePartitions (Prometheus when configured, else sampled from admin API into in-memory ring buffer)
 
 ### Brokers
-- `GET /clusters/{c}/brokers` → `[{id, host, port, rack, isController, partitionCount, leaderCount, underReplicatedPartitions, logDirSizeBytes, status:'online'|'offline', version}]`
+
+- `GET /clusters/{c}/brokers` → `[{id, host, port, rack, isController, partitionCount, leaderCount, underReplicatedPartitions, logDirSizeBytes, logDirTotalBytes?, logDirUsableBytes?, status:'online'|'offline', version}]` (capacity fields are null unless the client supports `describe_log_dirs`)
 - `GET /clusters/{c}/brokers/{b}` , `GET .../configs` → `[{name, value, source, isDefault, isReadOnly, isSensitive, documentation}]`, `PUT .../configs {configs:{k:v}}`
-- `GET .../logdirs` → `[{path, sizeBytes, partitions:[{topic, partition, sizeBytes, offsetLag}]}]`
+- `GET .../logdirs` → `[{path, sizeBytes, totalBytes?, usableBytes?, error?, partitions:[{topic, partition, sizeBytes, offsetLag}]}]`
 - `GET .../metrics?range=` → series: bytesIn, bytesOut, requestHandlerIdle, networkProcessorIdle, produceLatencyP99, fetchLatencyP99, jvmHeapUsed, gcTime
 
 ### Topics
+
 - `GET /clusters/{c}/topics?search&showInternal&page&perPage&sort&order` → items `{name, partitions, replicationFactor, isInternal, underReplicatedPartitions, sizeBytes, messageCount (endOffset−beginOffset sum), cleanupPolicy, retentionMs, hasSchema:{key,value}, bytesInPerSec, bytesOutPerSec}`
 - `POST /clusters/{c}/topics {name, partitions, replicationFactor, configs:{}}`
 - `GET /clusters/{c}/topics/{t}` → detail `{…list fields, partitionsDetail:[{id, leader, replicas:[], isr:[], beginOffset, endOffset, sizeBytes}], configs summary}`
@@ -150,24 +179,30 @@ Every mutating call is audited. Every route is prefixed with `/api/v1`.
 - `GET /clusters/{c}/topics/{t}/consumers` → `[{groupId, state, lag, members}]`
 - `GET /clusters/{c}/topics/{t}/metrics?range=` → series messagesIn, bytesIn, bytesOut, size
 - `GET /clusters/{c}/topics/{t}/schema` → `{key:{subject,version,schemaId,type}|null, value:{…}|null, strategy}`
-- `GET /clusters/{c}/topics/{t}/messages?mode=latest|earliest|offset|timestamp&partitions=0,1&offset=&timestamp=&limit=100&keyFormat=auto&valueFormat=auto&filter=&filterMode=contains|jsonpath|regex&stream=true`
+- `GET /clusters/{c}/topics/{t}/messages?mode=latest|earliest|offset|timestamp|tail&partitions=0,1&offset=&startOffsets=0:120,3:7&timestamp=&limit=100&keyFormat=auto&valueFormat=auto&filter=&filterMode=contains|jsonpath|regex&filterTarget=any|key|value|header&stream=true`
   → SSE events `message` (one `Message` each), `progress {scanned, matched, done}`, `end`; `stream=false` returns `{items, scanned}`
-  `Message = {partition, offset, timestamp, timestampType, key, keyFormat, value, valueFormat, headers:{k:v}, keySchemaId, valueSchemaId, sizeBytes, keyRaw?, valueRaw?}`
-  Formats: `auto|string|json|avro|protobuf|jsonschema|base64|hex|int|long`. Auto = magic-byte 0 → registry; else json if parseable; else string.
+  - `startOffsets` (only with `mode=offset`) overrides the scalar `offset` per partition; partitions not listed use `offset`; neither given → `400`.
+  - `mode=tail` follows the partitions from their end (or the given offsets) until the client disconnects: never sends `end`; emits `progress {scanned, matched, done:false, live:true, behind, endOffsets:{p:o}, positions:{p:o}}` every ~2 s as a heartbeat; batches are flushed at most every 100 ms; `stream=false` and `/export` reject `tail` with `400`.
+  - `filter` is capped at 512 chars; regex patterns with nested quantifiers are rejected (400) and matching runs on at most 64 KiB of haystack.
+  - `filterTarget` scopes `contains|regex|jsonpath` to the key, the decoded value, or the headers. A filter of the form `header:<name>=<value>` matches by header name (value = substring or regex per `filterMode`); `header:<name>` alone tests presence.
+    `Message = {partition, offset, timestamp, timestampType, key, keyFormat, value, valueFormat, headers:{k:v}, keySchemaId, valueSchemaId, sizeBytes, keyRaw?, valueRaw?}`
+    Formats: `auto|string|json|avro|protobuf|jsonschema|base64|hex|int|long`. Auto = magic-byte 0 → registry; else json if parseable; else string.
 - `POST /clusters/{c}/topics/{t}/messages {partition?, key?, value, headers?, keyFormat, valueFormat, keySchemaSubject?, valueSchemaSubject?}` → `{partition, offset}`
 - `GET /clusters/{c}/topics/{t}/messages/export?format=json|csv|ndjson&…same filters` → file download
 
 ### Consumer groups & share groups
-- `GET /clusters/{c}/consumer-groups?search&state` → `[{groupId, groupType:'classic'|'consumer'|'share', state, protocolType, protocol, coordinatorId, memberCount, topicCount, partitionCount, totalLag, isSimple}]`
-- `GET /clusters/{c}/consumer-groups/{g}` → `{…, members:[{memberId, clientId, host, assignments:[{topic,partition}]}], partitions:[{topic, partition, currentOffset, endOffset, lag, memberId, clientId, host}], topicsSummary:[{topic, lag, partitions}]}`
+
+- `GET /clusters/{c}/consumer-groups?search&state&page&perPage&sort&order` → `[{groupId, groupType:'classic'|'consumer'|'share', state, protocolType, protocol, coordinatorId, memberCount, topicCount, partitionCount, totalLag, maxTimeLagMs, isSimple}]`; when `page` is passed the response is the `{items, total, page, perPage}` envelope (sorted before slicing) — the bare list is kept for callers that omit `page`
+- `GET /clusters/{c}/consumer-groups/{g}` → `{…, members:[{memberId, clientId, host, assignments:[{topic,partition}]}], partitions:[{topic, partition, currentOffset, endOffset, lag, timeLagMs, memberId, clientId, host}], topicsSummary:[{topic, lag, partitions}]}` — `timeLagMs = lag ÷ (topic produce rate ÷ partition count)` from the metrics sampler's last two samples; `null` when the rate is unknown or the topic is idle (never a misleading 0)
 - `DELETE /clusters/{c}/consumer-groups/{g}`
-- `POST /clusters/{c}/consumer-groups/{g}/offsets/reset {topic?, partitions?:[], strategy:'earliest'|'latest'|'offset'|'timestamp'|'shiftBy', value?, dryRun?}` → `[{topic, partition, oldOffset, newOffset}]`
+- `POST /clusters/{c}/consumer-groups/{g}/offsets/reset {topic?, partitions?:[], strategy:'earliest'|'latest'|'offset'|'timestamp'|'shiftBy', value?, dryRun?}` → `[{topic, partition, oldOffset, newOffset}]`; `partitions` scoping is preserved even when the group has no commits for that topic (`404` if none of the requested partitions exist)
 - `DELETE /clusters/{c}/consumer-groups/{g}/offsets {topic}`
 - `GET /clusters/{c}/consumer-groups/{g}/lag-history?range=` → series per topic
 - `GET /clusters/{c}/consumer-groups/export.csv`
 - `GET /clusters/{c}/share-groups` (Kafka 4.x; `{supported:false}` when unavailable)
 
 ### Security & cluster settings
+
 - `GET /clusters/{c}/acls?resourceType&resourceName&principal`, `POST /clusters/{c}/acls {resourceType, resourceName, patternType, principal, host, operation, permissionType}`, `DELETE` with same filter
 - `GET|PUT|DELETE /clusters/{c}/quotas` `{entityType:'user'|'client-id'|'ip', entityName, quotas:{producer_byte_rate, consumer_byte_rate, request_percentage}}`
 - `GET /clusters/{c}/kraft/quorum` → `{leaderId, leaderEpoch, highWatermark, voters:[{id, logEndOffset, lastFetchTs, lastCaughtUpTs, lag}], observers:[…]}`
@@ -176,16 +211,18 @@ Every mutating call is audited. Every route is prefixed with `/api/v1`.
 - `GET /clusters/{c}/replication` → MirrorMaker2/replicator connectors detected in Connect (source→target topics, lag)
 
 ### Schema registry
+
 - `GET /clusters/{c}/schemas/subjects?search&deleted` → `[{subject, latestVersion, schemaType:'AVRO'|'PROTOBUF'|'JSON', compatibility, versionsCount, topic?}]`
-- `GET /clusters/{c}/schemas/subjects/{s}` → `{subject, compatibility, versions:[{version, id, schemaType, schema, references, createdAt?}]}`
+- `GET /clusters/{c}/schemas/subjects/{s}?deleted` → `{subject, compatibility, versions:[{version, id, schemaType, schema, references, deleted, createdAt?}]}` — `deleted=true` includes soft-deleted versions (flag derived from the live vs. full version lists when the registry omits it); a subject whose versions are all soft-deleted returns `404` with guidance to delete permanently
 - `GET /clusters/{c}/schemas/subjects/{s}/versions/{v}`; `POST /clusters/{c}/schemas/subjects/{s}/versions {schema, schemaType, references, normalize}`
-- `DELETE /clusters/{c}/schemas/subjects/{s}?permanent`, `DELETE .../versions/{v}`
-- `GET|PUT /clusters/{c}/schemas/subjects/{s}/config` `{compatibility}`; `GET|PUT /clusters/{c}/schemas/config` (global)
-- `POST /clusters/{c}/schemas/subjects/{s}/compatibility {schema, schemaType}` → `{isCompatible, messages}`
+- `DELETE /clusters/{c}/schemas/subjects/{s}?permanent`, `DELETE .../versions/{v}?permanent` (soft delete first, then permanent, per registry semantics)
+- `GET|PUT|DELETE /clusters/{c}/schemas/subjects/{s}/config` `{compatibility}` (`DELETE` removes the override → `{…global, explicit:false}`); `GET|PUT /clusters/{c}/schemas/config` (global)
+- `POST /clusters/{c}/schemas/subjects/{s}/compatibility {schema, schemaType, references?, normalize?}` → `{isCompatible, messages}`
 - `GET /clusters/{c}/schemas/subjects/{s}/diff?from=&to=` → `{from, to, unifiedDiff}`
 - `GET /clusters/{c}/schemas/ids/{id}`; `GET /clusters/{c}/schemas/info` → `{type, url, mode, version}`
 
 ### Kafka Connect
+
 - `GET /clusters/{c}/connect` → `[{name, url, version, commit, kafkaClusterId, status:'online'|'offline', connectorCount, runningTasks, failedTasks}]`
 - `GET /clusters/{c}/connect/{k}/connectors?search&state&type` → `[{name, type:'source'|'sink', connectorClass, state, workerId, tasks:[{id, state, workerId, trace}], topics:[], config}]`
 - `POST /clusters/{c}/connect/{k}/connectors {name, config}`; `GET|PUT .../connectors/{n}/config`; `GET .../connectors/{n}` (info+status+topics); `DELETE`
@@ -196,13 +233,16 @@ Every mutating call is audited. Every route is prefixed with `/api/v1`.
 - `GET .../metrics?range=` (Prometheus)
 
 ### ksqlDB
+
 - `GET /clusters/{c}/ksql` → `[{name, url, version, serverStatus, ksqlServiceId}]`
 - `POST /clusters/{c}/ksql/{k}/query {sql, properties}` → SSE: `header {columnNames, columnTypes, queryId}`, `row {values}`, `error`, `end`
-- `POST /clusters/{c}/ksql/{k}/statement {sql, properties}` → ksql /ksql response array
+- `POST /clusters/{c}/ksql/{k}/statement {sql, properties}` → ksql /ksql response array (editor)
+- `POST /clusters/{c}/ksql/{k}/close-query {queryId}` → closes a transient push query (viewer)
 - `GET .../streams`, `GET .../tables`, `GET .../queries`, `DELETE .../queries/{id}` (TERMINATE), `GET .../streams/{name}` (DESCRIBE EXTENDED)
 - `GET /clusters/{c}/ksql/{k}/history` (saved & recent statements per user, SQLite)
 
 ### Flink
+
 - `GET /clusters/{c}/flink` → `[{name, url, version, status, taskmanagers, slotsTotal, slotsAvailable, jobsRunning, jobsFinished, jobsCancelled, jobsFailed}]`
 - `GET /clusters/{c}/flink/{f}/overview`, `GET .../config`
 - `GET .../jobs` → `[{jid, name, state, startTime, endTime, duration, tasks:{total, running, finished, canceling, canceled, failed, created, scheduled, deploying, reconciling, initializing}}]`
@@ -210,9 +250,10 @@ Every mutating call is audited. Every route is prefixed with `/api/v1`.
 - `PATCH .../jobs/{jid}?mode=cancel|stop` (cancel), `POST .../jobs/{jid}/savepoints {targetDirectory, cancelJob}` → trigger id; `GET .../jobs/{jid}/savepoints/{triggerId}`
 - `GET .../taskmanagers`, `GET .../taskmanagers/{id}`, `.../taskmanagers/{id}/logs`, `.../taskmanagers/{id}/metrics`, `GET .../jobmanager/logs`, `.../jobmanager/metrics`
 - `GET .../jars`, `POST .../jars/upload` (multipart), `POST .../jars/{id}/run {entryClass, programArgs, parallelism, savepointPath}`, `DELETE .../jars/{id}`
-- `POST .../sql/sessions`, `POST .../sql/sessions/{s}/statements {statement}` → operationHandle, `GET .../sql/sessions/{s}/operations/{op}/result?token` (Flink SQL Gateway proxy, `{supported:false}` when no gateway)
+- `POST .../sql/sessions`, `DELETE .../sql/sessions/{s}`, `POST .../sql/sessions/{s}/statements {statement}` → operationHandle, `GET .../sql/sessions/{s}/operations/{op}/result?token`, `DELETE .../sql/sessions/{s}/operations/{op}` (cancel + close → `{operationHandle, cancelled, closed, status}`) (Flink SQL Gateway proxy, `{supported:false}` when no gateway)
 
 ### Metrics (Prometheus-backed dashboards, Grafana-equivalent)
+
 - `GET /clusters/{c}/metrics/status` → `{configured, url, reachable, buildInfo, targets:[{job, health, lastScrape}]}`
 - `GET /clusters/{c}/metrics/query?query&time`, `GET /clusters/{c}/metrics/query_range?query&start&end&step` (Prometheus proxy, label selectors injected)
 - `GET /clusters/{c}/metrics/catalog?search` → metric names + help
@@ -222,6 +263,7 @@ Every mutating call is audited. Every route is prefixed with `/api/v1`.
 - `GET /clusters/{c}/metrics/dashboards/{id}/data?range&step&vars` → evaluates all panels → `{panels:{[panelId]: {series}}}`
 
 ### Stream lineage
+
 - `GET /clusters/{c}/lineage/graph?focus=<nodeId>&depth=3&sources=marquez,connect,flink,ksql,consumers` → `{nodes:[{id, type:'topic'|'connector'|'flinkJob'|'ksqlQuery'|'consumerGroup'|'producer'|'dataset'|'job'|'schema', label, namespace, status, meta, clusterId}], edges:[{id, source, target, kind:'produces'|'consumes'|'transforms', meta}]}`
   Built by merging Marquez (jobs/datasets/runs) with derived edges: Connect connector→topics (source) / topics→connector (sink), consumer groups→topics, ksql streams, Flink jobs (from Marquez or job name/vertex heuristics).
 - `GET /clusters/{c}/lineage/nodes/{id}` → detail (`latestRuns`, schema, facets)
@@ -229,6 +271,7 @@ Every mutating call is audited. Every route is prefixed with `/api/v1`.
 - `POST /lineage/openlineage` → OpenLineage event ingest (forwarded to Marquez if configured, else stored locally)
 
 ### Alerts (Control Center parity)
+
 - Triggers: `GET|POST /alerts/triggers`, `GET|PUT|DELETE /alerts/triggers/{id}`, `POST /alerts/triggers/{id}/enable|disable`
   `Trigger = {id, name, clusterId, component:'cluster'|'broker'|'topic'|'consumerGroup'|'connector'|'ksqlQuery'|'flinkJob'|'schemaRegistry'|'custom', target:{name?, regex?}, metric, condition:'gt'|'gte'|'lt'|'lte'|'eq'|'ne', value, bufferSeconds, severity:'critical'|'warning'|'info', enabled, actionIds:[], createdAt, updatedAt}`
   Metric catalog `GET /alerts/metrics` → per component: cluster(underReplicatedPartitions, offlinePartitions, activeControllerCount, zkOrKraftUnavailable, brokerDownCount, bytesIn, bytesOut), broker(bytesIn, bytesOut, produceRequestLatency, fetchRequestLatency, diskUsagePct, isOffline), topic(underReplicated, bytesIn, bytesOut, messagesIn, sizeBytes), consumerGroup(lag, lagPerPartition, consumptionDifference, memberCount, isEmpty), connector(state!=RUNNING, failedTasks, taskState), ksqlQuery(errorRate, messagesConsumed), flinkJob(state!=RUNNING, restarts, checkpointFailures, backpressure), custom(promql expr)
@@ -263,6 +306,7 @@ Every mutating call is audited. Every route is prefixed with `/api/v1`.
 ```
 
 ## Non-functional requirements
+
 - Backend: type-annotated, `ruff` clean, tests for every router with a fake Kafka layer; graceful degradation when an integration is unconfigured/unreachable (`503 problem+json` with `type: ".../integration-unavailable"`), never crash the app.
 - Frontend: strict TS, ESLint clean, `vite build` passes, every list virtualized/paginated, every page has loading skeletons + empty states + error states, keyboard command palette (⌘K), light/dark theme, responsive ≥ 1024px primary, usable at 768px.
 - Security: no secrets in logs, sensitive configs masked, CSRF-safe token auth, CSP header, rate limit on login.

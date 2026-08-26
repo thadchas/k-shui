@@ -238,3 +238,21 @@
   --xy-edge-stroke-default: var(--border);
   --xy-node-border-default: var(--border);
 }
+
+/* Respect reduced-motion: stop decorative animation (skeleton shimmer, spinners, transitions). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .skeleton,
+  .animate-shimmer,
+  .animate-spin,
+  .animate-pulse {
+    animation: none !important;
+  }
+}

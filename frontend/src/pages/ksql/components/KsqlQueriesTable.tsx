@@ -4,6 +4,7 @@ import { ListTree, Octagon } from 'lucide-react';
 import { useTerminateKsqlQuery } from '@/api/hooks/ksql';
 import type { KsqlQueryInfo } from '@/api/types';
 import { truncate } from '@/lib/format';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ export function KsqlQueriesTable({
   onInspect,
 }: KsqlQueriesTableProps) {
   const terminate = useTerminateKsqlQuery(cluster, server);
+  const { canEdit } = usePermissions();
   const [target, setTarget] = useState<KsqlQueryInfo | null>(null);
   const [search, setSearch] = useState('');
 
@@ -105,17 +107,23 @@ export function KsqlQueriesTable({
         defaultSorting={[{ id: 'id', desc: false }]}
         onRowClick={onInspect}
         rowLabel="queries"
+        caption={`Persistent ksqlDB queries on ${server}`}
         rowActions={(query) => (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              setTarget(query);
-            }}
-          >
-            <Octagon /> Terminate
-          </Button>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex" onClick={(e) => e.stopPropagation()}>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!canEdit}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setTarget(query);
+                }}
+              >
+                <Octagon /> Terminate
+              </Button>
+            </span>
+          </Tooltip>
         )}
         emptyState={
           <EmptyState
@@ -140,6 +148,7 @@ export function KsqlQueriesTable({
             keep the data already written.
           </>
         }
+        confirmText={target?.id}
         confirmLabel="Terminate"
         loading={terminate.isPending}
         onConfirm={async () => {

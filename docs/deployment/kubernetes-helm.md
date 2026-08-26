@@ -83,7 +83,7 @@ Set `config.server.basePath` to the same prefix as your Ingress path (e.g.
 any rewrite annotation your controller needs.
 
 > **Known limitation (verified against 0.1.0).** `basePath` is wired into the
-> ASGI `root_path`, so *routing* under the prefix works — `/k-shui/healthz`,
+> ASGI `root_path`, so _routing_ under the prefix works — `/k-shui/healthz`,
 > `/k-shui/api/v1/...`, `/k-shui/assets/...` and `/k-shui/` all answer correctly.
 > What does **not** work yet is the served `index.html`: it is returned verbatim,
 > still referencing `/assets/...` at the domain root and without the
@@ -101,7 +101,7 @@ any rewrite annotation your controller needs.
 or unreachable broker can block the event loop long enough that even the static
 `/healthz` handler misses a short deadline, and a tight liveness probe then
 restart-loops a pod that is perfectly healthy. `/readyz` is the probe that is
-*meant* to reflect cluster reachability — let that one flap instead, and it will
+_meant_ to reflect cluster reachability — let that one flap instead, and it will
 take the pod out of the Service until the cluster recovers.
 
 ## Validating
@@ -121,8 +121,8 @@ helm template t charts/k-shui \
 ```
 
 `ServiceMonitor`/`PodMonitor` need the prometheus-operator CRDs; on a cluster
-without them `helm install` fails with *no matches for kind "ServiceMonitor" in
-version "monitoring.coreos.com/v1"*. Leave both disabled there.
+without them `helm install` fails with _no matches for kind "ServiceMonitor" in
+version "monitoring.coreos.com/v1"_. Leave both disabled there.
 
 `values-lakestream.yaml` sets `auth.type: oidc` and `existingSecret:
 k-shui-credentials`; create that Secret (or override both) before installing, or

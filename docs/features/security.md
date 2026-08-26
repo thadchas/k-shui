@@ -3,7 +3,7 @@
 ## What it does
 
 Kafka-side security administration: ACLs, quotas, SCRAM users, cluster
-dynamic configs, and the KRaft controller quorum. (For k-shui's *own* login
+dynamic configs, and the KRaft controller quorum. (For k-shui's _own_ login
 and role-based access, see [auth-rbac.md](auth-rbac.md).)
 
 ## UI walkthrough
@@ -26,13 +26,13 @@ and role-based access, see [auth-rbac.md](auth-rbac.md).)
 
 ## API endpoints
 
-| Method | Path | Notes |
-|---|---|---|
-| `GET`/`POST`/`DELETE` | `/api/v1/clusters/{c}/acls` | Filter by `resourceType`, `resourceName`, `principal` |
-| `GET`/`PUT`/`DELETE` | `/api/v1/clusters/{c}/quotas` | `{entityType, entityName, quotas:{producer_byte_rate, consumer_byte_rate, request_percentage}}` |
-| `GET`/`POST`/`DELETE` | `/api/v1/clusters/{c}/scram-users` | |
-| `GET`/`PUT` | `/api/v1/clusters/{c}/configs` | Cluster-level dynamic configs |
-| `GET` | `/api/v1/clusters/{c}/kraft/quorum` | `{leaderId, leaderEpoch, highWatermark, voters, observers}` |
+| Method                | Path                                | Notes                                                                                           |
+| --------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `GET`/`POST`/`DELETE` | `/api/v1/clusters/{c}/acls`         | Filter by `resourceType`, `resourceName`, `principal`                                           |
+| `GET`/`PUT`/`DELETE`  | `/api/v1/clusters/{c}/quotas`       | `{entityType, entityName, quotas:{producer_byte_rate, consumer_byte_rate, request_percentage}}` |
+| `GET`/`POST`/`DELETE` | `/api/v1/clusters/{c}/scram-users`  |                                                                                                 |
+| `GET`/`PUT`           | `/api/v1/clusters/{c}/configs`      | Cluster-level dynamic configs                                                                   |
+| `GET`                 | `/api/v1/clusters/{c}/kraft/quorum` | `{leaderId, leaderEpoch, highWatermark, voters, observers}`                                     |
 
 ## Config required
 

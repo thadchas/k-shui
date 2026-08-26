@@ -1,7 +1,7 @@
 import { Link, useMatches, useNavigate } from 'react-router';
-import { LogOut, Search, User as UserIcon } from 'lucide-react';
+import { LogOut, Menu, Search, User as UserIcon } from 'lucide-react';
 import type { ClusterSummary, InfoResponse } from '@/api/types';
-import { useLogout } from '@/api/hooks/system';
+import { useLogout, useMe } from '@/api/hooks/system';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
@@ -36,12 +36,19 @@ export interface TopbarProps {
   clusterId: string | null;
   cluster?: ClusterSummary;
   info?: InfoResponse;
+  /** Opens the mobile navigation drawer (rendered under `md`). */
+  onOpenMenu?: () => void;
 }
 
-export function Topbar({ clusterId, cluster, info }: TopbarProps) {
+export function Topbar({ clusterId, cluster, info, onOpenMenu }: TopbarProps) {
   const matches = useMatches() as unknown as MatchWithHandle[];
   const setCommandOpen = useUiStore((s) => s.setCommandOpen);
-  const user = useAuthStore((s) => s.user);
+  const localUser = useAuthStore((s) => s.user);
+  const authEnabled = info?.auth?.enabled ?? false;
+  // `/auth/me` is the source of truth for role once signed in (OIDC sessions never hit
+  // the login mutation, so the persisted user may be empty).
+  const me = useMe(authEnabled);
+  const user = me.data ?? info?.auth?.user ?? localUser;
   const logout = useLogout();
   const navigate = useNavigate();
 
@@ -57,14 +64,23 @@ export function Topbar({ clusterId, cluster, info }: TopbarProps) {
     crumbs.push({ label, to: match.pathname });
   }
 
-  const authEnabled = info?.auth?.enabled ?? false;
+  // Under `md` only the last crumb fits; the drawer covers the rest of the hierarchy.
+  const allCrumbs = crumbs.length > 0 ? crumbs : [{ label: 'k-shui' }];
+  const tailCrumbs = allCrumbs.slice(-1);
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_88%,transparent)] px-5 backdrop-blur-md">
-      <Breadcrumb
-        items={crumbs.length > 0 ? crumbs : [{ label: 'k-shui' }]}
-        className="min-w-0 flex-1"
-      />
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_88%,transparent)] px-3 backdrop-blur-md md:gap-3 md:px-5">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="md:hidden"
+        onClick={onOpenMenu}
+        aria-label="Open navigation"
+      >
+        <Menu />
+      </Button>
+      <Breadcrumb items={allCrumbs} className="hidden min-w-0 flex-1 md:flex" />
+      <Breadcrumb items={tailCrumbs} className="min-w-0 flex-1 md:hidden" />
 
       <button
         type="button"

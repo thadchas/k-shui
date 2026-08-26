@@ -58,14 +58,18 @@ export function useTopicConfigs(cluster: string | undefined, topic: string | und
   });
 }
 
-export function useTopicConsumers(cluster: string | undefined, topic: string | undefined) {
+export function useTopicConsumers(
+  cluster: string | undefined,
+  topic: string | undefined,
+  enabled = true,
+) {
   return useQuery({
     queryKey: qk.topicConsumers(cluster ?? '', topic ?? ''),
     queryFn: () =>
       api.get<TopicConsumer[]>(
         `/clusters/${cluster}/topics/${encodeURIComponent(topic!)}/consumers`,
       ),
-    enabled: Boolean(cluster && topic),
+    enabled: Boolean(cluster && topic) && enabled,
   });
 }
 

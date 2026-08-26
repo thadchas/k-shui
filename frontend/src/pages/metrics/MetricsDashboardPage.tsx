@@ -146,10 +146,7 @@ export function MetricsDashboardPage() {
       return next;
     });
 
-  const allPanelIds = useMemo(
-    () => rows.flatMap((r) => r.panels.map((p) => p.id)),
-    [rows],
-  );
+  const allPanelIds = useMemo(() => rows.flatMap((r) => r.panels.map((p) => p.id)), [rows]);
 
   const metricNames = useMemo(() => (catalog.data ?? []).map((m) => m.name), [catalog.data]);
 

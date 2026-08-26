@@ -54,6 +54,7 @@ make kustomize-dev   # render the dev kustomize overlay
 ## Pre-commit hooks
 
 ```bash
+(cd frontend && npm ci)  # the prettier hook runs frontend/node_modules/.bin/prettier
 pip install pre-commit  # or: uv tool install pre-commit
 pre-commit install
 pre-commit run --all-files

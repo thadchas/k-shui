@@ -18,12 +18,24 @@ from k_shui.kafka.admin import KafkaAdmin
 router = APIRouter(prefix="/clusters/{cluster_id}/brokers", tags=["brokers"])
 
 
+def _sum_known(dirs: list[dict], key: str) -> int | None:
+    """Sum a capacity field over log dirs; None unless every dir reported it (partial sums mislead)."""
+    values = [d.get(key) for d in dirs]
+    if not values or any(v is None for v in values):
+        return None
+    return int(sum(values))
+
+
 async def _brokers(ctx: ClusterContext) -> list[dict]:
     admin = KafkaAdmin.get(ctx)
     md = await admin.metadata()
     logdirs = await admin.describe_log_dirs()
     sizes = {
         broker_id: sum(d.get("sizeBytes") or 0 for d in dirs) or None
+        for broker_id, dirs in (logdirs.get("brokers") or {}).items()
+    }
+    capacity = {
+        broker_id: (_sum_known(dirs, "totalBytes"), _sum_known(dirs, "usableBytes"))
         for broker_id, dirs in (logdirs.get("brokers") or {}).items()
     }
     version = await admin.broker_version()
@@ -49,6 +61,8 @@ async def _brokers(ctx: ClusterContext) -> list[dict]:
                 "leaderCount": leaders,
                 "underReplicatedPartitions": urp,
                 "logDirSizeBytes": sizes.get(str(broker_id)),
+                "logDirTotalBytes": capacity.get(str(broker_id), (None, None))[0],
+                "logDirUsableBytes": capacity.get(str(broker_id), (None, None))[1],
                 "status": "online",
                 "version": version,
             }

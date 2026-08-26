@@ -214,11 +214,7 @@ export function usePromRange(
 }
 
 /** Raw Prometheus instant `query` (vector) for the explorer's table view. */
-export function usePromInstant(
-  cluster: string | undefined,
-  query: string,
-  enabled = true,
-) {
+export function usePromInstant(cluster: string | undefined, query: string, enabled = true) {
   const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: qk.promQuery(cluster ?? '', query),

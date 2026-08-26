@@ -7,10 +7,11 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from k_shui.api.schemas.connect import ReplicationSummary
+from k_shui.core.auth import require_viewer
 from k_shui.core.registry import ClusterContext, get_cluster
 from k_shui.integrations.replication import detect
 
-router = APIRouter(tags=["replication"])
+router = APIRouter(tags=["replication"], dependencies=[Depends(require_viewer)])
 
 
 @router.get("/clusters/{cluster_id}/replication", response_model=ReplicationSummary)

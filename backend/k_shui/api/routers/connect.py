@@ -13,12 +13,13 @@ from k_shui.api.schemas.connect import (
     CreateConnectorRequest,
     OffsetsPatch,
 )
+from k_shui.core.auth import non_mutating, require_editor, require_viewer
 from k_shui.core.errors import IntegrationNotConfigured
 from k_shui.core.registry import ClusterContext, get_cluster
 from k_shui.integrations.audit import audit, publish
 from k_shui.integrations.connect import all_connects, get_connect
 
-router = APIRouter(tags=["connect"])
+router = APIRouter(tags=["connect"], dependencies=[Depends(require_viewer)])
 BASE = "/clusters/{cluster_id}/connect"
 KC = BASE + "/{connect_name}"
 
@@ -49,7 +50,9 @@ async def list_connectors(
     return await get_connect(ctx, connect_name).list_connectors(search=search, state=state, type_=type)
 
 
-@router.post(KC + "/connectors", response_model=Connector, status_code=201)
+@router.post(
+    KC + "/connectors", response_model=Connector, status_code=201, dependencies=[Depends(require_editor)]
+)
 async def create_connector(
     request: Request,
     connect_name: str,
@@ -68,7 +71,7 @@ async def get_connector(connect_name: str, name: str, ctx: ClusterContext = Depe
     return await get_connect(ctx, connect_name).connector(name)
 
 
-@router.delete(KC + "/connectors/{name}", status_code=204)
+@router.delete(KC + "/connectors/{name}", status_code=204, dependencies=[Depends(require_editor)])
 async def delete_connector(
     request: Request, connect_name: str, name: str, ctx: ClusterContext = Depends(get_cluster)
 ) -> None:
@@ -84,7 +87,9 @@ async def get_connector_config(
     return await get_connect(ctx, connect_name).get_config(name)
 
 
-@router.put(KC + "/connectors/{name}/config", response_model=Connector)
+@router.put(
+    KC + "/connectors/{name}/config", response_model=Connector, dependencies=[Depends(require_editor)]
+)
 async def put_connector_config(
     request: Request,
     connect_name: str,
@@ -112,7 +117,7 @@ async def connector_tasks(
     return await get_connect(ctx, connect_name).tasks(name)
 
 
-@router.post(KC + "/connectors/{name}/{action}")
+@router.post(KC + "/connectors/{name}/{action}", dependencies=[Depends(require_editor)])
 async def connector_action(
     request: Request,
     connect_name: str,
@@ -143,7 +148,9 @@ async def connector_action(
     return result
 
 
-@router.post(KC + "/connectors/{name}/tasks/{task_id}/restart", status_code=204)
+@router.post(
+    KC + "/connectors/{name}/tasks/{task_id}/restart", status_code=204, dependencies=[Depends(require_editor)]
+)
 async def restart_task(
     request: Request, connect_name: str, name: str, task_id: int, ctx: ClusterContext = Depends(get_cluster)
 ) -> None:
@@ -159,7 +166,7 @@ async def connector_topics(
     return {"name": name, "topics": topics}
 
 
-@router.put(KC + "/connectors/{name}/topics/reset", status_code=204)
+@router.put(KC + "/connectors/{name}/topics/reset", status_code=204, dependencies=[Depends(require_editor)])
 async def reset_connector_topics(
     request: Request, connect_name: str, name: str, ctx: ClusterContext = Depends(get_cluster)
 ) -> None:
@@ -174,7 +181,7 @@ async def get_offsets(
     return await get_connect(ctx, connect_name).offsets(name)
 
 
-@router.patch(KC + "/connectors/{name}/offsets")
+@router.patch(KC + "/connectors/{name}/offsets", dependencies=[Depends(require_editor)])
 async def patch_offsets(
     request: Request,
     connect_name: str,
@@ -187,7 +194,7 @@ async def patch_offsets(
     return result
 
 
-@router.delete(KC + "/connectors/{name}/offsets")
+@router.delete(KC + "/connectors/{name}/offsets", dependencies=[Depends(require_editor)])
 async def delete_offsets(
     request: Request, connect_name: str, name: str, ctx: ClusterContext = Depends(get_cluster)
 ) -> dict[str, Any]:
@@ -202,6 +209,7 @@ async def list_plugins(connect_name: str, ctx: ClusterContext = Depends(get_clus
 
 
 @router.put(KC + "/plugins/{plugin_class}/validate")
+@non_mutating
 async def validate_plugin(
     connect_name: str,
     plugin_class: str,

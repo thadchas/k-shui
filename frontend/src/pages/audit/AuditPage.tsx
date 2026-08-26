@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { ScrollText } from 'lucide-react';
 import { useAudit } from '@/api/hooks/system';
 import { useClusters } from '@/api/hooks/clusters';
 import type { AuditEntry } from '@/api/types';
 import { useDebounced } from '@/hooks/useDebounced';
+import { useUrlState } from '@/hooks/useUrlState';
 import { formatRelative, formatTimestamp, truncate } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/ui/data-table';
@@ -25,11 +26,13 @@ function detailText(details: AuditEntry['details']): string {
 }
 
 export function AuditPage() {
-  const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(50);
-  const [user, setUser] = useState('');
-  const [action, setAction] = useState('');
-  const [clusterId, setClusterId] = useState('all');
+  const [{ page, perPage, user, action, cluster: clusterId }, setUrl] = useUrlState({
+    page: 1,
+    perPage: 50,
+    user: '',
+    action: '',
+    cluster: 'all',
+  });
 
   const debouncedUser = useDebounced(user, 300);
   const debouncedAction = useDebounced(action, 300);
@@ -130,31 +133,23 @@ export function AuditPage() {
         page={page}
         perPage={perPage}
         total={data?.total ?? 0}
-        onPageChange={setPage}
-        onPerPageChange={(n) => {
-          setPerPage(n);
-          setPage(1);
-        }}
+        onPageChange={(p) => setUrl({ page: p })}
+        onPerPageChange={(n) => setUrl({ perPage: n, page: 1 })}
+        caption="Audit log entries"
         rowLabel="entries"
         toolbar={
           <>
             <Input
               className="w-40"
               value={user}
-              onChange={(e) => {
-                setUser(e.target.value);
-                setPage(1);
-              }}
+              onChange={(e) => setUrl({ user: e.target.value, page: 1 })}
               placeholder="User…"
               aria-label="Filter by user"
             />
             <Input
               className="w-48"
               value={action}
-              onChange={(e) => {
-                setAction(e.target.value);
-                setPage(1);
-              }}
+              onChange={(e) => setUrl({ action: e.target.value, page: 1 })}
               placeholder="Action…"
               aria-label="Filter by action"
             />
@@ -162,10 +157,7 @@ export function AuditPage() {
               className="w-44"
               aria-label="Filter by cluster"
               value={clusterId}
-              onValueChange={(v) => {
-                setClusterId(v);
-                setPage(1);
-              }}
+              onValueChange={(v) => setUrl({ cluster: v, page: 1 })}
               options={[
                 { label: 'All clusters', value: 'all' },
                 ...(clusters.data ?? []).map((c) => ({ label: c.name, value: c.id })),

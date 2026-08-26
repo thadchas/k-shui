@@ -1,4 +1,5 @@
 /** Kafka Connect hooks — pages land with the Streaming agent. */
+import { useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { qk } from '@/api/keys';
@@ -14,6 +15,58 @@ import type {
   CreateConnectorRequest,
 } from '@/api/types';
 
+/* -------------------------------------------------------------------------- *
+ * Fast-poll burst: after a mutation (restart / pause / resume / stop / task
+ * restart / config save) connector status is refetched every 2s for ~20s so the
+ * UI settles on the new state without waiting for the regular interval.
+ * -------------------------------------------------------------------------- */
+
+export const FAST_POLL_INTERVAL_MS = 2000;
+export const FAST_POLL_DURATION_MS = 20000;
+
+let fastPollUntil = 0;
+let fastPollTimer: ReturnType<typeof setTimeout> | null = null;
+const fastPollListeners = new Set<() => void>();
+
+function emitFastPoll() {
+  for (const listener of fastPollListeners) listener();
+}
+
+/** Start (or extend) a fast-poll burst for connector queries. */
+export function startFastPoll(durationMs = FAST_POLL_DURATION_MS) {
+  fastPollUntil = Date.now() + durationMs;
+  if (fastPollTimer) clearTimeout(fastPollTimer);
+  fastPollTimer = setTimeout(() => {
+    fastPollTimer = null;
+    fastPollUntil = 0;
+    emitFastPoll();
+  }, durationMs);
+  emitFastPoll();
+}
+
+function subscribeFastPoll(listener: () => void) {
+  fastPollListeners.add(listener);
+  return () => {
+    fastPollListeners.delete(listener);
+  };
+}
+
+/** True while a fast-poll burst is active. */
+export function useFastPollActive(): boolean {
+  return useSyncExternalStore(
+    subscribeFastPoll,
+    () => fastPollUntil > 0,
+    () => false,
+  );
+}
+
+/** Regular refetch interval, overridden to 2s during a fast-poll burst. */
+function useConnectRefetchInterval(): number | false {
+  const base = useRefetchInterval();
+  const fast = useFastPollActive();
+  return fast ? FAST_POLL_INTERVAL_MS : base;
+}
+
 export function useConnectClusters(cluster: string | undefined, enabled = true) {
   return useQuery({
     queryKey: qk.connectClusters(cluster ?? ''),
@@ -28,7 +81,7 @@ export function useConnectors(
   kc: string | undefined,
   query: { search?: string; state?: string; type?: string } = {},
 ) {
-  const refetchInterval = useRefetchInterval();
+  const refetchInterval = useConnectRefetchInterval();
   return useQuery({
     queryKey: qk.connectors(cluster ?? '', kc ?? '', query),
     queryFn: () => api.get<Connector[]>(`/clusters/${cluster}/connect/${kc}/connectors`, query),
@@ -43,7 +96,7 @@ export function useConnector(
   kc: string | undefined,
   name: string | undefined,
 ) {
-  const refetchInterval = useRefetchInterval();
+  const refetchInterval = useConnectRefetchInterval();
   return useQuery({
     queryKey: qk.connector(cluster ?? '', kc ?? '', name ?? ''),
     queryFn: () =>
@@ -93,7 +146,10 @@ export function useUpdateConnectorConfig(cluster: string, kc: string, name: stri
         `/clusters/${cluster}/connect/${kc}/connectors/${encodeURIComponent(name)}/config`,
         config,
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.connector(cluster, kc, name) }),
+    onSuccess: () => {
+      startFastPoll();
+      return qc.invalidateQueries({ queryKey: qk.connector(cluster, kc, name) });
+    },
   });
 }
 
@@ -118,7 +174,10 @@ export function useConnectorAction(cluster: string, kc: string) {
         undefined,
         { includeTasks, onlyFailed },
       ),
-    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: qk.connector(cluster, kc, v.name) }),
+    onSuccess: (_d, v) => {
+      startFastPoll();
+      return qc.invalidateQueries({ queryKey: qk.connector(cluster, kc, v.name) });
+    },
   });
 }
 
@@ -206,7 +265,10 @@ export function useRestartConnectorTask(cluster: string, kc: string, name: strin
   return useMutation({
     mutationFn: (taskId: number) =>
       api.post<void>(`${connectorPath(cluster, kc, name)}/tasks/${taskId}/restart`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.connector(cluster, kc, name) }),
+    onSuccess: () => {
+      startFastPoll();
+      return qc.invalidateQueries({ queryKey: qk.connector(cluster, kc, name) });
+    },
   });
 }
 

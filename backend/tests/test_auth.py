@@ -17,6 +17,14 @@ from tests.conftest import build_settings
 C = "/api/v1/clusters/test"
 
 
+@pytest.fixture(autouse=True)
+def _reset_login_rate_limit() -> None:
+    """The login limiter is keyed by client IP and process-global; keep tests independent."""
+    from k_shui.api.routers.auth import _LOGIN_ATTEMPTS
+
+    _LOGIN_ATTEMPTS.clear()
+
+
 async def login(client: AsyncClient, username: str, password: str) -> str:
     resp = await client.post("/api/v1/auth/login", json={"username": username, "password": password})
     assert resp.status_code == 200, resp.text
@@ -329,3 +337,97 @@ async def test_info_reports_anonymous_admin_when_auth_is_off(client: AsyncClient
     assert body["auth"]["enabled"] is False
     assert body["auth"]["user"]["role"] == "admin"
     assert body["clusters"]
+
+
+# ------------------------------------------------------------ integration routers
+
+# Integration routers (schema registry, Connect, ksqlDB, Flink, metrics, lineage) are
+# mounted in the main app; their backends are unreachable here, so an editor call would
+# fail *after* the auth check. Only the viewer/anonymous outcome is asserted per router.
+INTEGRATION_MUTATIONS = [
+    ("put", f"{C}/schemas/config", {"compatibility": "BACKWARD"}),
+    ("post", f"{C}/connect/kc/connectors", {"name": "x", "config": {}}),
+    ("post", f"{C}/ksql/k1/statement", {"sql": "DROP STREAM s;"}),
+    ("post", f"{C}/flink/f1/sql/sessions/s1/statements", {"statement": "INSERT INTO t SELECT 1"}),
+    ("delete", f"{C}/flink/f1/jars/abc", None),
+    ("post", f"{C}/metrics/dashboards", {"title": "d", "panels": []}),
+    ("delete", f"{C}/metrics/dashboards/abc", None),
+    ("post", "/api/v1/lineage/openlineage", {"eventType": "START"}),
+]
+
+INTEGRATION_READS = [
+    f"{C}/schemas/info",
+    f"{C}/connect",
+    f"{C}/ksql",
+    f"{C}/flink",
+    f"{C}/metrics/status",
+    f"{C}/metrics/dashboards",
+    f"{C}/lineage/graph",
+    "/api/v1/lineage/openlineage",
+    f"{C}/replication",
+]
+
+
+@pytest.mark.parametrize(("method", "path", "body"), INTEGRATION_MUTATIONS)
+async def test_integration_mutations_require_editor(
+    basic_auth_client: AsyncClient, method: str, path: str, body: Any
+) -> None:
+    kwargs: dict[str, Any] = {"json": body} if body is not None else {}
+    anonymous = await basic_auth_client.request(method, path, **kwargs)
+    assert anonymous.status_code == 401
+
+    token = bearer(await login(basic_auth_client, "vi", "vipw"))
+    resp = await basic_auth_client.request(method, path, headers=token, **kwargs)
+    assert resp.status_code == 403
+    assert resp.json()["type"].endswith("forbidden")
+
+
+@pytest.mark.parametrize("path", INTEGRATION_READS)
+async def test_integration_reads_require_viewer(basic_auth_client: AsyncClient, path: str) -> None:
+    assert (await basic_auth_client.get(path)).status_code == 401
+    token = bearer(await login(basic_auth_client, "vi", "vipw"))
+    resp = await basic_auth_client.get(path, headers=token)
+    # Viewer passes the auth gate; anything else is the integration itself answering.
+    assert resp.status_code not in (401, 403)
+
+
+async def test_ksql_query_stays_viewer(basic_auth_client: AsyncClient) -> None:
+    token = bearer(await login(basic_auth_client, "vi", "vipw"))
+    resp = await basic_auth_client.post(f"{C}/ksql/k1/query", json={"sql": "SELECT 1;"}, headers=token)
+    assert resp.status_code not in (401, 403)
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        (f"{C}/flink/f1/sql/sessions", {}),
+        (f"{C}/flink/f1/sql/sessions/s1/statements", {"statement": "SHOW TABLES"}),
+        (f"{C}/ksql/k1/statement", {"sql": "SHOW STREAMS;"}),
+    ],
+)
+async def test_read_only_sql_is_viewer_level(basic_auth_client: AsyncClient, path: str, body: Any) -> None:
+    token = bearer(await login(basic_auth_client, "vi", "vipw"))
+    resp = await basic_auth_client.post(path, json=body, headers=token)
+    assert resp.status_code not in (401, 403), resp.text
+
+
+async def test_read_only_mode_allows_non_mutating_posts(cluster_read_only_client: AsyncClient) -> None:
+    """A reassignment *plan*, a ksql query and closing a push query never mutate the cluster."""
+    resp = await cluster_read_only_client.post(f"{C}/partitions/reassign/plan", json={"topics": ["orders"]})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["items"]
+    # still blocked: the real reassignment
+    resp = await cluster_read_only_client.post(
+        f"{C}/partitions/reassign",
+        json={"partitions": [{"topic": "orders", "partition": 0, "replicas": [1]}]},
+    )
+    assert resp.status_code == 403 and "read-only" in resp.json()["detail"]
+    for path, body in (
+        (f"{C}/ksql/k1/query", {"sql": "SELECT 1;"}),
+        (f"{C}/ksql/k1/close-query", {"queryId": "q"}),
+        (f"{C}/ksql/k1/statement", {"sql": "SHOW STREAMS;"}),
+    ):
+        resp = await cluster_read_only_client.post(path, json=body)
+        assert resp.status_code != 403, (path, resp.text)
+    resp = await cluster_read_only_client.post(f"{C}/ksql/k1/statement", json={"sql": "DROP STREAM s;"})
+    assert resp.status_code == 403 and "read-only" in resp.json()["detail"]

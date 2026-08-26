@@ -9,6 +9,7 @@ import {
   useTestAlertAction,
 } from '@/api/hooks/alerts';
 import type { AlertAction } from '@/api/types';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -48,6 +49,7 @@ export function ActionsTab() {
   const test = useTestAlertAction();
   const remove = useDeleteAlertAction();
   const [search, setSearch] = useState('');
+  const { canEdit } = usePermissions();
   const [deleteTarget, setDeleteTarget] = useState<AlertAction | null>(null);
 
   const usage = useMemo(() => {
@@ -129,9 +131,10 @@ export function ActionsTab() {
               test.mutate(row.original.id, {
                 onSuccess: (result) => {
                   const ok = result?.ok !== false && result?.status !== 'error';
-                  if (ok) toast.success(`Test sent to ${row.original.name}`, {
-                    description: result?.message,
-                  });
+                  if (ok)
+                    toast.success(`Test sent to ${row.original.name}`, {
+                      description: result?.message,
+                    });
                   else
                     toast.error(`Test failed for ${row.original.name}`, {
                       description: result?.error ?? result?.message,
@@ -188,8 +191,18 @@ export function ActionsTab() {
                 <Pencil /> Edit
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem destructive onSelect={() => setDeleteTarget(action)}>
+              <DropdownMenuItem
+                destructive
+                disabled={!canEdit}
+                title={canEdit ? undefined : REQUIRES_EDITOR}
+                onSelect={() => setDeleteTarget(action)}
+              >
                 <Trash2 /> Delete
+                {!canEdit ? (
+                  <span className="ml-auto pl-3 text-2xs text-[var(--muted)]">
+                    {REQUIRES_EDITOR}
+                  </span>
+                ) : null}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -203,7 +216,9 @@ export function ActionsTab() {
                 ? 'Try a different search term.'
                 : 'Add an email, Slack, PagerDuty, Teams or webhook action so triggers can notify someone.'
             }
-            action={<Button onClick={() => void navigate('/alerts/actions/new')}>New action</Button>}
+            action={
+              <Button onClick={() => void navigate('/alerts/actions/new')}>New action</Button>
+            }
           />
         }
       />
@@ -218,6 +233,7 @@ export function ActionsTab() {
             referencing it will stop notifying.
           </>
         }
+        confirmText={deleteTarget?.name}
         confirmLabel="Delete action"
         loading={remove.isPending}
         onConfirm={() => {

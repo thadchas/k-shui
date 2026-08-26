@@ -213,9 +213,7 @@ export function CheckpointsTab({
             title="History"
             description={`${data?.history?.length ?? 0} recent checkpoints`}
             actions={
-              counts ? (
-                <Badge variant="secondary">{formatNumber(counts.total)} total</Badge>
-              ) : null
+              counts ? <Badge variant="secondary">{formatNumber(counts.total)} total</Badge> : null
             }
           />
           <CardContent>
@@ -225,6 +223,7 @@ export function CheckpointsTab({
               loading={checkpoints.isLoading}
               hideToolbar
               rowLabel="checkpoints"
+              caption="Checkpoint history"
               maxHeight={420}
               defaultSorting={[{ id: 'id', desc: true }]}
               emptyState={

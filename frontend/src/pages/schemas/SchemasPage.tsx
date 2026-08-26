@@ -6,6 +6,8 @@ import { useDeleteSubject, useSchemaRegistryInfo, useSchemaSubjects } from '@/ap
 import type { SchemaSubjectSummary } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
 import { useDebounced } from '@/hooks/useDebounced';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { useUrlState } from '@/hooks/useUrlState';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,10 +33,12 @@ type DeleteState =
 export function SchemasPage() {
   const cluster = useClusterId();
   const navigate = useNavigate();
+  const { canEdit } = usePermissions();
 
-  const [search, setSearch] = useState('');
+  const [{ q: search, showDeleted }, setUrl] = useUrlState({ q: '', showDeleted: false });
+  const setSearch = (q: string) => setUrl({ q });
+  const setShowDeleted = (value: boolean) => setUrl({ showDeleted: value });
   const debouncedSearch = useDebounced(search, 300);
-  const [showDeleted, setShowDeleted] = useState(false);
   const [dialog, setDialog] = useState<DeleteState>({ kind: 'none' });
 
   const query = useMemo(
@@ -117,6 +121,11 @@ export function SchemasPage() {
     [cluster],
   );
 
+  const gate = canEdit ? {} : { disabled: true, title: REQUIRES_EDITOR };
+  const gateHint = canEdit ? null : (
+    <span className="ml-auto pl-3 text-2xs text-[var(--muted)]">{REQUIRES_EDITOR}</span>
+  );
+
   const rowActions = (subject: SchemaSubjectSummary) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -133,26 +142,29 @@ export function SchemasPage() {
           <FileJson /> View schema
         </DropdownMenuItem>
         <DropdownMenuItem
+          {...gate}
           onSelect={() =>
             void navigate(
               `/c/${cluster}/schemas/new?subject=${encodeURIComponent(subject.subject)}&type=${subject.schemaType}`,
             )
           }
         >
-          <FilePlus2 /> New version
+          <FilePlus2 /> New version{gateHint}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           destructive
+          {...gate}
           onSelect={() => setDialog({ kind: 'delete', subject, permanent: false })}
         >
-          <Trash2 /> Soft delete
+          <Trash2 /> Soft delete{gateHint}
         </DropdownMenuItem>
         <DropdownMenuItem
           destructive
+          {...gate}
           onSelect={() => setDialog({ kind: 'delete', subject, permanent: true })}
         >
-          <Trash2 /> Delete permanently
+          <Trash2 /> Delete permanently{gateHint}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -167,11 +179,21 @@ export function SchemasPage() {
         description="Subjects, versions and compatibility in the schema registry."
         meta={subjects.data ? <Badge variant="secondary">{subjects.data.length}</Badge> : null}
         actions={
-          <Button asChild>
-            <Link to={`/c/${cluster}/schemas/new`}>
-              <FilePlus2 /> Register schema
-            </Link>
-          </Button>
+          <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+            <span className="inline-flex">
+              <Button asChild={canEdit} disabled={!canEdit}>
+                {canEdit ? (
+                  <Link to={`/c/${cluster}/schemas/new`}>
+                    <FilePlus2 /> Register schema
+                  </Link>
+                ) : (
+                  <>
+                    <FilePlus2 /> Register schema
+                  </>
+                )}
+              </Button>
+            </span>
+          </Tooltip>
         }
       />
 
@@ -193,11 +215,10 @@ export function SchemasPage() {
         onGlobalFilterChange={setSearch}
         searchPlaceholder="Search subjects…"
         defaultSorting={[{ id: 'subject', desc: false }]}
-        onRowClick={(subject) =>
-          void navigate(`/c/${cluster}/schemas/${encodeURIComponent(subject.subject)}`)
-        }
+        getRowHref={(subject) => `/c/${cluster}/schemas/${encodeURIComponent(subject.subject)}`}
         rowActions={rowActions}
         rowLabel="subjects"
+        caption="Schema registry subjects"
         toolbar={
           <label className="flex items-center gap-2 whitespace-nowrap text-xs text-[var(--muted)]">
             <Switch
@@ -218,7 +239,7 @@ export function SchemasPage() {
                 : 'Register a schema to start validating the data on your topics.'
             }
             action={
-              !search ? (
+              !search && canEdit ? (
                 <Button asChild>
                   <Link to={`/c/${cluster}/schemas/new`}>
                     <FilePlus2 /> Register schema

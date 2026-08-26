@@ -26,31 +26,31 @@ scheduler, not the browser.
 
 ## Metric catalog (`GET /api/v1/alerts/metrics`)
 
-| Component | Metrics |
-|---|---|
-| `cluster` | underReplicatedPartitions, offlinePartitions, activeControllerCount, zkOrKraftUnavailable, brokerDownCount, bytesIn, bytesOut |
-| `broker` | bytesIn, bytesOut, produceRequestLatency, fetchRequestLatency, diskUsagePct, isOffline |
-| `topic` | underReplicated, bytesIn, bytesOut, messagesIn, sizeBytes |
-| `consumerGroup` | lag, lagPerPartition, consumptionDifference, memberCount, isEmpty |
-| `connector` | state != RUNNING, failedTasks, taskState |
-| `ksqlQuery` | errorRate, messagesConsumed |
-| `flinkJob` | state != RUNNING, restarts, checkpointFailures, backpressure |
-| `custom` | arbitrary PromQL expression (requires `clusters[].prometheus`) |
+| Component       | Metrics                                                                                                                       |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `cluster`       | underReplicatedPartitions, offlinePartitions, activeControllerCount, zkOrKraftUnavailable, brokerDownCount, bytesIn, bytesOut |
+| `broker`        | bytesIn, bytesOut, produceRequestLatency, fetchRequestLatency, diskUsagePct, isOffline                                        |
+| `topic`         | underReplicated, bytesIn, bytesOut, messagesIn, sizeBytes                                                                     |
+| `consumerGroup` | lag, lagPerPartition, consumptionDifference, memberCount, isEmpty                                                             |
+| `connector`     | state != RUNNING, failedTasks, taskState                                                                                      |
+| `ksqlQuery`     | errorRate, messagesConsumed                                                                                                   |
+| `flinkJob`      | state != RUNNING, restarts, checkpointFailures, backpressure                                                                  |
+| `custom`        | arbitrary PromQL expression (requires `clusters[].prometheus`)                                                                |
 
 ## API endpoints
 
-| Method | Path | Notes |
-|---|---|---|
-| `GET`/`POST` | `/api/v1/alerts/triggers` | List/create |
-| `GET`/`PUT`/`DELETE` | `/api/v1/alerts/triggers/{id}` | |
-| `POST` | `/api/v1/alerts/triggers/{id}/enable\|disable` | |
-| `GET` | `/api/v1/alerts/metrics` | Catalog above |
-| `GET`/`POST` | `/api/v1/alerts/actions` | |
-| `GET`/`PUT`/`DELETE` | `/api/v1/alerts/actions/{id}` | |
-| `POST` | `/api/v1/alerts/actions/{id}/test` | Sends a sample notification |
-| `GET` | `/api/v1/alerts/history?status=firing\|resolved&component&clusterId&since&page` | |
-| `POST` | `/api/v1/alerts/history/{id}/ack` | |
-| `GET` | `/api/v1/alerts/summary` | Counts by severity/cluster, for the bell |
+| Method               | Path                                                                            | Notes                                    |
+| -------------------- | ------------------------------------------------------------------------------- | ---------------------------------------- |
+| `GET`/`POST`         | `/api/v1/alerts/triggers`                                                       | List/create                              |
+| `GET`/`PUT`/`DELETE` | `/api/v1/alerts/triggers/{id}`                                                  |                                          |
+| `POST`               | `/api/v1/alerts/triggers/{id}/enable\|disable`                                  |                                          |
+| `GET`                | `/api/v1/alerts/metrics`                                                        | Catalog above                            |
+| `GET`/`POST`         | `/api/v1/alerts/actions`                                                        |                                          |
+| `GET`/`PUT`/`DELETE` | `/api/v1/alerts/actions/{id}`                                                   |                                          |
+| `POST`               | `/api/v1/alerts/actions/{id}/test`                                              | Sends a sample notification              |
+| `GET`                | `/api/v1/alerts/history?status=firing\|resolved&component&clusterId&since&page` |                                          |
+| `POST`               | `/api/v1/alerts/history/{id}/ack`                                               |                                          |
+| `GET`                | `/api/v1/alerts/summary`                                                        | Counts by severity/cluster, for the bell |
 
 ## Config required
 
@@ -58,7 +58,7 @@ scheduler, not the browser.
   background asyncio task re-evaluates every enabled trigger; `historyRetentionDays`
   bounds how long fired/resolved history is kept.
 - **Email** actions need `alerts.smtp: {host, port, username, password, from,
-  tls}`.
+tls}`.
 - **Slack** actions need an incoming webhook URL; **PagerDuty** needs an
   Events API v2 routing key; **Teams** a workflow/webhook URL; **webhook**
   any URL plus an optional payload template.

@@ -7,6 +7,8 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
+from k_shui.core.errors import BadRequest
+
 C = "/api/v1/clusters/test"
 MISSING = "/api/v1/clusters/nope"
 
@@ -92,6 +94,8 @@ async def test_brokers(client: AsyncClient) -> None:
     assert [b["id"] for b in brokers] == [0, 1]
     assert brokers[0]["isController"] is True
     assert brokers[0]["logDirSizeBytes"] == 1024
+    assert brokers[0]["logDirTotalBytes"] == 10240
+    assert brokers[0]["logDirUsableBytes"] == 5120
 
     one = (await client.get(f"{C}/brokers/0")).json()
     assert one["host"] == "broker-0"
@@ -102,6 +106,9 @@ async def test_brokers(client: AsyncClient) -> None:
 
     logdirs = (await client.get(f"{C}/brokers/0/logdirs")).json()
     assert logdirs[0]["path"] == "/var/lib/kafka"
+    assert logdirs[0]["totalBytes"] == 10240
+    assert logdirs[0]["usableBytes"] == 5120
+    assert logdirs[0]["error"] is None
 
     series = (await client.get(f"{C}/brokers/0/metrics?range=6h")).json()["series"]
     assert {s["name"] for s in series} >= {"bytesIn", "bytesOut"}
@@ -135,6 +142,23 @@ async def test_topics_list_pagination_search_and_internal(client: AsyncClient) -
 async def test_topics_sorting(client: AsyncClient) -> None:
     desc = (await client.get(f"{C}/topics?sort=name&order=desc")).json()
     assert [t["name"] for t in desc["items"]] == ["orders", "events"]
+    assert (await client.get(f"{C}/topics?sort=__class__")).status_code == 400
+    assert (await client.get(f"{C}/topics?sort=name&order=sideways")).status_code == 422
+    assert (await client.get(f"{C}/consumer-groups?sort=nope")).status_code == 400
+    assert (await client.get(f"{C}/consumer-groups?sort=totalLag&order=desc")).status_code == 200
+
+
+def test_paginate_sort_handles_mixed_and_missing_values() -> None:
+    from k_shui.api.routers._common import paginate_sort
+
+    items = [{"k": "b"}, {"k": None}, {"k": 3}, {"k": "A"}, {}, {"k": 1.5}, {"k": True}]
+    asc = [i.get("k") for i in paginate_sort(items, "k")]
+    assert asc == [1.5, 3, True, "A", "b", None, None]
+    desc = [i.get("k") for i in paginate_sort(items, "k", "desc")]
+    assert desc == ["b", "A", True, 3, 1.5, None, None]
+    assert paginate_sort(items, None) is items
+    with pytest.raises(BadRequest):
+        paginate_sort(items, "other", allowed={"k"})
 
 
 async def test_topic_detail_and_404(client: AsyncClient) -> None:
@@ -208,6 +232,69 @@ async def test_messages_bad_params(client: AsyncClient) -> None:
     assert (await client.get(f"{C}/topics/orders/messages?partitions=a,b&stream=false")).status_code == 400
 
 
+async def test_messages_start_offsets_param(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.fakes import FakeMessageBrowser
+
+    seen: list[Any] = []
+    original = FakeMessageBrowser.collect
+
+    async def spy(self: Any, req: Any) -> dict[str, Any]:
+        seen.append(req)
+        return await original(self, req)
+
+    monkeypatch.setattr(FakeMessageBrowser, "collect", spy)
+    resp = await client.get(
+        f"{C}/topics/orders/messages?mode=offset&offset=5&startOffsets=0:10,%201:20&stream=false&limit=2"
+    )
+    assert resp.status_code == 200
+    assert seen[-1].start_offsets == {0: 10, 1: 20}
+    assert seen[-1].offset == 5
+
+    for bad in ("0:x", "0:-1", "nope"):
+        r = await client.get(f"{C}/topics/orders/messages?mode=offset&startOffsets={bad}&stream=false")
+        assert r.status_code == 400, bad
+
+
+async def test_messages_tail_and_filter_target_params(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.fakes import FakeMessageBrowser
+
+    seen: list[Any] = []
+    original = FakeMessageBrowser.browse
+
+    def spy(self: Any, req: Any) -> Any:
+        seen.append(req)
+        return original(self, req)
+
+    monkeypatch.setattr(FakeMessageBrowser, "browse", spy)
+    resp = await client.get(
+        f"{C}/topics/orders/messages?mode=tail&filter=header:trace%3Dt1&filterTarget=key&limit=5"
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    assert "event: progress" in resp.text
+    assert seen[-1].mode == "tail" and seen[-1].tail is True
+    assert seen[-1].filter == "header:trace=t1"
+    assert seen[-1].filter_target == "key"
+
+    assert (await client.get(f"{C}/topics/orders/messages?filterTarget=everything")).status_code == 422
+    assert (await client.get(f"{C}/topics/orders/messages?mode=follow")).status_code == 422
+
+
+async def test_purge_specific_partitions(client: AsyncClient, admin: Any) -> None:
+    resp = await client.post(
+        f"{C}/topics/orders/purge",
+        json={"partitions": [{"id": 1, "beforeOffset": 40}]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [p["partition"] for p in body["partitions"]] == [1]
+    assert body["partitions"][0]["lowWatermark"] == 40
+    assert admin.topics["orders"].partitions[1].begin == 40
+    assert admin.topics["orders"].partitions[0].begin == 0  # untouched
+
+
 async def test_message_export_formats(client: AsyncClient) -> None:
     csv_resp = await client.get(f"{C}/topics/orders/messages/export?format=csv&limit=2")
     assert csv_resp.headers["content-type"].startswith("text/csv")
@@ -243,6 +330,89 @@ async def test_consumer_groups_list_detail_and_404(client: AsyncClient) -> None:
     assert detail["topicsSummary"] == [{"topic": "orders", "lag": 10, "partitions": 1}]
 
     assert (await client.get(f"{C}/consumer-groups/ghost")).status_code == 404
+
+
+async def test_consumer_groups_paginated_envelope(client: AsyncClient) -> None:
+    """`page` switches the response to the {items,total,page,perPage} envelope; omitting it keeps the list."""
+    plain = (await client.get(f"{C}/consumer-groups")).json()
+    assert isinstance(plain, list)
+
+    paged = (await client.get(f"{C}/consumer-groups?page=1&perPage=10")).json()
+    assert paged["page"] == 1
+    assert paged["perPage"] == 10
+    assert paged["total"] == len(plain)
+    assert [g["groupId"] for g in paged["items"]] == [g["groupId"] for g in plain]
+
+    # Sorting is applied before slicing; an out-of-range page is empty but keeps the total.
+    sorted_desc = (await client.get(f"{C}/consumer-groups?page=1&sort=totalLag&order=desc")).json()
+    assert sorted_desc["items"][0]["totalLag"] == max(g["totalLag"] for g in plain)
+    empty = (await client.get(f"{C}/consumer-groups?page=99&perPage=10")).json()
+    assert empty["items"] == []
+    assert empty["total"] == len(plain)
+
+    # Filters still apply inside the envelope.
+    filtered = (await client.get(f"{C}/consumer-groups?page=1&search=zzz")).json()
+    assert filtered == {"items": [], "page": 1, "perPage": 50, "total": 0}
+    assert (await client.get(f"{C}/consumer-groups?page=0")).status_code == 422
+
+
+async def test_consumer_group_time_lag_estimate(client: AsyncClient) -> None:
+    """timeLagMs = lag / (topic produce rate / partitions), from the sampler's last two samples."""
+    from k_shui.core.sampler import Sample
+
+    sampler = client.app.state.samplers.get("test")  # type: ignore[attr-defined]
+    # No usable rate yet (sampler may hold at most one real sample) -> estimate is unknown, not 0.
+    sampler.samples.clear()
+    detail = (await client.get(f"{C}/consumer-groups/app-consumers")).json()
+    assert detail["partitions"][0]["lag"] == 10
+    assert detail["partitions"][0]["timeLagMs"] is None
+    assert detail["maxTimeLagMs"] is None
+
+    # "orders" (3 partitions) grew by 300 messages in 10s -> 30 msg/s topic-wide, 10 msg/s per partition.
+    sampler.samples.append(Sample(ts=1000.0, per_topic={"orders": 300}))
+    sampler.samples.append(Sample(ts=1010.0, per_topic={"orders": 600}))
+    detail = (await client.get(f"{C}/consumer-groups/app-consumers")).json()
+    assert detail["partitions"][0]["timeLagMs"] == 1000
+    assert detail["maxTimeLagMs"] == 1000
+    groups = (await client.get(f"{C}/consumer-groups")).json()
+    assert groups[0]["maxTimeLagMs"] == 1000
+
+    # An idle topic (rate 0) also yields "unknown" rather than a misleading zero.
+    sampler.samples.append(Sample(ts=1020.0, per_topic={"orders": 600}))
+    detail = (await client.get(f"{C}/consumer-groups/app-consumers")).json()
+    assert detail["partitions"][0]["timeLagMs"] is None
+
+
+async def test_unhealthy_partitions(client: AsyncClient, admin: Any) -> None:
+    from tests.fakes import FakePartition
+
+    body = (await client.get(f"{C}/partitions/unhealthy")).json()
+    assert body["items"] == []
+    assert body["scannedPartitions"] == 5
+
+    orders = admin.topics["orders"].partitions
+    orders[0] = FakePartition(id=0, leader=0, replicas=[0, 1], isrs=[0])  # under-replicated
+    orders[1] = FakePartition(id=1, leader=-1, replicas=[1], isrs=[])  # offline (+ URP)
+    orders[2] = FakePartition(id=2, leader=1, replicas=[0, 1], isrs=[0, 1])  # non-preferred leader
+
+    body = (await client.get(f"{C}/partitions/unhealthy")).json()
+    assert body["offline"] == 1
+    assert body["underReplicated"] == 2
+    assert body["nonPreferredLeader"] == 1
+    assert [(i["partition"], i["reasons"]) for i in body["items"]] == [
+        (1, ["offline", "underReplicated"]),
+        (0, ["underReplicated"]),
+        (2, ["nonPreferredLeader"]),
+    ]
+    assert body["items"][0]["leader"] is None
+    assert body["items"][2] == {
+        "topic": "orders",
+        "partition": 2,
+        "leader": 1,
+        "replicas": [0, 1],
+        "isr": [0, 1],
+        "reasons": ["nonPreferredLeader"],
+    }
 
 
 async def test_share_groups_degrades(client: AsyncClient) -> None:
@@ -437,3 +607,14 @@ async def test_cluster_summary_survives_a_hanging_sampler(client: AsyncClient, m
         items = (await client.get("/api/v1/clusters")).json()
 
     assert items[0]["status"] == "online"
+
+
+async def test_offset_reset_keeps_partition_scope_when_uncommitted(client: AsyncClient) -> None:
+    """Scoping to partitions with no committed offsets must not expand to every partition."""
+    url = f"{C}/consumer-groups/app-consumers/offsets/reset"
+    scoped = {"topic": "orders", "partitions": [2], "strategy": "earliest", "dryRun": True}
+    plan = (await client.post(url, json=scoped)).json()
+    assert [p["partition"] for p in plan] == [2]
+
+    resp = await client.post(url, json={"topic": "orders", "partitions": [99], "strategy": "earliest"})
+    assert resp.status_code == 404

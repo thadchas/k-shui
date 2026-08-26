@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
@@ -20,9 +21,15 @@ export interface ConfirmDestructiveDialogProps {
   description?: React.ReactNode;
   /** When set, the user must type this exact string to enable the action. */
   confirmText?: string;
+  /** When set, renders a checkbox with this label that must be ticked to enable the action. */
+  acknowledgeLabel?: React.ReactNode;
   confirmLabel?: string;
   onConfirm: () => void | Promise<void>;
   loading?: boolean;
+  /** Extra caller-side validity gate (e.g. a form inside `children` is invalid). */
+  disabled?: boolean;
+  /** Shown as the confirm button's tooltip while `disabled` is true. */
+  disabledReason?: string;
   children?: React.ReactNode;
 }
 
@@ -32,18 +39,26 @@ export function ConfirmDestructiveDialog({
   title,
   description,
   confirmText,
+  acknowledgeLabel,
   confirmLabel = 'Delete',
   onConfirm,
   loading,
+  disabled,
+  disabledReason,
   children,
 }: ConfirmDestructiveDialogProps) {
   const [typed, setTyped] = useState('');
+  const [acknowledged, setAcknowledged] = useState(false);
 
   useEffect(() => {
-    if (!open) setTyped('');
+    if (!open) {
+      setTyped('');
+      setAcknowledged(false);
+    }
   }, [open]);
 
-  const canConfirm = !confirmText || typed === confirmText;
+  const canConfirm =
+    !disabled && (!confirmText || typed === confirmText) && (!acknowledgeLabel || acknowledged);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -77,14 +92,26 @@ export function ConfirmDestructiveDialog({
               />
             </div>
           ) : null}
+          {acknowledgeLabel ? (
+            <label className="flex cursor-pointer items-start gap-2 text-xs text-[var(--foreground)]">
+              <Checkbox
+                checked={acknowledged}
+                onCheckedChange={(v) => setAcknowledged(v === true)}
+                className="mt-0.5"
+              />
+              <span>{acknowledgeLabel}</span>
+            </label>
+          ) : null}
         </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+          {/* Cancel stays enabled while the request runs so the user can abandon the intent. */}
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
             variant="destructive"
-            disabled={!canConfirm}
+            disabled={!canConfirm || loading}
+            title={disabled && disabledReason ? disabledReason : undefined}
             loading={loading}
             onClick={() => void onConfirm()}
           >

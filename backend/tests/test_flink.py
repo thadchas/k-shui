@@ -277,6 +277,7 @@ async def test_sql_gateway_reports_unsupported_when_unconfigured(api, flink_mock
     resp = await api.post(FC + "/sql/sessions/s1/statements", json={"statement": "SELECT 1"})
     assert resp.json()["supported"] is False
     assert (await api.get(FC + "/sql/sessions/s1/operations/o1/result")).json()["supported"] is False
+    assert (await api.delete(FC + "/sql/sessions/s1/operations/o1")).json()["supported"] is False
 
 
 async def test_sql_gateway_proxies_when_configured():
@@ -304,6 +305,12 @@ async def test_sql_gateway_proxies_when_configured():
                 },
             )
         )
+        cancel_route = mock.post("http://gateway.test/v1/sessions/sess-1/operations/op-1/cancel").mock(
+            return_value=httpx.Response(200, json={"status": "CANCELED"})
+        )
+        close_route = mock.delete("http://gateway.test/v1/sessions/sess-1/operations/op-1/close").mock(
+            return_value=httpx.Response(200, json={"status": "CLOSED"})
+        )
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://itest") as client:
             info = (await client.get(FC + "/sql")).json()
@@ -318,6 +325,60 @@ async def test_sql_gateway_proxies_when_configured():
                 await client.get(FC + "/sql/sessions/sess-1/operations/op-1/result", params={"token": 0})
             ).json()
             assert result["resultType"] == "PAYLOAD"
+            cancelled = (await client.delete(FC + "/sql/sessions/sess-1/operations/op-1")).json()
+            assert cancelled == {
+                "operationHandle": "op-1",
+                "cancelled": True,
+                "closed": True,
+                "status": "CANCELED",
+            }
+            assert cancel_route.called and close_route.called
+    await app.state.registry.aclose()
+
+
+async def _viewer_headers(settings):
+    from k_shui.config import AuthConfig, BasicAuthUser
+    from k_shui.core.auth import Principal, create_token
+
+    settings.auth = AuthConfig(
+        type="basic",
+        jwtSecret="s",
+        users=[BasicAuthUser(username="vi", password="vipw", role="viewer")],
+    )
+    token, _ = create_token(settings, Principal(username="vi", role="viewer"))
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def test_sql_viewer_may_run_read_only_statements_only():
+    from httpx import ASGITransport, AsyncClient
+
+    settings = build_settings()
+    settings.clusters[0].flink[0].sqlGatewayUrl = "http://gateway.test"
+    headers = await _viewer_headers(settings)
+    app = build_app(settings)
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post("http://gateway.test/v1/sessions").mock(
+            return_value=httpx.Response(200, json={"sessionHandle": "sess-1"})
+        )
+        route = mock.post("http://gateway.test/v1/sessions/sess-1/statements").mock(
+            return_value=httpx.Response(200, json={"operationHandle": "op-1"})
+        )
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://itest") as client:
+            assert (await client.post(FC + "/sql/sessions", json={}, headers=headers)).status_code == 200
+            ok = await client.post(
+                FC + "/sql/sessions/sess-1/statements",
+                json={"statement": "-- peek\nSHOW TABLES; SELECT * FROM t"},
+                headers=headers,
+            )
+            assert ok.status_code == 200, ok.text
+            denied = await client.post(
+                FC + "/sql/sessions/sess-1/statements",
+                json={"statement": "SHOW TABLES; INSERT INTO t SELECT 1"},
+                headers=headers,
+            )
+            assert denied.status_code == 403
+            assert denied.json()["type"].endswith("forbidden")
+            assert route.call_count == 1
     await app.state.registry.aclose()
 
 

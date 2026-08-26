@@ -16,27 +16,33 @@ the light/dark theme.
 - The sidebar's theme toggle switches light/dark (persisted per browser,
   defaults to system preference).
 - Read-only-role users see the same pages but every mutating action (create/
-  edit/delete buttons, config PUTs) is disabled in the UI and rejected
-  (`403`) server-side if attempted directly against the API.
+  edit/delete buttons, config PUTs, connector/schema/Flink/ksqlDB
+  operations) is disabled with a _Requires editor role_ tooltip in the UI
+  and rejected (`403`) server-side if attempted directly against the API.
+  Viewers can still run read-only SQL (`SELECT`/`SHOW`/`DESCRIBE`) in the
+  Flink and ksqlDB editors.
+- When a session expires, the next `401` sends you to `/login` and back to
+  the page you were on afterwards. An existing OIDC cookie session skips the
+  login page.
 
 ## Roles
 
-| Role | Can do |
-|---|---|
-| `viewer` | Read everything the UI exposes (clusters, topics, messages, consumers, schemas, connect, ksql, flink, metrics, lineage, alert history) |
-| `editor` | Everything `viewer` can, plus mutating actions (create/edit/delete topics, offsets, schemas, connectors, ACLs/quotas, alert triggers/actions) |
-| `admin` | Everything `editor` can, plus user management and app settings |
+| Role     | Can do                                                                                                                                                                                                                                                |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `viewer` | Read everything the UI exposes (clusters, topics, messages, consumers, schemas, connect, ksql, flink, metrics, lineage, alert history)                                                                                                                |
+| `editor` | Everything `viewer` can, plus mutating actions (create/edit/delete topics, offsets, partitions/leader election, schemas, connectors, Flink jobs/jars/SQL DDL, ksqlDB statements, ACLs/quotas, dashboards, alert triggers/actions, OpenLineage ingest) |
+| `admin`  | Everything `editor` can, plus user management and app settings                                                                                                                                                                                        |
 
 ## API endpoints
 
-| Method | Path | Notes |
-|---|---|---|
-| `GET` | `/api/v1/info` | `{auth:{type, enabled}, ...}` — lets the frontend know whether to show `/login` |
-| `GET` | `/api/v1/auth/me` | Current principal |
-| `POST` | `/api/v1/auth/login` | `{username, password}` → `{token, user}` (basic auth) |
-| `POST` | `/api/v1/auth/logout` | |
-| `GET` | `/api/v1/auth/oidc/login` | Starts the OIDC redirect |
-| `GET` | `/api/v1/auth/oidc/callback` | OIDC callback → `{token, user}` |
+| Method | Path                         | Notes                                                                           |
+| ------ | ---------------------------- | ------------------------------------------------------------------------------- |
+| `GET`  | `/api/v1/info`               | `{auth:{type, enabled}, ...}` — lets the frontend know whether to show `/login` |
+| `GET`  | `/api/v1/auth/me`            | Current principal                                                               |
+| `POST` | `/api/v1/auth/login`         | `{username, password}` → `{token, user}` (basic auth)                           |
+| `POST` | `/api/v1/auth/logout`        |                                                                                 |
+| `GET`  | `/api/v1/auth/oidc/login`    | Starts the OIDC redirect                                                        |
+| `GET`  | `/api/v1/auth/oidc/callback` | OIDC callback → `{token, user}`                                                 |
 
 ## Config required
 
@@ -44,12 +50,12 @@ the light/dark theme.
 auth:
   type: none | basic | oidc
   sessionHours: 12
-  users:                        # type: basic
+  users: # type: basic
     - username: admin
-      password: "$argon2..."    # argon2 hash recommended; plaintext only for local dev
+      password: "$argon2..." # argon2 hash recommended; plaintext only for local dev
       role: admin
-      clusters: null            # null = all clusters; or a list to scope a user
-  oidc:                         # type: oidc
+      clusters: null # null = all clusters; or a list to scope a user
+  oidc: # type: oidc
     issuer: https://idp.example.com/realms/main
     clientId: k-shui
     clientSecret: ${OIDC_CLIENT_SECRET}
@@ -57,7 +63,7 @@ auth:
     rolesClaim: roles
     adminRoles: [admin]
     editorRoles: [editor]
-    defaultRole: viewer          # or "none" to deny anyone without a mapped role
+    defaultRole: viewer # or "none" to deny anyone without a mapped role
 ```
 
 ## Tips / limitations

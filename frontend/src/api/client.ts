@@ -134,7 +134,9 @@ async function request<T>(method: string, path: string, options: RequestOptions 
 
   if (!res.ok) {
     const err = await toApiError(res);
-    if (err.status === 401) useAuthStore.getState().clear();
+    // Session missing/expired: drop the local session and flag it so AppShell can refetch
+    // `/info` and send the user to /login (this module has no router access).
+    if (err.status === 401) useAuthStore.getState().markSessionExpired();
     throw err;
   }
 

@@ -48,13 +48,28 @@ TableFooter.displayName = 'TableFooter';
 export const TableRow = React.forwardRef<
   HTMLTableRowElement,
   React.HTMLAttributes<HTMLTableRowElement> & { clickable?: boolean; selected?: boolean }
->(({ className, clickable, selected, ...props }, ref) => (
+>(({ className, clickable, selected, onClick, onKeyDown, ...props }, ref) => (
   <tr
     ref={ref}
     data-state={selected ? 'selected' : undefined}
+    // Clickable rows are keyboard operable: focusable + Enter/Space trigger the click handler.
+    tabIndex={clickable ? (props.tabIndex ?? 0) : props.tabIndex}
+    role={clickable ? (props.role ?? 'button') : props.role}
+    aria-selected={selected}
+    onClick={onClick}
+    onKeyDown={(e) => {
+      onKeyDown?.(e);
+      if (e.defaultPrevented || !clickable || !onClick) return;
+      if (e.target !== e.currentTarget) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onClick(e as unknown as React.MouseEvent<HTMLTableRowElement>);
+      }
+    }}
     className={cn(
       'border-b border-[var(--border)] transition-colors',
-      clickable && 'cursor-pointer',
+      clickable &&
+        'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--primary)]',
       'hover:bg-[var(--surface-2)] data-[state=selected]:bg-[color-mix(in_srgb,var(--primary)_8%,transparent)]',
       className,
     )}

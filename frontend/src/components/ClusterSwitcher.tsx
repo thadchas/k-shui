@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { Check, ChevronsUpDown, Boxes, Plus } from 'lucide-react';
 import { useClusters } from '@/api/hooks/clusters';
 import type { ClusterSummary } from '@/api/types';
@@ -27,7 +27,16 @@ export interface ClusterSwitcherProps {
 export function ClusterSwitcher({ clusterId, collapsed, className }: ClusterSwitcherProps) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { data, isLoading } = useClusters();
+
+  /** Keep the current page when switching clusters (`/c/a/topics` → `/c/b/topics`). */
+  const hrefFor = (id: string) => {
+    const m = /^\/c\/[^/]+(\/[^/]+)?/.exec(location.pathname);
+    // Only the first segment is portable; deeper paths (a topic name) rarely exist elsewhere.
+    const section = m?.[1] ?? '/overview';
+    return `/c/${encodeURIComponent(id)}${section}`;
+  };
 
   const current = useMemo<ClusterSummary | undefined>(
     () => data?.find((c) => c.id === clusterId),
@@ -82,7 +91,7 @@ export function ClusterSwitcher({ clusterId, collapsed, className }: ClusterSwit
                   value={`${cluster.name} ${cluster.id}`}
                   onSelect={() => {
                     setOpen(false);
-                    void navigate(`/c/${cluster.id}/overview`);
+                    void navigate(hrefFor(cluster.id));
                   }}
                 >
                   <StatusDot status={cluster.status} />

@@ -41,23 +41,40 @@ design system that doesn't look like five apps welded together.
 
 ## Features
 
-| Area | What you get | Docs |
-|---|---|---|
-| Clusters | Multi-cluster switcher, health checks, throughput, KRaft-aware overview | [clusters.md](docs/features/clusters.md) |
-| Brokers | Config editor, log dirs, per-broker metrics | [brokers.md](docs/features/brokers.md) |
-| Topics | Create/configure/delete, partition add, purge, clone, config diffing | [topics.md](docs/features/topics.md) |
-| Message browser | Live tail (SSE) or paged fetch, produce, JSON/Avro/Protobuf/JSON Schema decode, filter by JSONPath/regex, CSV/NDJSON export | [messages.md](docs/features/messages.md) |
-| Consumers & share groups | Lag, members/assignments, offset reset (earliest/latest/timestamp/shift), Kafka 4.x share groups | [consumers.md](docs/features/consumers.md) |
-| Schema Registry | Confluent / Apicurio / Karapace — subjects, versions, diff, compatibility check | [schemas.md](docs/features/schemas.md) |
-| Kafka Connect | Connector CRUD, pause/resume/restart, task status, plugin validation, MirrorMaker2 replication view | [connect.md](docs/features/connect.md) |
-| ksqlDB | SQL editor with streaming results, streams/tables/queries, statement history | [ksqldb.md](docs/features/ksqldb.md) |
-| Flink | Jobs, checkpoints, execution graph, task managers, jar upload/run, SQL Gateway | [flink.md](docs/features/flink.md) |
-| Metrics | Prometheus-backed dashboards (Grafana-JSON import), PromQL explorer, sampled fallback | [metrics.md](docs/features/metrics.md) |
-| Stream lineage | OpenLineage/Marquez graph merged with derived Connect/ksqlDB/Flink/consumer edges | [lineage.md](docs/features/lineage.md) |
-| Alerts | Metric-based triggers, buffered conditions, email/Slack/PagerDuty/Teams/webhook actions, history | [alerts.md](docs/features/alerts.md) |
-| Security | ACLs, quotas, SCRAM users, KRaft quorum view | [security.md](docs/features/security.md) |
-| Settings & audit | Cluster dynamic configs, full audit log of mutating actions | [settings-and-audit.md](docs/features/settings-and-audit.md) |
-| Auth & RBAC | None / basic (admin, editor, viewer) / OIDC, light & dark theme | [auth-rbac.md](docs/features/auth-rbac.md) |
+| Area                     | What you get                                                                                                                                                                            | Docs                                                         |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Clusters                 | Multi-cluster switcher, health checks, throughput, KRaft-aware overview                                                                                                                 | [clusters.md](docs/features/clusters.md)                     |
+| Brokers                  | Config editor, log dirs, per-broker metrics                                                                                                                                             | [brokers.md](docs/features/brokers.md)                       |
+| Topics                   | Create/configure/delete, partition add, targeted purge, clone, config diffing, partition health, preferred-leader election, reassignment plans                                          | [topics.md](docs/features/topics.md)                         |
+| Message browser          | Live tail with pause/resume, per-partition seek, produce, JSON/Avro/Protobuf/JSON Schema decode, key/value/header filters (JSONPath/regex), tombstones, CSV/NDJSON export               | [messages.md](docs/features/messages.md)                     |
+| Consumers & share groups | Lag in offsets and time, member→partition assignments with skew, dry-run offset reset (earliest/latest/timestamp/shift, partition-scoped), Kafka 4.x share groups                       | [consumers.md](docs/features/consumers.md)                   |
+| Schema Registry          | Confluent / Apicurio / Karapace — subjects, versions, diff, compatibility check                                                                                                         | [schemas.md](docs/features/schemas.md)                       |
+| Kafka Connect            | Connector CRUD, pause/resume/restart, task status, plugin validation, MirrorMaker2 replication view                                                                                     | [connect.md](docs/features/connect.md)                       |
+| ksqlDB                   | SQL editor with streaming results, streams/tables/queries, statement history                                                                                                            | [ksqldb.md](docs/features/ksqldb.md)                         |
+| Flink                    | Jobs, checkpoints, execution graph, task managers, jar upload/run, SQL Gateway                                                                                                          | [flink.md](docs/features/flink.md)                           |
+| Metrics                  | Prometheus-backed dashboards (Grafana-JSON import), PromQL explorer, sampled fallback                                                                                                   | [metrics.md](docs/features/metrics.md)                       |
+| Stream lineage           | OpenLineage/Marquez graph merged with derived Connect/ksqlDB/Flink/consumer edges                                                                                                       | [lineage.md](docs/features/lineage.md)                       |
+| Alerts                   | Metric-based triggers, buffered conditions, email/Slack/PagerDuty/Teams/webhook actions, history                                                                                        | [alerts.md](docs/features/alerts.md)                         |
+| Security                 | ACLs, quotas, SCRAM users, KRaft quorum view                                                                                                                                            | [security.md](docs/features/security.md)                     |
+| Settings & audit         | Cluster dynamic configs, full audit log of mutating actions                                                                                                                             | [settings-and-audit.md](docs/features/settings-and-audit.md) |
+| Auth & RBAC              | None / basic (admin, editor, viewer) / OIDC enforced on every API and mirrored in the UI, light & dark theme, keyboard-first ([shortcuts](docs/features/keyboard-and-accessibility.md)) | [auth-rbac.md](docs/features/auth-rbac.md)                   |
+
+## Operator safety model
+
+k-shui is built for incident time, when a wrong click is expensive:
+
+- **Typed confirmation** for every irreversible action (delete/purge/add
+  partitions, ACL and quota removal, Flink cancel, ksqlDB terminate), and a
+  mandatory **dry-run preview** before any offset reset.
+- **Internal topics** (`__consumer_offsets`, …) have destructive actions
+  locked; compacted topics warn before partitions are added.
+- **RBAC everywhere** — viewers see the same pages with mutating controls
+  disabled, and the API rejects them with `403` regardless of the UI.
+- **Secrets stay masked** — connector passwords, tokens, and keystores are
+  hidden in every view and can never be saved back as placeholders.
+- **Every mutation is audited**, and destructive dialogs explain the
+  operational consequence ("offsets survive connector delete", "purge advances
+  the start offset") rather than just asking "are you sure?".
 
 ## Quick start
 
@@ -113,13 +130,13 @@ for every field.
 
 ## Screenshots
 
-| Cluster overview | Message browser | Stream lineage |
-|---|---|---|
-| ![Cluster overview](docs/images/overview.png) | ![Message browser](docs/images/messages.png) | ![Stream lineage](docs/images/lineage.png) |
-| Topics | Consumer group | Alerts |
-| ![Topics](docs/images/topics.png) | ![Consumer group](docs/images/consumer-group.png) | ![Alerts](docs/images/alerts.png) |
-| Schemas | Kafka Connect | Flink job |
-| ![Schemas](docs/images/schemas.png) | ![Kafka Connect](docs/images/connect.png) | ![Flink job](docs/images/flink-job.png) |
+| Cluster overview                              | Message browser                                   | Stream lineage                             |
+| --------------------------------------------- | ------------------------------------------------- | ------------------------------------------ |
+| ![Cluster overview](docs/images/overview.png) | ![Message browser](docs/images/messages.png)      | ![Stream lineage](docs/images/lineage.png) |
+| Topics                                        | Consumer group                                    | Alerts                                     |
+| ![Topics](docs/images/topics.png)             | ![Consumer group](docs/images/consumer-group.png) | ![Alerts](docs/images/alerts.png)          |
+| Schemas                                       | Kafka Connect                                     | Flink job                                  |
+| ![Schemas](docs/images/schemas.png)           | ![Kafka Connect](docs/images/connect.png)         | ![Flink job](docs/images/flink-job.png)    |
 
 Shown in dark theme; `docs/images/*-light.png` has light-theme captures of the
 clusters, overview, topics and message-browser screens.
@@ -144,6 +161,7 @@ clusters:
       url: http://my-cluster-registry.kafka.svc:8081
       type: apicurio
 ```
+
 </details>
 
 <details>
@@ -164,6 +182,7 @@ clusters:
       type: confluent
       auth: {username: ${SR_API_KEY}, password: ${SR_API_SECRET}}
 ```
+
 </details>
 
 <details>
@@ -178,6 +197,7 @@ clusters:
       security.protocol: SASL_SSL
       sasl.mechanism: AWS_MSK_IAM
 ```
+
 </details>
 
 <details>
@@ -190,29 +210,32 @@ clusters:
     bootstrapServers: redpanda-0:9092
     schemaRegistry:
       url: http://redpanda-0:8081
-      type: confluent   # Redpanda's schema registry is Confluent-API compatible
+      type: confluent # Redpanda's schema registry is Confluent-API compatible
 ```
+
 </details>
 
 <details>
 <summary><b>Apicurio Registry</b></summary>
 
 ```yaml
-    schemaRegistry:
-      url: http://apicurio:8080/apis/ccompat/v7
-      type: apicurio
+schemaRegistry:
+  url: http://apicurio:8080/apis/ccompat/v7
+  type: apicurio
 ```
+
 </details>
 
 <details>
 <summary><b>Flink Kubernetes Operator</b></summary>
 
 ```yaml
-    flink:
-      - name: session
-        url: http://my-flink-session.flink.svc:8081
-        sqlGatewayUrl: http://my-flink-sql-gateway.flink.svc:8083
+flink:
+  - name: session
+    url: http://my-flink-session.flink.svc:8081
+    sqlGatewayUrl: http://my-flink-sql-gateway.flink.svc:8083
 ```
+
 </details>
 
 ## Architecture
@@ -238,16 +261,16 @@ detail, including the background sampler and alert-evaluation jobs.
 
 ## Deployment
 
-| Method | Guide |
-|---|---|
-| uv / uvx | [docs/deployment/standalone-uv.md](docs/deployment/standalone-uv.md) |
-| npx | [docs/deployment/standalone-npx.md](docs/deployment/standalone-npx.md) |
-| Docker | [docs/deployment/docker.md](docs/deployment/docker.md) |
-| Docker Compose (full demo stack) | [docs/deployment/docker-compose.md](docs/deployment/docker-compose.md) |
-| Kubernetes: Helm | [docs/deployment/kubernetes-helm.md](docs/deployment/kubernetes-helm.md) |
-| Kubernetes: Kustomize | [docs/deployment/kubernetes-kustomize.md](docs/deployment/kubernetes-kustomize.md) |
-| Security hardening | [docs/deployment/security-hardening.md](docs/deployment/security-hardening.md) |
-| Full configuration reference | [docs/deployment/configuration-reference.md](docs/deployment/configuration-reference.md) |
+| Method                           | Guide                                                                                    |
+| -------------------------------- | ---------------------------------------------------------------------------------------- |
+| uv / uvx                         | [docs/deployment/standalone-uv.md](docs/deployment/standalone-uv.md)                     |
+| npx                              | [docs/deployment/standalone-npx.md](docs/deployment/standalone-npx.md)                   |
+| Docker                           | [docs/deployment/docker.md](docs/deployment/docker.md)                                   |
+| Docker Compose (full demo stack) | [docs/deployment/docker-compose.md](docs/deployment/docker-compose.md)                   |
+| Kubernetes: Helm                 | [docs/deployment/kubernetes-helm.md](docs/deployment/kubernetes-helm.md)                 |
+| Kubernetes: Kustomize            | [docs/deployment/kubernetes-kustomize.md](docs/deployment/kubernetes-kustomize.md)       |
+| Security hardening               | [docs/deployment/security-hardening.md](docs/deployment/security-hardening.md)           |
+| Full configuration reference     | [docs/deployment/configuration-reference.md](docs/deployment/configuration-reference.md) |
 
 ## How it compares
 
@@ -255,21 +278,22 @@ Honest, feature-by-feature. See [`docs/comparison.md`](docs/comparison.md) for t
 full breakdown — including a page-by-page migration map if you're moving off a
 commercial control center.
 
-| | k-shui | Kafbat UI | AKHQ | Redpanda Console |
-|---|:---:|:---:|:---:|:---:|
-| License | Apache-2.0 | Apache-2.0 | Apache-2.0 | BSL / Apache-2.0¹ |
-| Topics, brokers, consumers | ✅ | ✅ | ✅ | ✅ |
-| Schema Registry | ✅ Confluent/Apicurio/Karapace | ✅ | ✅ | ✅ Confluent-compatible |
-| Kafka Connect | ✅ + MirrorMaker2 view | ✅ | ✅ | ➖ limited |
-| ksqlDB | ✅ | ➖ | ❌ | ❌ |
-| Flink (jobs/SQL) | ✅ | ❌ | ❌ | ❌ |
-| Prometheus/Grafana-style dashboards | ✅ built-in | ➖ | ❌ | ➖ basic |
-| Stream lineage (OpenLineage) | ✅ | ❌ | ❌ | ❌ |
-| Alerting (email/Slack/PagerDuty/Teams) | ✅ | ❌ | ❌ | ❌ |
-| RBAC / OIDC | ✅ basic + OIDC | ✅ | ✅ | ✅ (Enterprise) |
-| Single-binary / npx / uvx install | ✅ | ➖ (Docker/JAR) | ➖ (JAR) | ➖ (binary/Docker) |
+|                                        |             k-shui             |    Kafbat UI    |    AKHQ    |    Redpanda Console     |
+| -------------------------------------- | :----------------------------: | :-------------: | :--------: | :---------------------: |
+| License                                |           Apache-2.0           |   Apache-2.0    | Apache-2.0 |    BSL / Apache-2.0¹    |
+| Topics, brokers, consumers             |               ✅               |       ✅        |     ✅     |           ✅            |
+| Schema Registry                        | ✅ Confluent/Apicurio/Karapace |       ✅        |     ✅     | ✅ Confluent-compatible |
+| Kafka Connect                          |     ✅ + MirrorMaker2 view     |       ✅        |     ✅     |       ➖ limited        |
+| ksqlDB                                 |               ✅               |       ➖        |     ❌     |           ❌            |
+| Flink (jobs/SQL)                       |               ✅               |       ❌        |     ❌     |           ❌            |
+| Prometheus/Grafana-style dashboards    |          ✅ built-in           |       ➖        |     ❌     |        ➖ basic         |
+| Stream lineage (OpenLineage)           |               ✅               |       ❌        |     ❌     |           ❌            |
+| Alerting (email/Slack/PagerDuty/Teams) |               ✅               |       ❌        |     ❌     |           ❌            |
+| RBAC / OIDC                            |        ✅ basic + OIDC         |       ✅        |     ✅     |     ✅ (Enterprise)     |
+| Single-binary / npx / uvx install      |               ✅               | ➖ (Docker/JAR) |  ➖ (JAR)  |   ➖ (binary/Docker)    |
 
 ¹ Redpanda Console is BSL-licensed with some features gated to Redpanda Enterprise.
+
 ## Contributing
 
 Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for local

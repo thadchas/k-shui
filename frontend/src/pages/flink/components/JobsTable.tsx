@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Camera, MoreHorizontal, OctagonX, Workflow, XCircle } from 'lucide-react';
 import { useFlinkJobAction, useFlinkSavepoint } from '@/api/hooks/flink';
 import type { FlinkJob } from '@/api/types';
 import { formatDuration, formatTimestamp } from '@/lib/format';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { useUrlState } from '@/hooks/useUrlState';
 import { Button } from '@/components/ui/button';
 import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { DataTable } from '@/components/ui/data-table';
@@ -16,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
+import { SimpleSelect } from '@/components/ui/select';
 import { StatusPill } from '@/components/ui/status-pill';
 import { toast, toastError } from '@/components/ui/toast';
 import { flinkStateTone, liveDuration, useNow } from '../flinkLib';
@@ -33,6 +35,18 @@ export interface JobsTableProps {
 
 const TERMINAL = /^(FINISHED|FAILED|CANCELED|CANCELLED|SUSPENDED)$/i;
 
+const JOB_STATES = [
+  'RUNNING',
+  'RESTARTING',
+  'CREATED',
+  'FINISHED',
+  'FAILED',
+  'FAILING',
+  'CANCELED',
+  'CANCELLING',
+  'SUSPENDED',
+] as const;
+
 export function JobsTable({
   cluster,
   flinkCluster,
@@ -41,14 +55,25 @@ export function JobsTable({
   error,
   onRetry,
 }: JobsTableProps) {
-  const navigate = useNavigate();
   const now = useNow(1000);
-  const [search, setSearch] = useState('');
+  const { canEdit } = usePermissions();
+  const [{ q: search, state: stateFilter }, setUrl] = useUrlState({ q: '', state: 'all' });
+  const setSearch = (q: string) => setUrl({ q });
+  const gate = canEdit ? {} : { disabled: true, title: REQUIRES_EDITOR };
+  const gateHint = canEdit ? null : (
+    <span className="ml-auto pl-3 text-2xs text-[var(--muted)]">{REQUIRES_EDITOR}</span>
+  );
   const [cancelTarget, setCancelTarget] = useState<FlinkJob | null>(null);
   const [savepoint, setSavepoint] = useState<{ job: FlinkJob; mode: SavepointMode } | null>(null);
 
   const jobAction = useFlinkJobAction(cluster, flinkCluster);
   const savepointMutation = useFlinkSavepoint(cluster, flinkCluster);
+
+  const rows = useMemo(() => {
+    const list = jobs ?? [];
+    if (stateFilter === 'all') return list;
+    return list.filter((j) => j.state.toUpperCase() === stateFilter);
+  }, [jobs, stateFilter]);
 
   const columns = useMemo<ColumnDef<FlinkJob>[]>(
     () => [
@@ -102,12 +127,7 @@ export function JobsTable({
         meta: { numeric: true, label: 'Duration', widthClass: 'w-28' },
         cell: ({ row }) =>
           formatDuration(
-            liveDuration(
-              row.original.startTime,
-              row.original.endTime,
-              row.original.duration,
-              now,
-            ),
+            liveDuration(row.original.startTime, row.original.endTime, row.original.duration, now),
           ),
       },
     ],
@@ -118,7 +138,7 @@ export function JobsTable({
     <>
       <DataTable
         columns={columns}
-        data={jobs ?? []}
+        data={rows}
         loading={loading}
         error={error}
         onRetry={onRetry}
@@ -126,9 +146,22 @@ export function JobsTable({
         onGlobalFilterChange={setSearch}
         searchPlaceholder="Search jobs…"
         rowLabel="jobs"
+        caption={`Flink jobs on ${flinkCluster}`}
         defaultSorting={[{ id: 'startTime', desc: true }]}
-        onRowClick={(job) =>
-          void navigate(`/c/${cluster}/flink/${flinkCluster}/jobs/${job.jid}`)
+        getRowHref={(job) =>
+          `/c/${cluster}/flink/${encodeURIComponent(flinkCluster)}/jobs/${job.jid}`
+        }
+        toolbar={
+          <SimpleSelect
+            value={stateFilter}
+            onValueChange={(state) => setUrl({ state })}
+            options={[
+              { label: 'All states', value: 'all' },
+              ...JOB_STATES.map((s) => ({ label: s.toLowerCase(), value: s })),
+            ]}
+            aria-label="Filter by job state"
+            className="w-40"
+          />
         }
         rowActions={(job) => (
           <DropdownMenu>
@@ -139,24 +172,27 @@ export function JobsTable({
             </DropdownMenuTrigger>
             <DropdownMenuContent>
               <DropdownMenuItem
-                disabled={TERMINAL.test(job.state)}
+                {...gate}
+                disabled={!canEdit || TERMINAL.test(job.state)}
                 onSelect={() => setSavepoint({ job, mode: 'trigger' })}
               >
-                <Camera /> Trigger savepoint
+                <Camera /> Trigger savepoint{gateHint}
               </DropdownMenuItem>
               <DropdownMenuItem
-                disabled={TERMINAL.test(job.state)}
+                {...gate}
+                disabled={!canEdit || TERMINAL.test(job.state)}
                 onSelect={() => setSavepoint({ job, mode: 'stop' })}
               >
-                <OctagonX /> Stop with savepoint
+                <OctagonX /> Stop with savepoint{gateHint}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 destructive
-                disabled={TERMINAL.test(job.state)}
+                {...gate}
+                disabled={!canEdit || TERMINAL.test(job.state)}
                 onSelect={() => setCancelTarget(job)}
               >
-                <XCircle /> Cancel job
+                <XCircle /> Cancel job{gateHint}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -164,9 +200,9 @@ export function JobsTable({
         emptyState={
           <EmptyState
             icon={Workflow}
-            title={search ? 'No jobs match' : 'No jobs'}
+            title={search || stateFilter !== 'all' ? 'No jobs match' : 'No jobs'}
             description={
-              search
+              search || stateFilter !== 'all'
                 ? 'Try a different search term.'
                 : 'Submit a job through the SQL gateway or upload a JAR to get started.'
             }
@@ -184,6 +220,7 @@ export function JobsTable({
             taking a savepoint. In-flight state is lost.
           </>
         }
+        confirmText={cancelTarget?.name || cancelTarget?.jid}
         confirmLabel="Cancel job"
         loading={jobAction.isPending}
         onConfirm={() => {

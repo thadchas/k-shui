@@ -148,25 +148,25 @@ k-shui's layout is a left sidebar (Cluster · Streaming · Governance ·
 Observability · Admin groups) plus a topbar with breadcrumbs, global search
 (`⌘K`), the alerts bell, and a refresh-interval/time-range picker. Routes:
 
-| Route | Page |
-|---|---|
-| `/clusters` | Cluster picker — cards with health/throughput |
-| `/c/:cluster/overview` | Stat tiles, throughput charts, health checks, KRaft quorum |
-| `/c/:cluster/brokers` | Broker list → `/brokers/:id` (overview, configs, log dirs, metrics) |
-| `/c/:cluster/topics` | Topic list → `/topics/new`, `/topics/:topic` (overview, messages, partitions, configs, consumers, schema, metrics, lineage) |
-| `/c/:cluster/consumers` | Consumer groups → `/consumers/:group`, plus `/share-groups` |
-| `/c/:cluster/schemas` | Schema Registry subjects → `/schemas/new`, `/schemas/:subject` |
-| `/c/:cluster/connect` | Connect clusters → `/connect/:kc`, connectors, `/connect/:kc/plugins` |
-| `/c/:cluster/ksql` | SQL editor + streams/tables/queries tabs |
-| `/c/:cluster/flink` | Flink clusters → jobs, task managers, `/sql`, `/jars` |
-| `/c/:cluster/replication` | MirrorMaker2 / replicator view |
-| `/c/:cluster/metrics` | Dashboard list → `/metrics/:dashboard`, `/metrics/explore` (PromQL) |
-| `/c/:cluster/lineage` | Lineage graph canvas + side panel + search |
-| `/c/:cluster/security` | ACLs, quotas, SCRAM users |
-| `/c/:cluster/settings` | Cluster dynamic configs, KRaft quorum |
-| `/alerts` | History, triggers, actions |
-| `/audit` | Audit log of mutating actions |
-| `/settings` | App settings, users (basic auth), about |
+| Route                     | Page                                                                                                                        |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `/clusters`               | Cluster picker — cards with health/throughput                                                                               |
+| `/c/:cluster/overview`    | Stat tiles, throughput charts, health checks, KRaft quorum                                                                  |
+| `/c/:cluster/brokers`     | Broker list → `/brokers/:id` (overview, configs, log dirs, metrics)                                                         |
+| `/c/:cluster/topics`      | Topic list → `/topics/new`, `/topics/:topic` (overview, messages, partitions, configs, consumers, schema, metrics, lineage) |
+| `/c/:cluster/consumers`   | Consumer groups → `/consumers/:group`, plus `/share-groups`                                                                 |
+| `/c/:cluster/schemas`     | Schema Registry subjects → `/schemas/new`, `/schemas/:subject`                                                              |
+| `/c/:cluster/connect`     | Connect clusters → `/connect/:kc`, connectors, `/connect/:kc/plugins`                                                       |
+| `/c/:cluster/ksql`        | SQL editor + streams/tables/queries tabs                                                                                    |
+| `/c/:cluster/flink`       | Flink clusters → jobs, task managers, `/sql`, `/jars`                                                                       |
+| `/c/:cluster/replication` | MirrorMaker2 / replicator view                                                                                              |
+| `/c/:cluster/metrics`     | Dashboard list → `/metrics/:dashboard`, `/metrics/explore` (PromQL)                                                         |
+| `/c/:cluster/lineage`     | Lineage graph canvas + side panel + search                                                                                  |
+| `/c/:cluster/security`    | ACLs, quotas, SCRAM users                                                                                                   |
+| `/c/:cluster/settings`    | Cluster dynamic configs, KRaft quorum                                                                                       |
+| `/alerts`                 | History, triggers, actions                                                                                                  |
+| `/audit`                  | Audit log of mutating actions                                                                                               |
+| `/settings`               | App settings, users (basic auth), about                                                                                     |
 
 Each feature area has its own walkthrough in [`docs/features/`](features/).
 

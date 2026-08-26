@@ -37,15 +37,18 @@ export function SavepointDialog({
 }: SavepointDialogProps) {
   const [directory, setDirectory] = useState(defaultDirectory);
   const [drain, setDrain] = useState(false);
+  const [drainAcknowledged, setDrainAcknowledged] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDirectory(defaultDirectory);
       setDrain(false);
+      setDrainAcknowledged(false);
     }
   }, [open, defaultDirectory]);
 
   const stopping = mode === 'stop';
+  const canSubmit = !stopping || !drain || drainAcknowledged;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -82,7 +85,13 @@ export function SavepointDialog({
 
           {stopping ? (
             <label className="flex items-start gap-2.5">
-              <Checkbox checked={drain} onCheckedChange={(v) => setDrain(v === true)} />
+              <Checkbox
+                checked={drain}
+                onCheckedChange={(v) => {
+                  setDrain(v === true);
+                  if (v !== true) setDrainAcknowledged(false);
+                }}
+              />
               <span className="space-y-0.5">
                 <span className="block text-xs font-medium text-[var(--foreground)]">
                   Drain (advance watermark to MAX_WATERMARK)
@@ -94,6 +103,19 @@ export function SavepointDialog({
               </span>
             </label>
           ) : null}
+
+          {stopping && drain ? (
+            <label className="flex items-start gap-2.5 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--danger)_35%,var(--border))] bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] px-3 py-2">
+              <Checkbox
+                checked={drainAcknowledged}
+                onCheckedChange={(v) => setDrainAcknowledged(v === true)}
+                aria-label="Acknowledge drain consequences"
+              />
+              <span className="text-xs text-[var(--foreground)]">
+                I understand a drained savepoint cannot resume normal processing
+              </span>
+            </label>
+          ) : null}
         </DialogBody>
 
         <DialogFooter>
@@ -102,6 +124,7 @@ export function SavepointDialog({
           </Button>
           <Button
             loading={loading}
+            disabled={!canSubmit}
             variant={stopping ? 'destructive' : 'default'}
             onClick={() => onSubmit({ targetDirectory: directory.trim() || null, drain })}
           >

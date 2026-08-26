@@ -27,8 +27,8 @@ Useful build args: `VERSION`, `VCS_REF`, `BUILD_DATE` (populate the OCI labels);
 The Dockerfile deliberately uses no BuildKit-only syntax (no `# syntax=`
 directive, no `RUN --mount=type=cache`), so it builds with the classic builder
 too — e.g. a Colima/Docker install without the `buildx` plugin, where
-`DOCKER_BUILDKIT=1` fails with *"BuildKit is enabled but the buildx component is
-missing"*. CI still builds it through BuildKit (`docker/build-push-action`) and
+`DOCKER_BUILDKIT=1` fails with _"BuildKit is enabled but the buildx component is
+missing"_. CI still builds it through BuildKit (`docker/build-push-action`) and
 gets layer caching from `cache-from: type=gha`.
 
 Stage 1 runs `npm run build -- --outDir dist --emptyOutDir`: `vite.config.ts`

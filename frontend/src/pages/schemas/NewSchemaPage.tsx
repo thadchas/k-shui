@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { ArrowLeft, FileJson, ShieldCheck, Wand2 } from 'lucide-react';
+import { ArrowLeft, CircleCheck, FileJson, ShieldCheck, Wand2 } from 'lucide-react';
 import {
   useCheckCompatibilityForSubject,
   useRegisterSchemaForSubject,
@@ -9,6 +10,8 @@ import {
 import { useTopics } from '@/api/hooks/topics';
 import type { SchemaReference, SchemaType } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { UnsavedChangesGuard } from '@/pages/connect/components/UnsavedChangesGuard';
 import { CodeEditor } from '@/components/CodeEditor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,14 +21,17 @@ import { PageHeader } from '@/components/ui/page-header';
 import { SimpleSelect } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 import { CompatibilityResult } from './components/CompatibilityResult';
 import { SchemaReferencesEditor } from './components/SchemaReferencesEditor';
 import {
   SCHEMA_TYPES,
   SUBJECT_STRATEGIES,
   buildSubjectName,
+  decodeReferencesParam,
   editorLanguageForSchema,
   schemaTemplate,
+  validateSchemaText,
   type SubjectStrategy,
 } from './components/schemaUtils';
 
@@ -36,13 +42,23 @@ export function NewSchemaPage() {
 
   const presetSubject = searchParams.get('subject') ?? '';
   const presetType = (searchParams.get('type') as SchemaType | null) ?? 'AVRO';
+  /** `?refs=<json>` carries the previous version's references from the detail page. */
+  const presetReferences = useMemo(
+    () => decodeReferencesParam(searchParams.get('refs')),
+    [searchParams],
+  );
 
   const [subject, setSubject] = useState(presetSubject);
   const [schemaType, setSchemaType] = useState<SchemaType>(
     SCHEMA_TYPES.includes(presetType) ? presetType : 'AVRO',
   );
   const [schema, setSchema] = useState(() => schemaTemplate(presetType ?? 'AVRO'));
-  const [references, setReferences] = useState<SchemaReference[]>([]);
+  const [references, setReferences] = useState<SchemaReference[]>(presetReferences);
+  const [validation, setValidation] = useState<{
+    ok: boolean;
+    message: string;
+    registry: boolean;
+  } | null>(null);
   const [normalize, setNormalize] = useState(false);
   const [helperOpen, setHelperOpen] = useState(!presetSubject);
   const [strategy, setStrategy] = useState<SubjectStrategy>('TopicNameStrategy');
@@ -50,6 +66,8 @@ export function NewSchemaPage() {
   const [part, setPart] = useState<'key' | 'value'>('value');
   const [recordName, setRecordName] = useState('');
   const [touchedSchema, setTouchedSchema] = useState(false);
+  const [registered, setRegistered] = useState(false);
+  const { canEdit } = usePermissions();
 
   const topics = useTopics(cluster, { perPage: 500 });
   const subjects = useSchemaSubjects(cluster);
@@ -81,27 +99,71 @@ export function NewSchemaPage() {
 
   const isNewVersion = existingSubjects.includes(subject);
 
-  const jsonError = useMemo(() => {
-    if (schemaType === 'PROTOBUF') return null;
-    if (!schema.trim()) return 'Schema is empty';
-    try {
-      JSON.parse(schema);
-      return null;
-    } catch (e) {
-      return e instanceof Error ? e.message : 'Invalid JSON';
-    }
-  }, [schema, schemaType]);
+  /** Client-side syntax check: JSON parse for Avro/JSON Schema, structural checks for protobuf. */
+  const jsonError = useMemo(() => validateSchemaText(schema, schemaType), [schema, schemaType]);
 
   const canSubmit = Boolean(subject.trim()) && Boolean(schema.trim()) && !jsonError;
+  const dirty = !registered && (touchedSchema || subject.trim() !== presetSubject.trim());
 
   const cleanReferences = () =>
     references.filter((r) => r.name.trim() && r.subject.trim()).map((r) => ({ ...r }));
 
   const onCheck = async () => {
     try {
-      await check.mutateAsync({ subject: subject.trim(), schema, schemaType });
+      await check.mutateAsync({
+        subject: subject.trim(),
+        schema,
+        schemaType,
+        references: cleanReferences(),
+        normalize: normalize || undefined,
+      });
     } catch (e) {
       toastError('Compatibility check failed', e);
+    }
+  };
+
+  /**
+   * "Validate": always runs the local checks; for an existing subject it also asks the
+   * registry to parse + compatibility-check the schema against `latest` without
+   * registering it. Brand-new subjects have nothing on the registry side to validate
+   * against, so only the local result is reported.
+   */
+  const onValidate = async () => {
+    const local = validateSchemaText(schema, schemaType);
+    if (local) {
+      setValidation({ ok: false, message: local, registry: false });
+      return;
+    }
+    if (!isNewVersion) {
+      setValidation({
+        ok: true,
+        message:
+          'Local checks passed. The registry only validates against an existing subject — it will parse the schema fully when you register.',
+        registry: false,
+      });
+      return;
+    }
+    try {
+      const result = await check.mutateAsync({
+        subject: subject.trim(),
+        schema,
+        schemaType,
+        references: cleanReferences(),
+        normalize: normalize || undefined,
+      });
+      setValidation({
+        ok: result.isCompatible,
+        message: result.isCompatible
+          ? 'Registry parsed the schema and it is compatible with the latest version.'
+          : result.messages?.join(' ') || 'Registry rejected the schema.',
+        registry: true,
+      });
+    } catch (e) {
+      setValidation({
+        ok: false,
+        message: e instanceof Error ? e.message : 'Registry validation failed',
+        registry: true,
+      });
     }
   };
 
@@ -115,6 +177,7 @@ export function NewSchemaPage() {
         normalize: normalize || undefined,
       });
       toast.success(`Registered schema id ${result?.id ?? ''}`.trim());
+      flushSync(() => setRegistered(true));
       void navigate(`/c/${cluster}/schemas/${encodeURIComponent(subject.trim())}`);
     } catch (e) {
       toastError('Failed to register schema', e);
@@ -123,6 +186,10 @@ export function NewSchemaPage() {
 
   return (
     <div>
+      <UnsavedChangesGuard
+        dirty={dirty}
+        description="The schema you are editing has not been registered and will be lost if you leave this page."
+      />
       <PageHeader
         title="Register schema"
         description="Add a new subject, or a new version of an existing subject, to the registry."
@@ -135,19 +202,31 @@ export function NewSchemaPage() {
             </Button>
             <Button
               variant="outline"
+              disabled={!schema.trim()}
+              loading={check.isPending}
+              onClick={() => void onValidate()}
+            >
+              <CircleCheck /> Validate
+            </Button>
+            <Button
+              variant="outline"
               disabled={!canSubmit || !isNewVersion}
               loading={check.isPending}
               onClick={() => void onCheck()}
             >
               <ShieldCheck /> Check compatibility
             </Button>
-            <Button
-              disabled={!canSubmit}
-              loading={register.isPending}
-              onClick={() => void onRegister()}
-            >
-              <FileJson /> Register
-            </Button>
+            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
+              <span className="inline-flex">
+                <Button
+                  disabled={!canEdit || !canSubmit}
+                  loading={register.isPending}
+                  onClick={() => void onRegister()}
+                >
+                  <FileJson /> Register
+                </Button>
+              </span>
+            </Tooltip>
           </>
         }
       />
@@ -293,7 +372,7 @@ export function NewSchemaPage() {
                   onCheckedChange={setNormalize}
                   aria-label="Normalize schema"
                 />
-                Normalize schema before registering
+                Normalize schema before registering (also applied to compatibility checks)
               </label>
             </CardContent>
           </Card>
@@ -334,10 +413,26 @@ export function NewSchemaPage() {
             {jsonError ? (
               <p className="font-mono text-2xs text-[var(--danger)]">{jsonError}</p>
             ) : null}
+            {validation ? (
+              <p
+                className={`text-2xs ${validation.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+                role="status"
+              >
+                {validation.registry ? 'Registry: ' : 'Local: '}
+                {validation.message}
+              </p>
+            ) : null}
             <CompatibilityResult result={check.data} />
             {!isNewVersion ? (
               <p className="text-2xs text-[var(--muted)]">
-                Compatibility can only be checked against an existing subject.
+                Compatibility can only be checked against an existing subject — for a new subject,
+                “Validate” runs local syntax checks only.
+              </p>
+            ) : null}
+            {presetReferences.length > 0 ? (
+              <p className="text-2xs text-[var(--muted)]">
+                {presetReferences.length} reference{presetReferences.length === 1 ? '' : 's'}{' '}
+                carried over from the previous version.
               </p>
             ) : null}
           </CardContent>

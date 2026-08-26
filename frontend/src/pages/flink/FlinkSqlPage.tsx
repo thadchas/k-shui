@@ -1,18 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
-import {
-  ArrowLeft,
-  CircleStop,
-  Eraser,
-  Play,
-  Plug,
-  PlugZap,
-  Terminal,
-  Trash2,
-} from 'lucide-react';
+import { ArrowLeft, CircleStop, Eraser, Play, Plug, PlugZap, Terminal, Trash2 } from 'lucide-react';
 import { useFlinkSqlActions, useFlinkSqlSupport } from '@/api/hooks/flink';
 import type { FlinkSqlResult, FlinkSqlResultColumn } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
+import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
+import { UnsavedChangesGuard } from '@/pages/connect/components/UnsavedChangesGuard';
+import { formatDuration } from '@/lib/format';
+import { isReadOnlySql, useNow } from './flinkLib';
 import { CodeEditor } from '@/components';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,6 +25,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { toast, toastError } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
 
 const SAMPLE = `-- Flink SQL
 SHOW TABLES;`;
@@ -55,29 +51,54 @@ export function FlinkSqlPage() {
   const base = `/c/${cluster}/flink/${encodeURIComponent(fc)}`;
 
   const support = useFlinkSqlSupport(cluster, fc);
-  const { openSession, closeSession, submit, poll } = useFlinkSqlActions(cluster, fc);
+  const { openSession, closeSession, submit, poll, cancelOperation } = useFlinkSqlActions(
+    cluster,
+    fc,
+  );
 
   const [sql, setSql] = useState(SAMPLE);
+  const { canEdit } = usePermissions();
+  const readOnlyStatement = isReadOnlySql(sql);
+  const canRun = canEdit || readOnlyStatement;
+  const runBlockedReason = canRun
+    ? undefined
+    : `${REQUIRES_EDITOR} — viewers may only run SELECT / SHOW / DESCRIBE / EXPLAIN statements`;
+  const editorDirty = sql.trim() !== '' && sql !== SAMPLE;
   const [session, setSession] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [running, setRunning] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const [result, setResult] = useState<ResultState>(EMPTY);
   const [error, setError] = useState<unknown>(null);
+  /** Set to stop the polling loop; reset at the start of every run. */
   const cancelRef = useRef(false);
+  /** Handles of the operation currently being polled (for cancel + unmount cleanup). */
+  const activeRef = useRef<{ session: string; operation: string } | null>(null);
+  const sessionRef = useRef<string | null>(null);
+  sessionRef.current = session;
+  const now = useNow(running ? 250 : 60_000);
 
+  /* Stop polling and release the gateway session when the page unmounts. */
   useEffect(() => {
     cancelRef.current = false;
     return () => {
       cancelRef.current = true;
+      const active = activeRef.current;
+      if (active) void cancelOperation(active.session, active.operation).catch(() => undefined);
+      const handle = sessionRef.current;
+      if (handle) void closeSession(handle).catch(() => undefined);
     };
-  }, []);
+  }, [cancelOperation, closeSession]);
 
   const connect = useCallback(async () => {
     setConnecting(true);
     setError(null);
     try {
       const s = await openSession();
-      const handle = s.sessionHandle ?? (s as unknown as { sessionHandleId?: string }).sessionHandleId;
+      const handle =
+        s.sessionHandle ?? (s as unknown as { sessionHandleId?: string }).sessionHandleId;
       setSession(handle ?? null);
       toast.success('SQL session opened');
     } catch (e) {
@@ -101,11 +122,31 @@ export function FlinkSqlPage() {
     }
   }, [closeSession, session]);
 
+  const cancel = useCallback(async () => {
+    cancelRef.current = true;
+    const active = activeRef.current;
+    if (!active) return;
+    setCancelling(true);
+    try {
+      const res = await cancelOperation(active.session, active.operation);
+      if (res.cancelled) toast.success('Statement cancelled');
+      else toast.warning(`Gateway did not confirm the cancel (status: ${res.status || 'unknown'})`);
+    } catch (e) {
+      toastError('Could not cancel on the gateway (polling stopped)', e);
+    } finally {
+      setCancelling(false);
+    }
+  }, [cancelOperation]);
+
   const run = useCallback(async () => {
-    if (!sql.trim()) return;
+    if (!sql.trim() || !canRun) return;
     let handle = session;
+    cancelRef.current = false;
+    activeRef.current = null;
     setError(null);
     setResult(EMPTY);
+    setStartedAt(Date.now());
+    setFinishedAt(null);
     setRunning(true);
     try {
       if (!handle) {
@@ -119,6 +160,7 @@ export function FlinkSqlPage() {
       const operation =
         op.operationHandle ?? (op as unknown as { operationHandleId?: string }).operationHandleId;
       if (!operation) throw new Error('Gateway did not return an operation handle');
+      activeRef.current = { session: handle, operation };
 
       let token = 0;
       const columns: FlinkSqlResultColumn[] = [];
@@ -147,14 +189,26 @@ export function FlinkSqlPage() {
         await new Promise((r) => setTimeout(r, 150));
       }
 
-      setResult({ columns, rows, kind, done: true });
+      setResult({
+        columns,
+        rows,
+        kind: cancelRef.current ? (kind ? `${kind} · cancelled` : 'CANCELLED') : kind,
+        done: true,
+      });
     } catch (e) {
-      setError(e);
-      toastError('Statement failed', e);
+      if (!cancelRef.current) {
+        setError(e);
+        toastError('Statement failed', e);
+      }
     } finally {
+      activeRef.current = null;
+      setFinishedAt(Date.now());
       setRunning(false);
     }
-  }, [openSession, poll, session, sql, submit]);
+  }, [canRun, openSession, poll, session, sql, submit]);
+
+  const elapsedMs =
+    startedAt === null ? null : Math.max(0, (running ? now : (finishedAt ?? now)) - startedAt);
 
   if (support.isLoading) {
     return (
@@ -200,6 +254,10 @@ export function FlinkSqlPage() {
 
   return (
     <div className="space-y-4">
+      <UnsavedChangesGuard
+        dirty={editorDirty}
+        description="The SQL in the editor will be lost if you leave this page."
+      />
       <PageHeader
         title="Flink SQL"
         description={`Run statements against the ${fc} SQL gateway`}
@@ -241,12 +299,36 @@ export function FlinkSqlPage() {
           description="Ctrl/⌘ + Enter runs the statement"
           actions={
             <>
+              {elapsedMs !== null ? (
+                <span
+                  className="font-mono text-2xs tabular-nums text-[var(--muted)]"
+                  aria-live="polite"
+                >
+                  {running ? 'running ' : 'took '}
+                  {formatDuration(elapsedMs)}
+                </span>
+              ) : null}
               <Button variant="ghost" size="sm" onClick={() => setSql('')}>
                 <Eraser /> Clear
               </Button>
-              <Button size="sm" loading={running} onClick={() => void run()}>
-                <Play /> Run
-              </Button>
+              {running ? (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  loading={cancelling}
+                  onClick={() => void cancel()}
+                >
+                  <CircleStop /> Cancel
+                </Button>
+              ) : (
+                <Tooltip content={runBlockedReason}>
+                  <span className="inline-flex">
+                    <Button size="sm" disabled={!canRun} onClick={() => void run()}>
+                      <Play /> Run
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
             </>
           }
         />

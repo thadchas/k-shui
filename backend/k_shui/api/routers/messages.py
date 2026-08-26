@@ -26,15 +26,27 @@ router = APIRouter(prefix="/clusters/{cluster_id}/topics/{topic}/messages", tags
 
 def browse_params(
     topic: str,
-    mode: str = Query("latest", pattern="^(latest|earliest|offset|timestamp)$"),
+    mode: str = Query(
+        "latest",
+        pattern="^(latest|earliest|offset|timestamp|tail)$",
+        description="tail = live follow from the end (or startOffsets) until the client disconnects",
+    ),
     partitions: str | None = Query(None, description="comma separated partition ids"),
     offset: int | None = Query(None),
+    startOffsets: str | None = Query(
+        None, description="per-partition seek for mode=offset, e.g. '0:100,1:250' (overrides offset)"
+    ),
     timestamp: int | None = Query(None, description="epoch millis"),
     limit: int = Query(100, ge=1, le=10000),
     keyFormat: str = Query("auto"),
     valueFormat: str = Query("auto"),
-    filter: str | None = Query(None),
+    filter: str | None = Query(None, max_length=512),
     filterMode: str = Query("contains", pattern="^(contains|regex|jsonpath)$"),
+    filterTarget: str = Query(
+        "any",
+        pattern="^(any|key|value|header)$",
+        description="scope the filter to the key, value or headers; 'header:<name>=<value>' also works",
+    ),
     includeRaw: bool = Query(False),
     timeBudget: float = Query(15.0, ge=1.0, le=120.0),
 ) -> BrowseRequest:
@@ -44,17 +56,33 @@ def browse_params(
             parts = [int(p) for p in partitions.split(",") if p.strip() != ""]
         except ValueError as exc:
             raise BadRequest(f"invalid partitions '{partitions}'") from exc
+    start_offsets: dict[int, int] | None = None
+    if startOffsets:
+        start_offsets = {}
+        for pair in startOffsets.split(","):
+            if pair.strip() == "":
+                continue
+            try:
+                part_s, off_s = pair.split(":", 1)
+                part_id, off = int(part_s), int(off_s)
+            except ValueError as exc:
+                raise BadRequest(f"invalid startOffsets '{startOffsets}'") from exc
+            if off < 0:
+                raise BadRequest(f"startOffsets: offset for partition {part_id} must be >= 0")
+            start_offsets[part_id] = off
     return BrowseRequest(
         topic=topic,
         mode=mode,
         partitions=parts,
         offset=offset,
+        start_offsets=start_offsets,
         timestamp=timestamp,
         limit=limit,
         key_format=keyFormat,
         value_format=valueFormat,
         filter=filter,
         filter_mode=filterMode,
+        filter_target=filterTarget,
         include_raw=includeRaw,
         time_budget=timeBudget,
     )
@@ -73,6 +101,8 @@ async def get_messages(
         return MessagesResponse(**await browser.collect(req))
 
     async def generator() -> AsyncIterator[dict[str, str]]:
+        # ``browse`` closes its consumer in ``finally`` both when we break out here after a
+        # disconnect and when sse-starlette cancels this generator (tail mode never ends on its own).
         async for event in browser.browse(req):
             kind = event.pop("type")
             payload = event.get("message") if kind == "message" else event

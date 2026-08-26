@@ -16,13 +16,14 @@ streaming ecosystem. Start here; jump to a section below.
 Per-area guides: what it does, a UI walkthrough, the REST endpoints behind
 it, required config, and known tips/limitations.
 
-| | | |
-|---|---|---|
-| [Clusters](features/clusters.md) | [Brokers](features/brokers.md) | [Topics](features/topics.md) |
-| [Message browser](features/messages.md) | [Consumers & share groups](features/consumers.md) | [Schema Registry](features/schemas.md) |
-| [Kafka Connect](features/connect.md) | [ksqlDB](features/ksqldb.md) | [Flink](features/flink.md) |
-| [Metrics](features/metrics.md) | [Stream lineage](features/lineage.md) | [Alerts](features/alerts.md) |
-| [Security](features/security.md) | [Settings & audit](features/settings-and-audit.md) | [Auth & RBAC](features/auth-rbac.md) |
+|                                                        |                                                    |                                                       |
+| ------------------------------------------------------ | -------------------------------------------------- | ----------------------------------------------------- |
+| [Clusters](features/clusters.md)                       | [Brokers](features/brokers.md)                     | [Topics](features/topics.md)                          |
+| [Message browser](features/messages.md)                | [Consumers & share groups](features/consumers.md)  | [Schema Registry](features/schemas.md)                |
+| [Kafka Connect](features/connect.md)                   | [ksqlDB](features/ksqldb.md)                       | [Flink](features/flink.md)                            |
+| [Metrics](features/metrics.md)                         | [Stream lineage](features/lineage.md)              | [Alerts](features/alerts.md)                          |
+| [Security](features/security.md)                       | [Settings & audit](features/settings-and-audit.md) | [Auth & RBAC](features/auth-rbac.md)                  |
+| [Keyboard, URLs & accessibility](features/security.md) | [Settings & audit](features/settings-and-audit.md) | [Auth & RBAC](features/keyboard-and-accessibility.md) |
 
 ## Deployment
 
