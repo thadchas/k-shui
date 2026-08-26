@@ -62,7 +62,7 @@ k-shui version                                                 Print the k-shui 
 prefix: `/kshui/`, `/kshui/healthz`, `/kshui/api/v1/...` and `/kshui/assets/...`
 all answer. **Caveat for 0.1.0:** the `index.html` that is served still points at
 `/assets/...` at the domain root and does not carry the `window.__KSHUI_BASE__`
-value the SPA reads, so a reverse proxy that forwards *only* the prefix will fail
+value the SPA reads, so a reverse proxy that forwards _only_ the prefix will fail
 to load the bundle. Serve k-shui at `/` (or forward `/assets` and `/api` too)
 until that is fixed.
 

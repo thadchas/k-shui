@@ -9,22 +9,22 @@ This page is a two-minute orientation — the full field-by-field reference
 ## The shape of it
 
 ```yaml
-server:      { host, port, basePath, cors, readOnly }
-auth:        { type: none|basic|oidc, users: [...], oidc: {...}, sessionHours }
-database:    { url }                       # sqlite+aiosqlite:// (default) or postgresql+asyncpg://
-telemetry:   { metrics, otlpEndpoint, logFormat, logLevel }
-alerts:      { evaluationIntervalSeconds, historyRetentionDays, smtp }
+server: { host, port, basePath, cors, readOnly }
+auth: { type: none|basic|oidc, users: [...], oidc: { ... }, sessionHours }
+database: { url } # sqlite+aiosqlite:// (default) or postgresql+asyncpg://
+telemetry: { metrics, otlpEndpoint, logFormat, logLevel }
+alerts: { evaluationIntervalSeconds, historyRetentionDays, smtp }
 clusters:
   - id: prod
     bootstrapServers: kafka-0:9092
-    properties: {}                         # security.protocol, sasl.*, ssl.* — raw librdkafka
+    properties: {} # security.protocol, sasl.*, ssl.* — raw librdkafka
     schemaRegistry: { url, type: confluent|apicurio|karapace }
     connect: [{ name, url }]
     ksqldb: [{ name, url }]
     flink: [{ name, url, sqlGatewayUrl }]
     prometheus: { url, labels }
     lineage: { type: marquez|none, url, namespaces }
-    metricsMode: sampled                   # auto-switches to prometheus once prometheus: is set
+    metricsMode: sampled # auto-switches to prometheus once prometheus: is set
 ```
 
 Every integration block (`schemaRegistry`, `connect[]`, `ksqldb[]`, `flink[]`,

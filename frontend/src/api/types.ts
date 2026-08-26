@@ -424,13 +424,7 @@ export type ExportFormat = 'json' | 'csv' | 'ndjson';
 /* ----------------------------- consumer groups ---------------------------- */
 
 export type ConsumerGroupState =
-  | 'Stable'
-  | 'Empty'
-  | 'PreparingRebalance'
-  | 'CompletingRebalance'
-  | 'Dead'
-  | 'Unknown'
-  | string;
+  'Stable' | 'Empty' | 'PreparingRebalance' | 'CompletingRebalance' | 'Dead' | 'Unknown' | string;
 
 export type GroupType = 'classic' | 'consumer' | 'share';
 
@@ -507,13 +501,7 @@ export interface ShareGroupsResponse {
 /* --------------------------------- security ------------------------------- */
 
 export type AclResourceType =
-  | 'TOPIC'
-  | 'GROUP'
-  | 'CLUSTER'
-  | 'TRANSACTIONAL_ID'
-  | 'DELEGATION_TOKEN'
-  | 'USER'
-  | 'ANY';
+  'TOPIC' | 'GROUP' | 'CLUSTER' | 'TRANSACTIONAL_ID' | 'DELEGATION_TOKEN' | 'USER' | 'ANY';
 export type AclPatternType = 'LITERAL' | 'PREFIXED' | 'MATCH' | 'ANY';
 export type AclOperation =
   | 'ALL'
@@ -673,13 +661,7 @@ export interface ConnectCluster {
 }
 
 export type ConnectorState =
-  | 'RUNNING'
-  | 'PAUSED'
-  | 'STOPPED'
-  | 'FAILED'
-  | 'UNASSIGNED'
-  | 'RESTARTING'
-  | string;
+  'RUNNING' | 'PAUSED' | 'STOPPED' | 'FAILED' | 'UNASSIGNED' | 'RESTARTING' | string;
 
 export interface ConnectorTask {
   id: number;

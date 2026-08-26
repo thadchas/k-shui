@@ -10,11 +10,11 @@ and an interactive, always-in-sync reference is served by the app itself.
 Every route (except a handful of root-level ones) is under `/api/v1`, JSON
 in/out, camelCase field names.
 
-| Root-level (not under `/api/v1`) | Purpose |
-|---|---|
-| `GET /healthz` | Liveness probe |
-| `GET /readyz` | Readiness probe |
-| `GET /metrics` | k-shui's own Prometheus metrics |
+| Root-level (not under `/api/v1`)               | Purpose                                             |
+| ---------------------------------------------- | --------------------------------------------------- |
+| `GET /healthz`                                 | Liveness probe                                      |
+| `GET /readyz`                                  | Readiness probe                                     |
+| `GET /metrics`                                 | k-shui's own Prometheus metrics                     |
 | `GET /docs`, `GET /redoc`, `GET /openapi.json` | Interactive Swagger UI / ReDoc / raw OpenAPI schema |
 
 ## Interactive docs
@@ -29,11 +29,11 @@ open http://localhost:8090/docs
 
 ## Auth
 
-| `auth.type` | How to authenticate |
-|---|---|
-| `none` | No auth header needed |
-| `basic` | `POST /api/v1/auth/login {username, password}` → `{token, user}`; send the token as `Authorization: Bearer <token>` on subsequent requests |
-| `oidc` | Browser redirect flow (`GET /api/v1/auth/oidc/login` → IdP → `GET /api/v1/auth/oidc/callback`); for scripting, obtain a token via your IdP and pass it the same way as basic auth |
+| `auth.type` | How to authenticate                                                                                                                                                               |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `none`      | No auth header needed                                                                                                                                                             |
+| `basic`     | `POST /api/v1/auth/login {username, password}` → `{token, user}`; send the token as `Authorization: Bearer <token>` on subsequent requests                                        |
+| `oidc`      | Browser redirect flow (`GET /api/v1/auth/oidc/login` → IdP → `GET /api/v1/auth/oidc/callback`); for scripting, obtain a token via your IdP and pass it the same way as basic auth |
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8090/api/v1/auth/login \
@@ -114,6 +114,21 @@ curl -s $HOST/api/v1/clusters -H "$AUTH"
 curl -s "$HOST/api/v1/clusters/prod/topics?search=orders&perPage=20" -H "$AUTH"
 curl -s -X POST "$HOST/api/v1/clusters/prod/topics" -H "$AUTH" -H 'content-type: application/json' \
   -d '{"name":"orders","partitions":6,"replicationFactor":3,"configs":{"cleanup.policy":"delete"}}'
+
+# Messages: live tail with a header filter (SSE; Ctrl-C to stop)
+curl -N "$HOST/api/v1/clusters/prod/topics/orders/messages?mode=tail&filter=header:trace=abc123" -H "$AUTH"
+
+# Messages: seek partition 0 to 120 and partition 3 to 7, everything else from offset 0
+curl -s "$HOST/api/v1/clusters/prod/topics/orders/messages?mode=offset&offset=0&startOffsets=0:120,3:7&stream=false" -H "$AUTH"
+
+# Partitions: what is unhealthy, then elect preferred leaders for all of it
+curl -s "$HOST/api/v1/clusters/prod/partitions/unhealthy" -H "$AUTH"
+curl -s -X POST "$HOST/api/v1/clusters/prod/partitions/elect-leaders" -H "$AUTH" \
+  -H 'content-type: application/json' -d '{"partitions":[],"electionType":"preferred"}'
+
+# Partitions: rack-aware rebalance plan (never applies)
+curl -s -X POST "$HOST/api/v1/clusters/prod/partitions/reassign/plan" -H "$AUTH" \
+  -H 'content-type: application/json' -d '{"topics":["orders"]}'
 
 # Consumer groups: dry-run an offset reset to earliest
 curl -s -X POST "$HOST/api/v1/clusters/prod/consumer-groups/orders-service/offsets/reset" -H "$AUTH" \

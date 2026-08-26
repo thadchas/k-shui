@@ -16,6 +16,30 @@ Control-Center-style alerting (email/Slack/PagerDuty/Teams/webhook), ACLs/
 quotas/SCRAM/KRaft quorum, audit log, basic/OIDC auth, light/dark theme. See
 [`CHANGELOG.md`](../CHANGELOG.md).
 
+## v0.2 — operator safety & incident ergonomics (in progress, unreleased)
+
+Delivered on `main` after a Kafka-practitioner UX review — see
+[`CHANGELOG.md`](../CHANGELOG.md#unreleased): role enforcement on every
+integration router and RBAC gating in the UI, connector secret masking, live
+tail with pause / follow-key / header filters, per-partition seek, partition
+health with preferred-leader election and reassignment planning, lag in
+time, dry-run-gated and partition-scoped offset resets, typed confirmations
+everywhere, URL-shareable list views, keyboard/a11y pass, frontend unit
+tests.
+
+Known gaps carried forward:
+
+- **Partition reassignment apply** needs `confluent-kafka` with
+  `alter_partition_reassignments`; today the plan endpoint returns the
+  `reassignment.json` + CLI command and apply answers `501`.
+- **Disk capacity** (`totalBytes`/`usableBytes`) needs `describe_log_dirs`
+  in the Kafka client; otherwise only bytes-used is shown.
+- **Lag in time** depends on the metrics sampler having two samples for the
+  topic; new or idle topics show `—`.
+- **No browser end-to-end tests yet** — unit tests cover hooks, helpers, and
+  the destructive-dialog gates; API behaviour is validated against a live
+  Kafka 4.3 cluster manually.
+
 ## Near-term (v0.2 – v0.4)
 
 - **Kafka Streams topology view** — visualize a Kafka Streams application's
@@ -51,9 +75,8 @@ quotas/SCRAM/KRaft quorum, audit log, basic/OIDC auth, light/dark theme. See
   from the browser through k-shui's proxy calls into Kafka/Connect/Flink/etc.
   requests, so a slow page load is traceable end to end, not just at the
   k-shui process boundary.
-- **Saved views and shareable links** — persist a topic/message-browser
-  filter or a lineage-graph focus/depth/sources combination as a shareable
-  URL or saved view.
+- **Saved views** — list/filter state is already URL-shareable; add named,
+  persisted views and message-browser query presets on top of it.
 
 ## Longer-term (toward v1.0)
 

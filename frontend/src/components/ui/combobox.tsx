@@ -127,8 +127,10 @@ export function Combobox({
   );
 }
 
-export interface MultiComboboxProps
-  extends Omit<ComboboxProps, 'value' | 'onValueChange' | 'clearable'> {
+export interface MultiComboboxProps extends Omit<
+  ComboboxProps,
+  'value' | 'onValueChange' | 'clearable'
+> {
   values: string[];
   onValuesChange: (values: string[]) => void;
   summary?: (values: string[]) => string;

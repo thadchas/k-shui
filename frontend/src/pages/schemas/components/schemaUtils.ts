@@ -61,9 +61,7 @@ export function schemaFileExtension(type: SchemaType | undefined): string {
 }
 
 export type SubjectStrategy =
-  | 'TopicNameStrategy'
-  | 'RecordNameStrategy'
-  | 'TopicRecordNameStrategy';
+  'TopicNameStrategy' | 'RecordNameStrategy' | 'TopicRecordNameStrategy';
 
 export const SUBJECT_STRATEGIES: { label: string; value: SubjectStrategy; hint: string }[] = [
   {

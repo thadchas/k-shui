@@ -10,15 +10,17 @@ repos:
         name: ruff format (backend)
         files: ^backend/
 
-  - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v4.0.0-alpha.8
+  - repo: local
     hooks:
+      # Uses the frontend's own prettier (frontend/package-lock.json) so this hook and the
+      # CI `npm run format:check` gate can never disagree on formatting. Run `npm ci` in
+      # frontend/ once before committing.
       - id: prettier
         name: prettier (frontend + deploy YAML/JSON/MD)
+        entry: frontend/node_modules/.bin/prettier --write --ignore-unknown
+        language: system
         files: ^(frontend/src|packages/npm|deploy|charts|docs)/.*\.(ts|tsx|css|json|ya?ml|md)$
         exclude: ^charts/.*/templates/ # Helm templates aren't valid YAML/Go-template mix for prettier
-        additional_dependencies:
-          - prettier@3.5.0
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0

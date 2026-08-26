@@ -25,7 +25,7 @@ In order:
      ghcr.io/thadchas/k-shui:latest serve
    ```
    The config bind-mount is added only when `./k-shui.yaml` exists — otherwise
-   Docker would create an empty *directory* at that path. Override the image with
+   Docker would create an empty _directory_ at that path. Override the image with
    `KSHUI_DOCKER_IMAGE`.
 
 Every other argument (`init`, `check`, `version`, `--port`, ...) is forwarded
@@ -81,14 +81,14 @@ KSHUI_UVX_FROM=./backend/dist/k_shui-0.1.0-py3-none-any.whl npx k-shui version
 
 ## Launcher flags and environment
 
-| Flag / env | Meaning |
-| --- | --- |
+| Flag / env                         | Meaning                                                                                   |
+| ---------------------------------- | ----------------------------------------------------------------------------------------- |
 | `--from <spec>` / `KSHUI_UVX_FROM` | Package spec handed to uvx/uv/pipx instead of `k-shui` (wheel, sdist, directory, git URL) |
-| `--docker` | Run `ghcr.io/thadchas/k-shui` instead of a Python runner |
-| `KSHUI_DOCKER_IMAGE` | Image used by `--docker` |
-| `--dry-run` | Print the resolved command and exit |
-| `--yes` / `-y` | Skip the "install uv?" confirmation |
-| `--help` / `-h` | Launcher help (forwarded to the CLI when combined with `--dry-run`) |
+| `--docker`                         | Run `ghcr.io/thadchas/k-shui` instead of a Python runner                                  |
+| `KSHUI_DOCKER_IMAGE`               | Image used by `--docker`                                                                  |
+| `--dry-run`                        | Print the resolved command and exit                                                       |
+| `--yes` / `-y`                     | Skip the "install uv?" confirmation                                                       |
+| `--help` / `-h`                    | Launcher help (forwarded to the CLI when combined with `--dry-run`)                       |
 
 ## Publishing note (for maintainers)
 

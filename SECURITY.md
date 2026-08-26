@@ -5,10 +5,10 @@
 k-shui is pre-1.0 (`0.x`). Security fixes are released against the latest `0.x`
 minor release only; there is no separate LTS branch yet.
 
-| Version | Supported |
-|---------|-----------|
-| latest 0.x | ✅ |
-| < latest 0.x | ❌ |
+| Version      | Supported |
+| ------------ | --------- |
+| latest 0.x   | ✅        |
+| < latest 0.x | ❌        |
 
 ## Reporting a vulnerability
 
@@ -40,6 +40,16 @@ artifacts.
 Out of scope: vulnerabilities in upstream services k-shui merely talks to
 (Kafka, Kafka Connect, Schema Registry, ksqlDB, Flink, Prometheus, Marquez) —
 please report those to their respective projects.
+
+## RBAC model
+
+Every `/api/v1` route is gated: reads require the `viewer` role, mutations
+require `editor`, user management requires `admin`. This includes the
+integration proxies (Schema Registry, Connect, ksqlDB, Flink, lineage
+ingest, metrics dashboards) — the UI mirrors the same rules by disabling
+controls, but enforcement is server-side. Connector configuration values that
+look like secrets are masked before they reach the browser's editors and are
+never written back from a masked state.
 
 ## Hardening guidance
 

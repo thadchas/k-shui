@@ -17,20 +17,26 @@ feature area is scoped under a cluster (`/c/:cluster/...`).
 
 1. `/clusters` — grid of cluster cards. Click a card to enter that cluster.
 2. `/c/:cluster/overview` — stat tiles at top (brokers online, topics,
-   under-replicated partitions, offline partitions), throughput charts
-   (bytes in/out, messages in, request rate) with a time-range picker, a
-   health-checks list (`GET .../health`), and a KRaft quorum panel.
-3. The cluster switcher in the sidebar top is available from every page so
-   you can jump clusters without losing your place in the current feature.
+   under-replicated partitions, offline partitions — click either to open
+   the **Partition health** panel), throughput charts (bytes in/out,
+   messages in, request rate) with a time-range picker, a health-checks
+   list (unhealthy first, expandable, with _last checked_), a **Partition
+   health** card (offline / under-replicated / non-preferred-leader
+   partitions with _Elect preferred leaders_ and a cluster-wide _Rebalance
+   plan…_), a **top lagging consumer groups** table, and a KRaft quorum
+   panel.
+3. The cluster switcher in the sidebar top is available from every page and
+   keeps you in the same section (`/c/a/topics` → `/c/b/topics`); `/`
+   reopens the last cluster you used.
 
 ## API endpoints
 
-| Method | Path | Notes |
-|---|---|---|
-| `GET` | `/api/v1/clusters` | List, with `features:{schemaRegistry,connect,ksqldb,flink,prometheus,lineage}` flags per cluster |
-| `GET` | `/api/v1/clusters/{c}` | Detail: listeners, `kraft:{leaderId, epoch, voters, observers}` |
-| `GET` | `/api/v1/clusters/{c}/health` | `{status, checks:[{name, status, message}]}` |
-| `GET` | `/api/v1/clusters/{c}/overview/metrics?range=` | Series: bytesIn, bytesOut, messagesIn, requestRate, activeControllers, underReplicated, offlinePartitions |
+| Method | Path                                           | Notes                                                                                                     |
+| ------ | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/v1/clusters`                             | List, with `features:{schemaRegistry,connect,ksqldb,flink,prometheus,lineage}` flags per cluster          |
+| `GET`  | `/api/v1/clusters/{c}`                         | Detail: listeners, `kraft:{leaderId, epoch, voters, observers}`                                           |
+| `GET`  | `/api/v1/clusters/{c}/health`                  | `{status, checks:[{name, status, message}]}`                                                              |
+| `GET`  | `/api/v1/clusters/{c}/overview/metrics?range=` | Series: bytesIn, bytesOut, messagesIn, requestRate, activeControllers, underReplicated, offlinePartitions |
 
 ## Config required
 

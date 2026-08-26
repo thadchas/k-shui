@@ -28,8 +28,7 @@ import { RegistryInfoCard } from './components/RegistryInfoCard';
 import { SCHEMA_TYPE_VARIANT, topicFromSubject } from './components/schemaUtils';
 
 type DeleteState =
-  | { kind: 'none' }
-  | { kind: 'delete'; subject: SchemaSubjectSummary; permanent: boolean };
+  { kind: 'none' } | { kind: 'delete'; subject: SchemaSubjectSummary; permanent: boolean };
 
 export function SchemasPage() {
   const cluster = useClusterId();

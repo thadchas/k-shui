@@ -98,13 +98,13 @@ flowchart TB
 
 ## Data stores
 
-| Store | Holds | Default |
-|---|---|---|
-| Kafka cluster itself | Topics, configs, ACLs, quotas, offsets — the source of truth for everything Kafka-native | — |
+| Store                 | Holds                                                                                                                                | Default                                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| Kafka cluster itself  | Topics, configs, ACLs, quotas, offsets — the source of truth for everything Kafka-native                                             | —                                                                                                   |
 | k-shui's own database | Basic-auth users (if not OIDC), alert triggers/actions/history, user-created metrics dashboards, ksqlDB statement history, audit log | `sqlite+aiosqlite:///./k-shui.db`; `postgresql+asyncpg://...` for multi-replica/durable deployments |
-| In-memory ring buffer | Sampled metrics when `metricsMode: sampled` (no Prometheus) | Process memory — resets on restart |
-| Prometheus (external) | Time-series metrics when configured | — |
-| Marquez (external) | OpenLineage jobs/datasets/runs when configured | — |
+| In-memory ring buffer | Sampled metrics when `metricsMode: sampled` (no Prometheus)                                                                          | Process memory — resets on restart                                                                  |
+| Prometheus (external) | Time-series metrics when configured                                                                                                  | —                                                                                                   |
+| Marquez (external)    | OpenLineage jobs/datasets/runs when configured                                                                                       | —                                                                                                   |
 
 SQLite is fine for a single replica; for multi-replica deployments (Helm
 `replicaCount > 1` or `autoscaling.enabled`), point `database.url` at Postgres
@@ -126,7 +126,7 @@ Two asyncio background tasks inside the same process run recurring jobs:
   [`features/alerts.md`](features/alerts.md).
 
 Both run in-process — no external scheduler/queue is required, but it also
-means alert evaluation and metrics sampling only happen on a *running*
+means alert evaluation and metrics sampling only happen on a _running_
 replica; in a multi-replica deployment, ensure exactly the intended number of
 replicas are actually up (the background tasks are not distributed/leader-elected
 across replicas as of this version — see the [roadmap](roadmap.md)).
