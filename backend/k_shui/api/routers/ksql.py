@@ -19,9 +19,11 @@ from k_shui.api.schemas.ksql import (
     KsqlServer,
     KsqlSource,
 )
-from k_shui.core.auth import require_editor, require_viewer
+from k_shui.config import Settings
+from k_shui.core.auth import Principal, enforce_mutation, non_mutating, require_editor, require_viewer
 from k_shui.core.errors import IntegrationNotConfigured
-from k_shui.core.registry import ClusterContext, get_cluster
+from k_shui.core.registry import ClusterContext, get_cluster, get_settings
+from k_shui.core.sqlguard import KSQL_READ_ONLY, is_read_only_sql
 from k_shui.integrations.audit import audit
 from k_shui.integrations.ksql import all_ksql, get_ksql
 from k_shui.integrations.memstore import ksql_ring, next_id
@@ -71,10 +73,20 @@ async def server_info(ksql_name: str, ctx: ClusterContext = Depends(get_cluster)
     return await get_ksql(ctx, ksql_name).info()
 
 
-@router.post(KS + "/statement", dependencies=[Depends(require_editor)])
+@router.post(KS + "/statement")
+@non_mutating
 async def run_statement(
-    request: Request, ksql_name: str, body: KsqlRequest, ctx: ClusterContext = Depends(get_cluster)
+    request: Request,
+    ksql_name: str,
+    body: KsqlRequest,
+    ctx: ClusterContext = Depends(get_cluster),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_viewer),
 ) -> list[dict[str, Any]]:
+    """Read-only statements (SHOW/LIST/DESCRIBE/EXPLAIN/PRINT/SELECT) are open to viewers and
+    read-only clusters; CREATE/DROP/INSERT/TERMINATE need the editor role and a writable cluster."""
+    if not is_read_only_sql(body.sql, KSQL_READ_ONLY):
+        enforce_mutation(request, settings, principal, "editor")
     client = get_ksql(ctx, ksql_name)
     try:
         result = await client.statement(body.sql, body.properties)
@@ -87,6 +99,7 @@ async def run_statement(
 
 
 @router.post(KS + "/query")
+@non_mutating
 async def run_query(
     request: Request, ksql_name: str, body: KsqlRequest, ctx: ClusterContext = Depends(get_cluster)
 ) -> StreamingResponse:
@@ -136,6 +149,7 @@ async def terminate_query(
 
 
 @router.post(KS + "/close-query")
+@non_mutating
 async def close_query(
     request: Request, ksql_name: str, body: KsqlCloseQueryRequest, ctx: ClusterContext = Depends(get_cluster)
 ) -> dict[str, Any]:

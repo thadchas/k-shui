@@ -31,6 +31,11 @@ TAIL_HEARTBEAT_INTERVAL = 2.0
 TAIL_FLUSH_INTERVAL = 0.1  # one poll → one batch flush, never more often than this
 BROWSE_MODES = ("latest", "earliest", "offset", "timestamp", "tail")
 FILTER_MODES = ("contains", "regex", "jsonpath")
+# Regex filters run against every scanned record, so patterns that backtrack catastrophically
+# (a quantified group that is itself quantified, or stacked quantifiers) are refused up front
+# and the searched text is capped.
+NESTED_QUANTIFIER = re.compile(r"\([^)]*[+*]\)\s*[+*{]|[+*]{2}")
+MAX_FILTER_HAYSTACK = 64 * 1024
 FILTER_TARGETS = ("any", "key", "value", "header")
 HEADER_PREFIX = "header:"
 
@@ -111,6 +116,8 @@ class MessageFilter:
             if not expression:
                 return
         if mode == "regex":
+            if NESTED_QUANTIFIER.search(expression):
+                raise BadRequest("regex filter rejected: nested quantifiers can take exponential time")
             try:
                 self._regex = re.compile(expression)
             except re.error as exc:
@@ -147,6 +154,8 @@ class MessageFilter:
         return self._text_match(haystack)
 
     def _text_match(self, haystack: str) -> bool:
+        if len(haystack) > MAX_FILTER_HAYSTACK:
+            haystack = haystack[:MAX_FILTER_HAYSTACK]
         if self._regex is not None:
             return bool(self._regex.search(haystack))
         return (self._header_value if self._header_name is not None else self.expression or "").lower() in (

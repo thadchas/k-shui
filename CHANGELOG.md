@@ -72,6 +72,8 @@ UX review. Tracked in [`docs/roadmap.md`](docs/roadmap.md) and the
   search, mobile sidebar drawer, skip link, reduced-motion support,
   unsaved-changes guard on editors, unknown-cluster state, cluster switch
   preserves the section, `/` resumes the last cluster.
+- `DELETE /clusters/{c}/partitions/throttle` and a _Clear throttle_ action;
+  `GET .../reassignments` reports `throttled`.
 - Frontend unit tests (vitest) and CI format/test gates.
 
 ### Changed
@@ -85,6 +87,11 @@ UX review. Tracked in [`docs/roadmap.md`](docs/roadmap.md) and the
 - Offset reset Apply is blocked for non-empty groups (the broker would
   reject it); scoping to a partition without commits returns `404` instead
   of resetting the whole topic.
+- Unclean leader election requires `admin`. Read-only SQL (`SELECT`/`SHOW`/…)
+  in the Flink and ksqlDB editors is viewer-level and allowed on read-only
+  clusters; everything else needs `editor`. `sort` keys are whitelisted.
+- Message filters are capped at 512 chars and pathological regexes are
+  rejected.
 - "Settings" under Cluster is now "Cluster settings"; "Share groups" has a
   nav entry.
 

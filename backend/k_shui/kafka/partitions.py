@@ -30,6 +30,7 @@ REASSIGN_CLIENT_METHOD = "alter_partition_reassignments"
 LIST_REASSIGN_CLIENT_METHOD = "list_partition_reassignments"
 ELECT_CLIENT_METHOD = "elect_leaders"
 THROTTLE_BROKER_KEYS = ("leader.replication.throttled.rate", "follower.replication.throttled.rate")
+THROTTLE_TOPIC_KEYS = ("leader.replication.throttled.replicas", "follower.replication.throttled.replicas")
 
 
 # ------------------------------------------------------------------ planning (pure)
@@ -87,10 +88,29 @@ def rack_interleave(brokers: list[BrokerInfo]) -> list[BrokerInfo]:
     return out
 
 
-def assign_partition(ordered: list[int], start: int, rf: int) -> list[int]:
-    """``rf`` distinct brokers starting at ``start`` on the (rack-interleaved) ring."""
+def assign_partition(
+    ordered: list[int], start: int, rf: int, racks: dict[int, str | None] | None = None
+) -> list[int]:
+    """``rf`` distinct brokers starting at ``start`` on the (rack-interleaved) ring.
+
+    With ``racks`` each next replica prefers a broker whose rack this partition does not use
+    yet; once every rack is used the constraint resets, so an RF larger than the rack count
+    still fills up (and unbalanced racks such as A=[1,2,3], B=[4] still span both racks).
+    """
     n = len(ordered)
-    return [ordered[(start + j) % n] for j in range(rf)]
+    ring = [ordered[(start + j) % n] for j in range(n)]
+    if racks is None:
+        return ring[:rf]
+    chosen: list[int] = []
+    used: set[str | None] = set()
+    while len(chosen) < rf:
+        pick = next((b for b in ring if b not in chosen and racks.get(b) not in used), None)
+        if pick is None:  # every rack is represented → allow repeats, keep going round the ring
+            used = set()
+            continue
+        chosen.append(pick)
+        used.add(racks.get(pick))
+    return chosen
 
 
 def plan_reassignment(
@@ -118,6 +138,7 @@ def plan_reassignment(
 
     rack_aware = any(b.rack for b in pool) and len({b.rack for b in pool}) > 1
     ordered = [b.id for b in (rack_interleave(pool) if rack_aware else pool)]
+    racks = {b.id: b.rack for b in pool} if rack_aware else None
     n = len(ordered)
 
     plan = Plan(brokers=list(ordered), rack_aware=rack_aware)
@@ -133,7 +154,7 @@ def plan_reassignment(
                 raise BadRequest(
                     f"topic '{topic}' has replication factor {rf} but only {n} broker(s) are eligible"
                 )
-            proposed = assign_partition(ordered, offset, rf)
+            proposed = assign_partition(ordered, offset, rf, racks)
             plan.items.append(PlanItem(topic=topic, partition=pid, current=replicas, proposed=proposed))
             offset += 1
     return plan
@@ -153,13 +174,15 @@ def reassignment_json(items: list[PlanItem] | list[dict[str, Any]]) -> dict[str,
 
 
 def reassign_command(bootstrap: str, throttle: int | None = None) -> str:
-    cmd = (
+    """The CLI equivalent. With a throttle the ``--verify`` pass is chained on, because that is
+    what removes the throttle configs again once the move has finished."""
+    base = (
         f"kafka-reassign-partitions.sh --bootstrap-server {bootstrap} "
         "--reassignment-json-file reassignment.json"
     )
-    if throttle:
-        cmd += f" --throttle {throttle}"
-    return cmd + " --execute"
+    if not throttle:
+        return f"{base} --execute"
+    return f"{base} --throttle {throttle} --execute && {base} --verify"
 
 
 # ------------------------------------------------------------------ admin adapter
@@ -330,6 +353,7 @@ class PartitionOps:
         return str(getattr(cfg, "bootstrapServers", "<bootstrap>"))
 
     async def list_reassignments(self) -> dict[str, Any]:
+        throttled = await self.is_throttled()
         if not self.supports(LIST_REASSIGN_CLIENT_METHOD):
             from k_shui.kafka.admin import _client_version
 
@@ -339,6 +363,7 @@ class PartitionOps:
                     f"confluent-kafka {_client_version()} has no AdminClient.{LIST_REASSIGN_CLIENT_METHOD}"
                 ),
                 "items": [],
+                "throttled": throttled,
             }
         result = await self._wait(self._client().list_partition_reassignments(request_timeout=self.timeout))
         items = []
@@ -353,14 +378,19 @@ class PartitionOps:
                 }
             )
         items.sort(key=lambda i: (i["topic"], i["partition"]))
-        return {"supported": True, "reason": None, "items": items}
+        return {"supported": True, "reason": None, "items": items, "throttled": throttled}
 
     async def reassign(self, partitions: list[dict[str, Any]], throttle: int | None) -> dict[str, Any]:
         if not partitions:
             raise BadRequest("at least one partition is required")
         await self._validate_partitions([(p["topic"], int(p["partition"])) for p in partitions])
         known = {b.id for b in await self._brokers()}
+        seen: set[tuple[str, int]] = set()
         for p in partitions:
+            ref = (p["topic"], int(p["partition"]))
+            if ref in seen:
+                raise BadRequest(f"duplicate partition {p['topic']}-{p['partition']} in request")
+            seen.add(ref)
             replicas = [int(r) for r in p["replicas"]]
             if len(set(replicas)) != len(replicas):
                 raise BadRequest(f"duplicate replica for {p['topic']}-{p['partition']}")
@@ -380,8 +410,6 @@ class PartitionOps:
 
         from confluent_kafka import TopicPartition
 
-        if throttle:
-            await self._apply_throttle(partitions, throttle)
         request = {
             TopicPartition(p["topic"], int(p["partition"])): [int(r) for r in p["replicas"]]
             for p in partitions
@@ -401,7 +429,24 @@ class PartitionOps:
         cache = getattr(self.admin, "_cache", None)
         if cache is not None:
             cache.clear()
-        return {"items": items, "throttleBytesPerSec": throttle, "reassignmentJson": payload}
+        accepted = [
+            p
+            for p in partitions
+            if not any(
+                i["error"]
+                for i in items
+                if i["topic"] == p["topic"] and i["partition"] == int(p["partition"])
+            )
+        ]
+        # Only throttle once the controller accepted the move; a rejected batch must not leave
+        # rate limits behind. Clearing is the caller's job (``clear_throttle`` / --verify).
+        if throttle and accepted:
+            await self._apply_throttle(accepted, throttle)
+        return {
+            "items": items,
+            "throttleBytesPerSec": throttle if accepted else None,
+            "reassignmentJson": payload,
+        }
 
     async def _apply_throttle(self, partitions: list[dict[str, Any]], throttle: int) -> None:
         """Set broker rate throttles plus per-topic throttled-replica lists (like the CLI does)."""
@@ -425,12 +470,65 @@ class PartitionOps:
                 },
             )
 
+    async def is_throttled(self) -> bool:
+        """Any broker carrying a replication rate throttle (dynamic config)."""
+        for broker in await self._brokers():
+            try:
+                entries = await self.admin.describe_configs("broker", str(broker.id))
+            except Exception as exc:
+                log.debug("partitions.throttle_probe_failed", broker=broker.id, error=str(exc))
+                continue
+            for e in entries:
+                if e.get("name") in THROTTLE_BROKER_KEYS and e.get("value") not in (None, ""):
+                    return True
+        return False
+
+    async def _throttled_topics(self) -> list[str]:
+        """Topics that carry a throttled-replicas list; in-flight reassignment topics are checked
+        first, then every topic (cheap enough: one describe per topic)."""
+        md = await self.admin.metadata(force=True)
+        found = []
+        for name in sorted(md.topics):
+            try:
+                entries = await self.admin.describe_configs("topic", name)
+            except Exception as exc:
+                log.debug("partitions.throttle_probe_failed", topic=name, error=str(exc))
+                continue
+            if any(e.get("name") in THROTTLE_TOPIC_KEYS and e.get("value") for e in entries):
+                found.append(name)
+        return found
+
+    async def clear_throttle(self, topics: list[str] | None) -> dict[str, Any]:
+        """Remove the broker rate throttles and the per-topic throttled-replica lists.
+
+        ``topics=None`` clears every topic that carries the config (what
+        ``kafka-reassign-partitions.sh --verify`` does once a move has finished).
+        """
+        if topics:
+            await self._validate_partitions([])
+            md = await self.admin.metadata(force=True)
+            missing = [t for t in topics if t not in md.topics]
+            if missing:
+                raise NotFound(f"topic '{missing[0]}' not found")
+            targets = sorted(set(topics))
+        else:
+            targets = await self._throttled_topics()
+        brokers = await self._brokers()
+        await self.admin.alter_configs("cluster", None, dict.fromkeys(THROTTLE_BROKER_KEYS))
+        for topic in targets:
+            await self.admin.alter_configs("topic", topic, dict.fromkeys(THROTTLE_TOPIC_KEYS))
+        cache = getattr(self.admin, "_cache", None)
+        if cache is not None:
+            cache.clear()
+        return {"brokers": [b.id for b in brokers], "topics": targets}
+
 
 __all__ = [
     "BrokerInfo",
     "PartitionOps",
     "Plan",
     "PlanItem",
+    "assign_partition",
     "plan_reassignment",
     "rack_interleave",
     "reassign_command",

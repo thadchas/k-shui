@@ -39,9 +39,10 @@ export function UnsavedChangesGuard({
     return () => window.removeEventListener('beforeunload', handler);
   }, [dirty]);
 
-  // If the page becomes clean while a navigation is blocked, let it through.
+  // If the page becomes clean while a navigation is blocked (e.g. the save just landed),
+  // let the pending navigation through instead of cancelling it.
   useEffect(() => {
-    if (!dirty && blocker.state === 'blocked') blocker.reset();
+    if (!dirty && blocker.state === 'blocked') blocker.proceed();
   }, [dirty, blocker]);
 
   const open = blocker.state === 'blocked';

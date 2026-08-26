@@ -1785,6 +1785,18 @@ export interface ReassignmentsResponse {
   supported: boolean;
   reason: string | null;
   items: ReassignmentInProgress[];
+  /** Any broker still carries a replication throttle (offer "Clear throttle"). */
+  throttled: boolean;
+}
+
+export interface ClearThrottleRequest {
+  /** Topics whose throttled-replica lists to drop; empty = every topic carrying them. */
+  topics?: string[];
+}
+
+export interface ClearThrottleResponse {
+  brokers: number[];
+  topics: string[];
 }
 
 export interface PartitionCapabilities {

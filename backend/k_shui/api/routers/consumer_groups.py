@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
-from k_shui.api.routers._common import paginate_sort, sampler_for, topic_rate
+from k_shui.api.routers._common import GROUP_SORT_KEYS, ORDER_PATTERN, paginate_sort, sampler_for, topic_rate
 from k_shui.api.schemas.common import Ack, Page, SeriesResponse
 from k_shui.api.schemas.group import (
     GroupDetail,
@@ -118,7 +118,7 @@ async def list_groups(
     search: str | None = Query(None),
     state: str | None = Query(None),
     sort: str | None = Query(None),
-    order: str = Query("asc"),
+    order: str = Query("asc", pattern=ORDER_PATTERN),
     page: int | None = Query(None, ge=1, description="1-based page; omit for the plain list"),
     perPage: int = Query(50, ge=1, le=1000, alias="perPage"),
     ctx: ClusterContext = Depends(get_cluster),
@@ -135,7 +135,7 @@ async def list_groups(
         items = [g for g in items if search.lower() in g["groupId"].lower()]
     if state:
         items = [g for g in items if g["state"].lower() == state.lower()]
-    items = paginate_sort(items, sort, order)
+    items = paginate_sort(items, sort, order, GROUP_SORT_KEYS)
     if page is None:
         return [GroupSummary(**g) for g in items]
     total = len(items)

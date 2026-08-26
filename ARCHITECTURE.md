@@ -127,10 +127,15 @@ Common: pagination `?page=1&perPage=50` → `{items, page, perPage, total}`. Tim
 Every mutating call is audited. Every route is prefixed with `/api/v1`.
 
 **Roles (enforced on every router when `auth` is enabled):** `GET` routes require `viewer`;
-`POST|PUT|PATCH|DELETE` require `editor`; user management requires `admin`. The only
-editor-exempt mutations are `POST .../ksql/{k}/query` (a streaming read) and
-`POST .../ksql/{k}/close-query` (closes the caller's own push query). `POST .../lineage/openlineage`
-(ingest) is an editor mutation. Server/cluster `readOnly` blocks editors too.
+`POST|PUT|PATCH|DELETE` require `editor`; user management and **unclean** leader election require
+`admin`. Endpoints marked `@non_mutating` are viewer-level POSTs that also bypass `readOnly`:
+`ksql/{k}/query`, `ksql/{k}/close-query`, `partitions/reassign/plan`, `flink/{f}/sql/sessions`,
+`connect/{k}/plugins/{class}/validate`. SQL statement endpoints (`ksql/{k}/statement`,
+`flink/{f}/sql/sessions/{s}/statements`) are classified server-side: read-only SQL
+(`SELECT|WITH|SHOW|DESCRIBE|EXPLAIN|LIST|PRINT|HELP`) is viewer-level, anything else needs `editor`
+and a writable cluster. `POST .../lineage/openlineage` (ingest) is an editor mutation.
+Server/cluster `readOnly` blocks editors too. `sort` params are whitelisted per endpoint (400 on
+unknown keys); `order` is `asc|desc`.
 
 ### System
 
@@ -148,7 +153,8 @@ editor-exempt mutations are `POST .../ksql/{k}/query` (a streaming read) and
 - `GET /clusters/{c}/partitions/unhealthy` → `{items:[{topic, partition, leader, replicas, isr, reasons:['offline'|'underReplicated'|'nonPreferredLeader']}], offline, underReplicated, nonPreferredLeader, scannedPartitions}` (worst first)
 - `GET /clusters/{c}/partitions/capabilities` → `{clientVersion, electLeaders, reassign, listReassignments}` (feature-detected on the Kafka client)
 - `POST /clusters/{c}/partitions/elect-leaders {partitions:[{topic,partition}], electionType:'preferred'|'unclean'}` (empty = all) → `{electionType, items:[{topic, partition, status:'elected'|'notNeeded'|'failed', error?}], succeeded, failed, notNeeded}` — audited `partitions.elect_leaders`
-- `GET /clusters/{c}/partitions/reassignments` → `{supported, reason?, items:[{topic, partition, replicas, addingReplicas, removingReplicas}]}`
+- `GET /clusters/{c}/partitions/reassignments` → `{supported, reason?, throttled, items:[{topic, partition, replicas, addingReplicas, removingReplicas}]}` (`throttled` = any broker carries a replication-throttle rate)
+- `DELETE /clusters/{c}/partitions/throttle {topics?:[…]}` → removes `leader/follower.replication.throttled.rate` from every broker and `*.replication.throttled.replicas` from the topics (default: all topics carrying it) — audited `partitions.throttle_cleared`. Throttles set by `reassign` are applied only to partitions the controller accepted and are never cleared automatically; the 501 `command` chains `--verify` for the CLI path
 - `POST /clusters/{c}/partitions/reassign/plan {topics:[…], brokers?:[…]}` → `{items:[{topic, partition, current, proposed, changed}], reassignmentJson, command}` — rack-aware balanced plan, RF preserved, never applies (viewer)
 - `POST /clusters/{c}/partitions/reassign {partitions:[{topic, partition, replicas:[…]}], throttleBytesPerSec?}` → `202 {…}` — audited `partitions.reassign`; when the client lacks `alter_partition_reassignments` → `501 unsupported-feature` problem carrying `reassignmentJson` + a `kafka-reassign-partitions.sh` `command` for manual execution
 - `GET /clusters/{c}/overview/metrics?range=` → series: bytesIn, bytesOut, messagesIn, requestRate, activeControllers, underReplicated, offlinePartitions (Prometheus when configured, else sampled from admin API into in-memory ring buffer)
@@ -177,6 +183,7 @@ editor-exempt mutations are `POST .../ksql/{k}/query` (a streaming read) and
   → SSE events `message` (one `Message` each), `progress {scanned, matched, done}`, `end`; `stream=false` returns `{items, scanned}`
   - `startOffsets` (only with `mode=offset`) overrides the scalar `offset` per partition; partitions not listed use `offset`; neither given → `400`.
   - `mode=tail` follows the partitions from their end (or the given offsets) until the client disconnects: never sends `end`; emits `progress {scanned, matched, done:false, live:true, behind, endOffsets:{p:o}, positions:{p:o}}` every ~2 s as a heartbeat; batches are flushed at most every 100 ms; `stream=false` and `/export` reject `tail` with `400`.
+  - `filter` is capped at 512 chars; regex patterns with nested quantifiers are rejected (400) and matching runs on at most 64 KiB of haystack.
   - `filterTarget` scopes `contains|regex|jsonpath` to the key, the decoded value, or the headers. A filter of the form `header:<name>=<value>` matches by header name (value = substring or regex per `filterMode`); `header:<name>` alone tests presence.
     `Message = {partition, offset, timestamp, timestampType, key, keyFormat, value, valueFormat, headers:{k:v}, keySchemaId, valueSchemaId, sizeBytes, keyRaw?, valueRaw?}`
     Formats: `auto|string|json|avro|protobuf|jsonschema|base64|hex|int|long`. Auto = magic-byte 0 → registry; else json if parseable; else string.

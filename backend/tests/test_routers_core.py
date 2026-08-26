@@ -7,6 +7,8 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
+from k_shui.core.errors import BadRequest
+
 C = "/api/v1/clusters/test"
 MISSING = "/api/v1/clusters/nope"
 
@@ -140,6 +142,23 @@ async def test_topics_list_pagination_search_and_internal(client: AsyncClient) -
 async def test_topics_sorting(client: AsyncClient) -> None:
     desc = (await client.get(f"{C}/topics?sort=name&order=desc")).json()
     assert [t["name"] for t in desc["items"]] == ["orders", "events"]
+    assert (await client.get(f"{C}/topics?sort=__class__")).status_code == 400
+    assert (await client.get(f"{C}/topics?sort=name&order=sideways")).status_code == 422
+    assert (await client.get(f"{C}/consumer-groups?sort=nope")).status_code == 400
+    assert (await client.get(f"{C}/consumer-groups?sort=totalLag&order=desc")).status_code == 200
+
+
+def test_paginate_sort_handles_mixed_and_missing_values() -> None:
+    from k_shui.api.routers._common import paginate_sort
+
+    items = [{"k": "b"}, {"k": None}, {"k": 3}, {"k": "A"}, {}, {"k": 1.5}, {"k": True}]
+    asc = [i.get("k") for i in paginate_sort(items, "k")]
+    assert asc == [1.5, 3, True, "A", "b", None, None]
+    desc = [i.get("k") for i in paginate_sort(items, "k", "desc")]
+    assert desc == ["b", "A", True, 3, 1.5, None, None]
+    assert paginate_sort(items, None) is items
+    with pytest.raises(BadRequest):
+        paginate_sort(items, "other", allowed={"k"})
 
 
 async def test_topic_detail_and_404(client: AsyncClient) -> None:

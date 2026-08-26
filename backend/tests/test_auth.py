@@ -348,7 +348,7 @@ INTEGRATION_MUTATIONS = [
     ("put", f"{C}/schemas/config", {"compatibility": "BACKWARD"}),
     ("post", f"{C}/connect/kc/connectors", {"name": "x", "config": {}}),
     ("post", f"{C}/ksql/k1/statement", {"sql": "DROP STREAM s;"}),
-    ("post", f"{C}/flink/f1/sql/sessions", {}),
+    ("post", f"{C}/flink/f1/sql/sessions/s1/statements", {"statement": "INSERT INTO t SELECT 1"}),
     ("delete", f"{C}/flink/f1/jars/abc", None),
     ("post", f"{C}/metrics/dashboards", {"title": "d", "panels": []}),
     ("delete", f"{C}/metrics/dashboards/abc", None),
@@ -395,3 +395,39 @@ async def test_ksql_query_stays_viewer(basic_auth_client: AsyncClient) -> None:
     token = bearer(await login(basic_auth_client, "vi", "vipw"))
     resp = await basic_auth_client.post(f"{C}/ksql/k1/query", json={"sql": "SELECT 1;"}, headers=token)
     assert resp.status_code not in (401, 403)
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        (f"{C}/flink/f1/sql/sessions", {}),
+        (f"{C}/flink/f1/sql/sessions/s1/statements", {"statement": "SHOW TABLES"}),
+        (f"{C}/ksql/k1/statement", {"sql": "SHOW STREAMS;"}),
+    ],
+)
+async def test_read_only_sql_is_viewer_level(basic_auth_client: AsyncClient, path: str, body: Any) -> None:
+    token = bearer(await login(basic_auth_client, "vi", "vipw"))
+    resp = await basic_auth_client.post(path, json=body, headers=token)
+    assert resp.status_code not in (401, 403), resp.text
+
+
+async def test_read_only_mode_allows_non_mutating_posts(cluster_read_only_client: AsyncClient) -> None:
+    """A reassignment *plan*, a ksql query and closing a push query never mutate the cluster."""
+    resp = await cluster_read_only_client.post(f"{C}/partitions/reassign/plan", json={"topics": ["orders"]})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["items"]
+    # still blocked: the real reassignment
+    resp = await cluster_read_only_client.post(
+        f"{C}/partitions/reassign",
+        json={"partitions": [{"topic": "orders", "partition": 0, "replicas": [1]}]},
+    )
+    assert resp.status_code == 403 and "read-only" in resp.json()["detail"]
+    for path, body in (
+        (f"{C}/ksql/k1/query", {"sql": "SELECT 1;"}),
+        (f"{C}/ksql/k1/close-query", {"queryId": "q"}),
+        (f"{C}/ksql/k1/statement", {"sql": "SHOW STREAMS;"}),
+    ):
+        resp = await cluster_read_only_client.post(path, json=body)
+        assert resp.status_code != 403, (path, resp.text)
+    resp = await cluster_read_only_client.post(f"{C}/ksql/k1/statement", json={"sql": "DROP STREAM s;"})
+    assert resp.status_code == 403 and "read-only" in resp.json()["detail"]

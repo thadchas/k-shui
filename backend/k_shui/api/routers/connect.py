@@ -13,7 +13,7 @@ from k_shui.api.schemas.connect import (
     CreateConnectorRequest,
     OffsetsPatch,
 )
-from k_shui.core.auth import require_editor, require_viewer
+from k_shui.core.auth import non_mutating, require_editor, require_viewer
 from k_shui.core.errors import IntegrationNotConfigured
 from k_shui.core.registry import ClusterContext, get_cluster
 from k_shui.integrations.audit import audit, publish
@@ -208,7 +208,8 @@ async def list_plugins(connect_name: str, ctx: ClusterContext = Depends(get_clus
     return await get_connect(ctx, connect_name).plugins()
 
 
-@router.put(KC + "/plugins/{plugin_class}/validate", dependencies=[Depends(require_editor)])
+@router.put(KC + "/plugins/{plugin_class}/validate")
+@non_mutating
 async def validate_plugin(
     connect_name: str,
     plugin_class: str,

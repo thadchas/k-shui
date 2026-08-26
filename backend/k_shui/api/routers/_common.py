@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import Request
 
+from k_shui.core.errors import BadRequest
 from k_shui.core.logging import get_logger
 from k_shui.core.registry import ClusterContext
 from k_shui.core.sampler import ClusterSampler, Sample
@@ -155,16 +156,78 @@ async def schema_flags(ctx: ClusterContext, topics: list[str]) -> dict[str, dict
     return {t: {"key": f"{t}-key" in subjects, "value": f"{t}-value" in subjects} for t in topics}
 
 
-def paginate_sort(items: list[dict[str, Any]], sort: str | None, order: str = "asc") -> list[dict[str, Any]]:
+ORDER_PATTERN = "^(asc|desc)$"
+TOPIC_SORT_KEYS = frozenset(
+    {
+        "name",
+        "partitions",
+        "replicationFactor",
+        "isInternal",
+        "underReplicatedPartitions",
+        "offlinePartitions",
+        "sizeBytes",
+        "messageCount",
+        "cleanupPolicy",
+        "retentionMs",
+        "bytesInPerSec",
+        "bytesOutPerSec",
+    }
+)
+GROUP_SORT_KEYS = frozenset(
+    {
+        "groupId",
+        "state",
+        "memberCount",
+        "topicCount",
+        "partitionCount",
+        "totalLag",
+        "maxTimeLagMs",
+        "coordinatorId",
+        "protocol",
+    }
+)
+
+
+def _sort_key(value: Any) -> tuple[int, Any]:
+    """Total order over mixed/None values: None last, then numbers, booleans, strings, the rest."""
+    if value is None:
+        return (4, 0)  # filtered out by callers; kept for completeness
+    if isinstance(value, bool):
+        return (1, int(value))
+    if isinstance(value, int | float):
+        return (0, value)
+    if isinstance(value, str):
+        return (2, value.lower())
+    return (3, str(value))
+
+
+def paginate_sort(
+    items: list[dict[str, Any]],
+    sort: str | None,
+    order: str = "asc",
+    allowed: frozenset[str] | set[str] | None = None,
+) -> list[dict[str, Any]]:
     if not sort:
         return items
-    reverse = (order or "asc").lower() == "desc"
+    if allowed is not None and sort not in allowed:
+        raise BadRequest(f"unknown sort key '{sort}' (expected one of {', '.join(sorted(allowed))})")
+    order = (order or "asc").lower()
+    if order not in ("asc", "desc"):
+        raise BadRequest("order must be 'asc' or 'desc'")
+    present = [i for i in items if i.get(sort) is not None]
+    absent = [i for i in items if i.get(sort) is None]
+    # None always sorts last, whichever the direction; mixed types never raise.
+    return sorted(present, key=lambda i: _sort_key(i.get(sort)), reverse=order == "desc") + absent
 
-    def key(item: dict[str, Any]) -> Any:
-        value = item.get(sort)
-        return (value is None, value if not isinstance(value, dict) else str(value))
 
-    return sorted(items, key=key, reverse=reverse)
-
-
-__all__ = ["cluster_summary", "paginate_sort", "rates_from", "sampler_for", "schema_flags", "topic_rate"]
+__all__ = [
+    "GROUP_SORT_KEYS",
+    "ORDER_PATTERN",
+    "TOPIC_SORT_KEYS",
+    "cluster_summary",
+    "paginate_sort",
+    "rates_from",
+    "sampler_for",
+    "schema_flags",
+    "topic_rate",
+]

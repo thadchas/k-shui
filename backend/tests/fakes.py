@@ -87,6 +87,9 @@ class FakeKafkaAdmin:
                 "offsets": [{"topic": "orders", "partition": 0, "offset": 90, "metadata": ""}],
             }
         }
+        self.broker_configs: dict[int, dict[str, str]] = {
+            b: {"log.dirs": "/var/lib/kafka", "num.io.threads": "8"} for b in self.brokers
+        }
         self.acls: list[dict[str, Any]] = []
         self.scram: dict[str, list[dict[str, Any]]] = {}
         self.calls: list[str] = []
@@ -240,7 +243,7 @@ class FakeKafkaAdmin:
         else:
             if int(name or 0) not in self.brokers:
                 raise NotFound(f"broker {name} not found")
-            source = {"log.dirs": "/var/lib/kafka", "num.io.threads": "8"}
+            source = self.broker_configs.setdefault(int(name or 0), {})
         return [
             {
                 "name": k,
@@ -260,9 +263,18 @@ class FakeKafkaAdmin:
     ) -> list[dict[str, Any]]:
         self._record(f"alter_configs:{kind}:{name}")
         if kind == "topic":
-            self._require_topic(str(name)).configs.update(
-                {k: str(v) for k, v in configs.items() if v is not None}
-            )
+            target = self._require_topic(str(name)).configs
+        elif kind == "cluster":
+            for b in self.brokers:
+                await self.alter_configs("broker", str(b), configs)
+            return await self.describe_configs(kind, name)
+        else:
+            target = self.broker_configs.setdefault(int(name or 0), {})
+        for k, v in configs.items():
+            if v is None:
+                target.pop(k, None)
+            else:
+                target[k] = str(v)
         return await self.describe_configs(kind, name)
 
     async def describe_log_dirs(self, broker_ids: list[int] | None = None) -> dict[str, Any]:

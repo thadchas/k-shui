@@ -8,7 +8,7 @@ import httpx
 import pytest
 import respx
 
-from tests.conftest_integrations import KSQL_NAME, KSQL_URL, base
+from tests.conftest_integrations import KSQL_NAME, KSQL_URL, base, build_app
 
 pytest_plugins = ["tests.conftest_integrations"]
 
@@ -76,6 +76,32 @@ async def test_statement_appends_semicolon_and_records_history(api, ksql_mock):
     assert history[0]["kind"] == "statement"
     assert history[0]["ok"] is True
     assert history[0]["server"] == KSQL_NAME
+
+
+async def test_statement_viewer_gate(integration_settings, ksql_mock):
+    from httpx import ASGITransport, AsyncClient
+
+    from k_shui.config import AuthConfig, BasicAuthUser
+    from k_shui.core.auth import Principal, create_token
+
+    integration_settings.auth = AuthConfig(
+        type="basic",
+        jwtSecret="s",
+        users=[BasicAuthUser(username="vi", password="vipw", role="viewer")],
+    )
+    token, _ = create_token(integration_settings, Principal(username="vi", role="viewer"))
+    headers = {"Authorization": f"Bearer {token}"}
+    route = ksql_mock.post("/ksql").mock(return_value=httpx.Response(200, json=[{"streams": []}]))
+    app = build_app(integration_settings)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://itest") as client:
+        ok = await client.post(KS + "/statement", json={"sql": "SHOW STREAMS"}, headers=headers)
+        assert ok.status_code == 200, ok.text
+        denied = await client.post(
+            KS + "/statement", json={"sql": "SHOW STREAMS; DROP STREAM s"}, headers=headers
+        )
+        assert denied.status_code == 403
+        assert route.call_count == 1
+    await app.state.registry.aclose()
 
 
 async def test_statement_error_is_upstream_problem_and_history_records_failure(api, ksql_mock):

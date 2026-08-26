@@ -5,12 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from httpx import AsyncClient
 
 from k_shui.config import ClusterConfig, Settings
 from k_shui.core.errors import BadRequest, Conflict, IntegrationUnavailable, NotFound, UpstreamError
 from k_shui.core.registry import ClusterRegistry
 from k_shui.kafka.admin import KafkaAdmin, _config_source_name, _logdirs_to_dict, client_config
 from k_shui.kafka.consumer import BrowseRequest, MessageFilter
+
+C = "/api/v1/clusters/test"
 
 
 @pytest.fixture
@@ -174,6 +177,28 @@ def test_empty_filter_matches_everything() -> None:
 def test_invalid_filters_are_rejected() -> None:
     with pytest.raises(BadRequest):
         MessageFilter("([", "regex")
+
+
+@pytest.mark.parametrize("pattern", ["(a+)+$", "(a*)*b", "(\\d+)*x", "a**", "(x|y+){2,}"])
+def test_regex_filter_rejects_nested_quantifiers(pattern: str) -> None:
+    with pytest.raises(BadRequest, match="nested quantifiers"):
+        MessageFilter(pattern, "regex")
+
+
+def test_regex_filter_accepts_plain_patterns_and_caps_haystack() -> None:
+    from k_shui.kafka.consumer import MAX_FILTER_HAYSTACK
+
+    assert MessageFilter(r"^ord\d+$", "regex").matches({"value": "ord42"}) is True
+    assert MessageFilter(r"(ab)+c", "regex").matches({"value": "xababc"}) is True
+    huge = "x" * (MAX_FILTER_HAYSTACK + 10) + "needle"
+    assert MessageFilter("needle", "regex").matches({"value": huge}) is False
+    assert MessageFilter("needle", "contains").matches({"value": huge}) is False
+    assert MessageFilter("needle", "contains").matches({"value": "needle" + huge}) is True
+
+
+async def test_filter_query_length_is_capped(client: AsyncClient) -> None:
+    resp = await client.get(f"{C}/topics/orders/messages", params={"filter": "a" * 513, "stream": "false"})
+    assert resp.status_code == 422
     with pytest.raises(BadRequest):
         MessageFilter("$$$[", "jsonpath")
 

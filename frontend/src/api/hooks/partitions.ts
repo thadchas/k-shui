@@ -3,6 +3,8 @@ import { api } from '@/api/client';
 import { clusterScope } from '@/api/keys';
 import { useRefetchInterval } from '@/stores/ui';
 import type {
+  ClearThrottleRequest,
+  ClearThrottleResponse,
   ElectLeadersRequest,
   ElectLeadersResponse,
   PartitionCapabilities,
@@ -68,5 +70,15 @@ export function useReassign(cluster: string) {
     mutationFn: (body: ReassignRequest) =>
       api.post<ReassignResponse>(`${base(cluster)}/reassign`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: clusterScope(cluster) }),
+  });
+}
+
+/** Remove the replication throttle a reassignment left behind (brokers + topic replica lists). */
+export function useClearThrottle(cluster: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ClearThrottleRequest = {}) =>
+      api.delete<ClearThrottleResponse>(`${base(cluster)}/throttle`, undefined, { body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: partitionKeys.reassignments(cluster) }),
   });
 }

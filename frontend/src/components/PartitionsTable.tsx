@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Crown, Shuffle, Vote } from 'lucide-react';
-import { useReassignments } from '@/api/hooks/partitions';
+import { Crown, Gauge, Shuffle, Vote } from 'lucide-react';
+import { useClearThrottle, useReassignments } from '@/api/hooks/partitions';
 import type { PartitionDetail, PartitionRef, ReassignmentInProgress } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
 import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { formatBytes, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { ConfirmDestructiveDialog } from '@/components/ConfirmDestructiveDialog';
 import { ElectLeadersDialog } from '@/components/PartitionOps/ElectLeadersDialog';
 import { ReassignDialog } from '@/components/PartitionOps/ReassignDialog';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTable } from '@/components/ui/data-table';
 import { Switch } from '@/components/ui/switch';
+import { toast, toastError } from '@/components/ui/toast';
 import { Tooltip } from '@/components/ui/tooltip';
 
 function ReplicaList({
@@ -131,7 +133,10 @@ export function PartitionsTable({
   const [onlyUnhealthy, setOnlyUnhealthy] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [electOpen, setElectOpen] = useState(false);
+  const [throttleOpen, setThrottleOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<PartitionDetail | null>(null);
+  const clearThrottle = useClearThrottle(clusterId ?? '');
+  const throttled = reassignments.data?.throttled ?? false;
 
   // Drop selections for partitions that disappeared (e.g. topic switched).
   useEffect(() => {
@@ -362,6 +367,26 @@ export function PartitionsTable({
                 {inFlight.size} reassigning
               </Badge>
             ) : null}
+            {throttled ? (
+              <Tooltip
+                content={
+                  canEdit
+                    ? 'A replication throttle from a reassignment is still configured on the brokers'
+                    : REQUIRES_EDITOR
+                }
+              >
+                <span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!canEdit}
+                    onClick={() => setThrottleOpen(true)}
+                  >
+                    <Gauge /> Clear throttle
+                  </Button>
+                </span>
+              </Tooltip>
+            ) : null}
           </>
         ) : null}
         {unhealthyCount > 0 ? (
@@ -416,6 +441,25 @@ export function PartitionsTable({
       />
       {actionsEnabled ? (
         <>
+          <ConfirmDestructiveDialog
+            open={throttleOpen}
+            onOpenChange={setThrottleOpen}
+            title="Clear replication throttle?"
+            description="Removes leader/follower.replication.throttled.rate from every broker and the throttled-replica lists from every topic that carries them. Only do this once no reassignment is in flight, otherwise the move runs unthrottled."
+            confirmLabel="Clear throttle"
+            loading={clearThrottle.isPending}
+            onConfirm={async () => {
+              try {
+                const result = await clearThrottle.mutateAsync({});
+                toast.success('Throttle cleared', {
+                  description: `${result.brokers.length} broker(s), ${result.topics.length} topic(s)`,
+                });
+                setThrottleOpen(false);
+              } catch (e) {
+                toastError('Could not clear throttle', e);
+              }
+            }}
+          />
           <ElectLeadersDialog
             open={electOpen}
             onOpenChange={setElectOpen}

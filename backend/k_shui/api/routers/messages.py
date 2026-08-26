@@ -40,7 +40,7 @@ def browse_params(
     limit: int = Query(100, ge=1, le=10000),
     keyFormat: str = Query("auto"),
     valueFormat: str = Query("auto"),
-    filter: str | None = Query(None),
+    filter: str | None = Query(None, max_length=512),
     filterMode: str = Query("contains", pattern="^(contains|regex|jsonpath)$"),
     filterTarget: str = Query(
         "any",

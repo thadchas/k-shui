@@ -96,6 +96,18 @@ class ReassignmentsResponse(Model):
     supported: bool = True
     reason: str | None = None
     items: list[ReassignmentInProgress] = []
+    # Any broker carries leader/follower.replication.throttled.rate (offer "Clear throttle").
+    throttled: bool = False
+
+
+class ClearThrottleRequest(Model):
+    # Topics whose throttled-replica lists to drop; empty/omitted = every topic carrying them.
+    topics: list[str] = []
+
+
+class ClearThrottleResponse(Model):
+    brokers: list[int] = []
+    topics: list[str] = []
 
 
 class PartitionCapabilities(Model):
@@ -106,6 +118,8 @@ class PartitionCapabilities(Model):
 
 
 __all__ = [
+    "ClearThrottleRequest",
+    "ClearThrottleResponse",
     "ElectLeadersRequest",
     "ElectLeadersResponse",
     "ElectionResult",

@@ -29,14 +29,21 @@ export function usePermissions(): Permissions {
   const { data: info, isLoading } = useInfo();
   const localUser = useAuthStore((s) => s.user);
 
-  const authEnabled = info?.auth.enabled ?? false;
+  const loading = !info;
   const user = info?.auth.user ?? localUser ?? null;
-  const role: UserRole = !authEnabled && info ? 'admin' : (user?.role ?? 'viewer');
+  // Until `/info` answers we have nothing to go on: if a login user is known use their role,
+  // otherwise assume full access so controls do not flash disabled on every page load (the
+  // server enforces roles regardless). Once `/info` is in, its answer wins.
+  const role: UserRole = info
+    ? info.auth.enabled
+      ? (user?.role ?? 'viewer')
+      : 'admin'
+    : (localUser?.role ?? 'admin');
 
   return {
     role,
     canEdit: role === 'admin' || role === 'editor',
     isAdmin: role === 'admin',
-    loading: isLoading && !info,
+    loading: loading && isLoading,
   };
 }

@@ -85,6 +85,9 @@ export function useMessageStream(cluster: string, topic: string): MessageStreamS
   const limitRef = useRef<number>(500);
   const liveRef = useRef(false);
   const pausedRef = useRef(false);
+  // Bumped on every start()/stop(). Callbacks of an aborted stream (its onClose fires
+  // asynchronously, after the abort) must not touch the state of the stream that replaced it.
+  const generationRef = useRef(0);
 
   const flush = useCallback(() => {
     frameRef.current = null;
@@ -116,6 +119,7 @@ export function useMessageStream(cluster: string, topic: string): MessageStreamS
   }, [flush]);
 
   const stop = useCallback(() => {
+    generationRef.current += 1;
     abortRef.current?.();
     abortRef.current = null;
     pausedRef.current = false;
@@ -146,6 +150,8 @@ export function useMessageStream(cluster: string, topic: string): MessageStreamS
 
   const start = useCallback(
     (query: MessagesQuery) => {
+      const generation = ++generationRef.current;
+      const current = () => generationRef.current === generation;
       abortRef.current?.();
       bufferRef.current = [];
       limitRef.current = Math.max(query.limit ?? 100, 1);
@@ -164,6 +170,7 @@ export function useMessageStream(cluster: string, topic: string): MessageStreamS
         params: { ...queryParams(query), stream: true },
         on: {
           message: (payload) => {
+            if (!current()) return;
             const buffer = bufferRef.current;
             buffer.push(payload as Message);
             // while paused the buffer is the ring: keep only the newest `limit`
@@ -172,11 +179,13 @@ export function useMessageStream(cluster: string, topic: string): MessageStreamS
             schedule();
           },
           progress: (payload) => {
+            if (!current()) return;
             const p = payload as MessageProgress;
             setProgress(p);
             if (typeof p.behind === 'number') setBehind(p.behind);
           },
           error: (payload) => {
+            if (!current()) return;
             const detail =
               payload && typeof payload === 'object' && 'detail' in payload
                 ? String((payload as { detail: unknown }).detail)
@@ -186,6 +195,7 @@ export function useMessageStream(cluster: string, topic: string): MessageStreamS
             setError(new Error(detail));
           },
           end: () => {
+            if (!current()) return;
             pausedRef.current = false;
             setPaused(false);
             flush();
@@ -194,10 +204,12 @@ export function useMessageStream(cluster: string, topic: string): MessageStreamS
           },
         },
         onError: (e) => {
+          if (!current()) return;
           setError(e instanceof Error ? e : new Error(String(e)));
           setStreaming(false);
         },
         onClose: () => {
+          if (!current()) return;
           pausedRef.current = false;
           setPaused(false);
           flush();
