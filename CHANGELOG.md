@@ -2,12 +2,21 @@
 
 All notable changes to k-shui are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
-[Semantic Versioning](https://semver.org/) once released.
+[Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+**This file is generated.** From `0.1.0` onward, entries are written by
+[release-please](https://github.com/googleapis/release-please) from the
+[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/#summary)
+that land on `main`, and new versions are inserted directly below this note. Do
+not add sections by hand — write a good pull request title and description
+instead. See [`docs/development/releasing.md`](docs/development/releasing.md).
 
-Operator-safety and incident-ergonomics release driven by a Kafka-practitioner
-UX review. Tracked in [`docs/roadmap.md`](docs/roadmap.md) and the
+## [0.1.0]
+
+The initial release: everything below was written by hand before the release
+automation existed. Operator-safety and incident-ergonomics work driven by a
+Kafka-practitioner UX review, on top of the first complete backend, frontend and
+packaging drop. Tracked in [`docs/roadmap.md`](docs/roadmap.md) and the
 [issue tracker](https://github.com/thadchas/k-shui/issues).
 
 ### Security
@@ -149,5 +158,4 @@ control center for Apache Kafka and its streaming ecosystem, deployable via
   Compose demo stack / Helm chart / Kustomize base+overlays; health probes,
   Prometheus `/metrics`, optional OpenTelemetry traces, structured logs.
 
-[Unreleased]: https://github.com/thadchas/k-shui/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/thadchas/k-shui/releases/tag/v0.1.0

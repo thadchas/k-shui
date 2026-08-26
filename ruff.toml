@@ -1,0 +1,10 @@
+# Lint/format settings for the repo-root tooling in `scripts/`.
+# The backend has its own [tool.ruff] block in backend/pyproject.toml; ruff picks
+# the nearest config, so these two never fight. Kept deliberately identical to
+# the backend's so contributors get one style across the repo.
+line-length = 110
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF012"]

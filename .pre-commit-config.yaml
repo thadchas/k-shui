@@ -1,14 +1,21 @@
+# `pre-commit install` wires up both the pre-commit hooks (lint/format) and the
+# commit-msg hook that enforces Conventional Commits — see CONTRIBUTING.md and
+# docs/development/releasing.md.
+default_install_hook_types: [pre-commit, commit-msg]
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
     hooks:
+      # Two ruff configs, one per tree: backend/pyproject.toml for the app,
+      # ruff.toml at the root for scripts/. ruff picks the nearest one.
       - id: ruff
-        name: ruff (backend)
+        name: ruff (backend + scripts)
         args: [--fix]
-        files: ^backend/
+        files: ^(backend|scripts)/
       - id: ruff-format
-        name: ruff format (backend)
-        files: ^backend/
+        name: ruff format (backend + scripts)
+        files: ^(backend|scripts)/
 
   - repo: local
     hooks:
@@ -38,6 +45,24 @@ repos:
 
   - repo: local
     hooks:
+      # The same validator the pr-lint workflow runs on the pull request title,
+      # so a message that would break the release notes fails at `git commit`
+      # rather than in CI.
+      - id: conventional-commit
+        name: conventional commit message
+        entry: python3 scripts/conventional_commit.py --commit-msg-file
+        language: system
+        stages: [commit-msg]
+
+      # One release ships four artifacts; a half-applied version bump would ship
+      # a wheel that reports the wrong version at `k-shui version`.
+      - id: version-lockstep
+        name: version declarations in lock-step
+        entry: python3 scripts/check_versions.py
+        language: system
+        pass_filenames: false
+        files: ^(version\.txt|backend/pyproject\.toml|backend/k_shui/__init__\.py|packages/npm/package\.json|frontend/package\.json|charts/k-shui/Chart\.yaml)$
+
       - id: helm-lint
         name: helm lint charts/k-shui
         entry: charts/k-shui/ci/helm-lint.sh

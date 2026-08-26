@@ -1,0 +1,41 @@
+# k-shui squash-merges pull requests, so the PR title becomes the commit subject
+# and the PR description becomes the commit body. That squashed message is the
+# only input release-please has when it decides the next semantic version and
+# writes CHANGELOG.md — a "fix stuff" title silently produces no release at all.
+# So the title and description are linted here, on the pull request, where they
+# can still be edited.
+#
+# https://www.conventionalcommits.org/en/v1.0.0/#summary
+name: pr-lint
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-lint-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  conventional-commit:
+    name: conventional commit title & description
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Title and body are attacker-controlled text: they go in through the
+      # environment and a file, never spliced into the shell command itself.
+      - name: Validate the pull request title and description
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${PR_BODY}" > "${RUNNER_TEMP}/pr-body.md"
+          python3 scripts/conventional_commit.py \
+            --pr-title "${PR_TITLE}" \
+            --pr-body-file "${RUNNER_TEMP}/pr-body.md" \
+            --require-body

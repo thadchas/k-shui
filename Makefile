@@ -12,7 +12,7 @@ COMPOSE_FILE ?= deploy/compose/docker-compose.yml
 # (Colima / older Docker Desktop installs often ship only the latter).
 COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose')
 
-.PHONY: help dev build build-frontend build-backend run test lint docker compose-up compose-down compose-full-up compose-down-full helm-template helm-lint helm-install kustomize-dev kustomize-prod clean
+.PHONY: help dev build build-frontend build-backend run test test-release-tooling lint commitlint version version-check version-set docker compose-up compose-down compose-full-up compose-down-full helm-template helm-lint helm-install kustomize-dev kustomize-prod clean
 
 help: ## Show this help
 	@echo "k-shui — available targets:"
@@ -39,12 +39,30 @@ build-backend: ## uv build the backend wheel/sdist
 run: ## Serve k-shui with the local example config
 	cd backend && (uv sync --frozen || uv sync) && uv run k-shui serve --config ../deploy/examples/k-shui.local.yaml --port $(PORT)
 
-test: ## Run backend and frontend test suites
+test: test-release-tooling ## Run backend, frontend and release-tooling test suites
 	cd backend && (uv sync --frozen --dev || uv sync --dev) && uv run pytest
 	cd frontend && npm ci && npm run typecheck
 
-lint: ## Lint backend (ruff) and frontend (eslint)
+test-release-tooling: ## Unit-test scripts/ (stdlib only, no venv needed)
+	python3 -m unittest discover -s scripts/tests -t scripts/tests
+
+commitlint: ## Check a commit message: make commitlint MSG="feat(topics): add purge"
+	@test -n "$(MSG)" || { echo 'usage: make commitlint MSG="feat(topics): add purge"'; exit 2; }
+	@python3 scripts/conventional_commit.py --header "$(MSG)"
+
+version: ## Print the current version
+	@python3 scripts/check_versions.py --print
+
+version-check: ## Assert the wheel, npm package, image and chart all declare one version
+	@python3 scripts/check_versions.py
+
+version-set: ## Set the version everywhere (release-please normally does this): make version-set VERSION=1.4.0
+	@test -n "$(VERSION)" || { echo 'usage: make version-set VERSION=1.4.0'; exit 2; }
+	@python3 scripts/check_versions.py --set "$(VERSION)"
+
+lint: ## Lint backend + scripts (ruff) and frontend (eslint)
 	cd backend && (uv sync --frozen --dev || uv sync --dev) && uv run ruff check . && uv run ruff format --check .
+	uvx ruff check scripts/ && uvx ruff format --check scripts/
 	cd frontend && npm ci && npm run lint
 
 docker: ## Build the k-shui Docker image (context = repo root)
