@@ -61,7 +61,8 @@ a topic; see per-topic consumers, metrics, and schema linkage.
 | `POST`      | `/api/v1/clusters/{c}/partitions/elect-leaders`                           | `{partitions:[{topic,partition}], electionType:'preferred'\|'unclean'}` (empty = all)                                                                  |
 | `POST`      | `/api/v1/clusters/{c}/partitions/reassign/plan`                           | `{topics, brokers?}` → rack-aware balanced plan + reassignment JSON (never applies)                                                                    |
 | `POST`      | `/api/v1/clusters/{c}/partitions/reassign`                                | `{partitions:[{topic,partition,replicas}], throttleBytesPerSec?}`; `501` with `kafka-reassign-partitions.sh` payload when the Kafka client can't apply |
-| `GET`       | `/api/v1/clusters/{c}/partitions/reassignments`, `.../capabilities`       | In-flight moves; which operations the client supports                                                                                                  |
+| `GET`       | `/api/v1/clusters/{c}/partitions/reassignments`, `.../capabilities`       | In-flight moves (+ `throttled`); which operations the client supports                                                                                  |
+| `DELETE`    | `/api/v1/clusters/{c}/partitions/throttle`                                | `{topics?}` — clear replication throttles left by a reassignment                                                                                       |
 
 ## Config required
 
