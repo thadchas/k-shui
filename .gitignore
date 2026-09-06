@@ -18,5 +18,9 @@ coverage/
 .coverage
 htmlcov/
 frontend/.vite/
+frontend/playwright-report/
+frontend/test-results/
+frontend/blob-report/
+frontend/.playwright/
 packages/npm/bin/uv*
 charts/*.tgz

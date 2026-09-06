@@ -44,7 +44,12 @@ export function MessageStreamStatus({
   live,
 }: MessageStreamStatusProps) {
   return (
-    <div className="mt-4 space-y-1.5" role="status" aria-live="polite">
+    <div
+      className="mt-4 space-y-1.5"
+      role="status"
+      aria-live="polite"
+      data-testid="message-stream-status"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2 text-2xs text-[var(--muted)]">
         <span className="flex flex-wrap items-center gap-2">
           <span

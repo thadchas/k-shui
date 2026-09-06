@@ -8,11 +8,13 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint . --max-warnings 0",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{ts,json,html}\"",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"e2e/**/*.ts\" \"*.{ts,json,html}\"",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\""
+    "test:e2e": "playwright test -c e2e/playwright.config.ts",
+    "test:e2e:ui": "playwright test -c e2e/playwright.config.ts --ui",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"e2e/**/*.ts\""
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.1.1",
@@ -59,6 +61,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.0.6",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",

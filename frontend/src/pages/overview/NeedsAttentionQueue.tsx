@@ -47,7 +47,11 @@ function AttentionRow({
 
   if (item.severity === 'unavailable' || !item.href) {
     return (
-      <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+      <div
+        data-testid="attention-item"
+        data-attention-source={item.source}
+        className="flex items-center justify-between gap-3 px-3 py-2.5"
+      >
         {content}
         <Button variant="ghost" size="sm" className="shrink-0" onClick={() => onRetry(item.source)}>
           <RefreshCw /> Retry
@@ -58,6 +62,8 @@ function AttentionRow({
 
   return (
     <Link
+      data-testid="attention-item"
+      data-attention-source={item.source}
       to={item.href}
       className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-[var(--surface-2)]"
     >
@@ -73,7 +79,7 @@ export function NeedsAttentionQueue({
   onRetry,
 }: NeedsAttentionQueueProps) {
   return (
-    <Card>
+    <Card data-testid="needs-attention">
       <CardToolbarHeader
         title="Needs attention"
         description="Offline or under-replicated partitions, failed services, then sustained consumer lag"

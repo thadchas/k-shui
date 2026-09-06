@@ -5,7 +5,15 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist', '../backend/k_shui/static', 'node_modules'] },
+  {
+    ignores: [
+      'dist',
+      '../backend/k_shui/static',
+      'node_modules',
+      'playwright-report',
+      'test-results',
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],
@@ -36,5 +44,11 @@ export default tseslint.config(
   {
     files: ['eslint.config.js', 'vite.config.ts'],
     languageOptions: { globals: globals.node },
+  },
+  {
+    // Playwright specs and their fixtures run under Node (config, `process.env`) but drive a
+    // browser (`page.evaluate` callbacks touch `window`/`document`), so both global sets apply.
+    files: ['e2e/**/*.ts'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
 );

@@ -143,7 +143,7 @@ interface ResourceSectionProps {
 function ResourceSection({ label, entries, collapsed, pinned, onTogglePin }: ResourceSectionProps) {
   if (entries.length === 0) return null;
   return (
-    <div className="mb-4">
+    <div className="mb-4" data-testid={`resource-section-${label.toLowerCase()}`}>
       {!collapsed ? (
         <p className="mb-1 px-2 text-2xs font-semibold uppercase tracking-wide text-[var(--muted)]">
           {label}
