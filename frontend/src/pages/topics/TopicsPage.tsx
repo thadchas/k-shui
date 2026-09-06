@@ -59,6 +59,7 @@ import {
   createSavedView,
   defaultColumnPrefs,
   findBuiltInView,
+  type TopicListFilters,
   getTopicHealth,
   HIDEABLE_TOPIC_COLUMNS,
   isColumnVisible,
@@ -213,13 +214,29 @@ export function TopicsPage() {
     const trimmed = name.trim();
     if (!trimmed) return;
     const filters = { search, showInternal, sort, order };
-    setSavedViews((prev) => {
-      const existing = prev.find((v) => v.name.toLowerCase() === trimmed.toLowerCase());
-      const view = createSavedView(trimmed, filters, columnPrefs, existing?.id);
-      const next = upsertSavedView(prev, view);
-      persistSavedViews(cluster, next);
-      setActiveViewId(view.id);
-      return next;
+    const existing = savedViews.find((v) => v.name.toLowerCase() === trimmed.toLowerCase());
+    const view = createSavedView(trimmed, filters, columnPrefs, existing?.id);
+    const next = upsertSavedView(savedViews, view);
+    persistSavedViews(cluster, next);
+    setSavedViews(next);
+    setActiveViewId(view.id);
+  }
+
+  /**
+   * Filter/sort changes clear the active view only when they diverge from what
+   * the view itself specifies — applying a view routes its own filters back
+   * through these handlers, which must not deactivate the view it just set.
+   */
+  function clearViewUnlessMatches(changed: Partial<TopicListFilters>) {
+    setActiveViewId((prev) => {
+      if (!prev) return prev;
+      const view = findBuiltInView(prev) ?? savedViews.find((v) => v.id === prev);
+      if (!view) return null;
+      for (const key of Object.keys(changed) as (keyof TopicListFilters)[]) {
+        const expected = view.filters[key];
+        if (expected !== undefined && expected !== changed[key]) return null;
+      }
+      return prev;
     });
   }
 
@@ -534,7 +551,7 @@ export function TopicsPage() {
         globalFilter={search}
         onGlobalFilterChange={(v) => {
           setUrl({ q: v, page: 1 });
-          setActiveViewId(null);
+          clearViewUnlessMatches({ search: v });
         }}
         searchPlaceholder="Search topics…"
         sorting={sorting}
@@ -544,7 +561,7 @@ export function TopicsPage() {
             ? (next.id as SortKey)
             : 'name';
           setUrl({ sort: nextSort, order: next?.desc ? 'desc' : 'asc', page: 1 });
-          setActiveViewId(null);
+          clearViewUnlessMatches({ sort: nextSort, order: next?.desc ? 'desc' : 'asc' });
         }}
         manualSorting
         page={page}
@@ -564,7 +581,7 @@ export function TopicsPage() {
                 checked={showInternal}
                 onCheckedChange={(v) => {
                   setUrl({ showInternal: v, page: 1 });
-                  setActiveViewId(null);
+                  clearViewUnlessMatches({ showInternal: v });
                 }}
                 aria-label="Show internal topics"
               />
@@ -605,7 +622,6 @@ export function TopicsPage() {
                   savedViews.map((v) => (
                     <DropdownMenuItem
                       key={v.id}
-                      onSelect={(e) => e.preventDefault()}
                       className="flex items-center justify-between gap-1"
                     >
                       <button
