@@ -122,6 +122,10 @@ Every release publishes the same commit four ways:
 | Container    | `ghcr.io/<owner>/k-shui`                         | multi-arch, cosign keyless signature, SPDX SBOM     |
 | Helm chart   | `oci://ghcr.io/<owner>/charts/k-shui`            | `version` and `appVersion` both track the release   |
 
+Build metadata (`+build.5`) is rejected by the publishing workflow because Docker
+tags cannot contain `+`. Python wheel versions use PEP 440 normalization (for
+example, `1.4.0-rc.1` becomes `1.4.0rc1`).
+
 A prerelease tag (`v1.4.0-rc.1`) publishes everywhere but never moves the
 `latest` Docker tag, the `X.Y` Docker tag, or the npm `latest` dist-tag.
 

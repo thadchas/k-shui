@@ -68,8 +68,8 @@ jobs:
           version="${tag#v}"
           # Semantic Versioning 2.0.0 — https://semver.org
           semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
-          if ! [[ "${version}" =~ ${semver} ]]; then
-            echo "::error::'${tag}' is not a v-prefixed semantic version (expected e.g. v1.4.0 or v1.4.0-rc.1)"
+          if [[ "${tag}" != v* || "${version}" == *+* ]] || ! [[ "${version}" =~ ${semver} ]]; then
+            echo "::error::'${tag}' is not a publishable v-prefixed semantic version (build metadata is unsupported; expected e.g. v1.4.0 or v1.4.0-rc.1)"
             exit 1
           fi
           major="${version%%.*}"
@@ -155,9 +155,24 @@ jobs:
           test "${assets}" -gt 0
       - name: Assert the wheel is versioned like the tag
         working-directory: backend
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          ls dist/k_shui-${{ needs.resolve.outputs.version }}-*.whl
+          uv run --no-project --with packaging python - <<'PYTHON'
+          import os
+          from email.parser import BytesParser
+          from pathlib import Path
+          from zipfile import ZipFile
+          from packaging.version import Version
+
+          wheels = list(Path("dist").glob("*.whl"))
+          assert len(wheels) == 1, f"Expected one wheel, found {wheels}"
+          with ZipFile(wheels[0]) as wheel:
+              metadata_path, = [p for p in wheel.namelist() if p.endswith(".dist-info/METADATA")]
+              metadata = BytesParser().parsebytes(wheel.read(metadata_path))
+          assert Version(metadata["Version"]) == Version(os.environ["RELEASE_VERSION"])
+          PYTHON
       - name: Publish to PyPI (trusted publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
         with:

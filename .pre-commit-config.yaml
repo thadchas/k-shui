@@ -61,7 +61,7 @@ repos:
         entry: python3 scripts/check_versions.py
         language: system
         pass_filenames: false
-        files: ^(version\.txt|backend/pyproject\.toml|backend/k_shui/__init__\.py|packages/npm/package\.json|frontend/package\.json|charts/k-shui/Chart\.yaml)$
+        files: ^(version\.txt|backend/pyproject\.toml|backend/uv\.lock|backend/k_shui/__init__\.py|packages/npm/package\.json|frontend/package\.json|frontend/package-lock\.json|charts/k-shui/Chart\.yaml)$
 
       - id: helm-lint
         name: helm lint charts/k-shui
