@@ -87,6 +87,8 @@ jobs:
     permissions:
       contents: write # append install notes to the GitHub release
       packages: write # GHCR image + OCI chart
+      attestations: write
+      artifact-metadata: write
       id-token: write # PyPI trusted publishing, npm provenance, cosign, SBOM attestation
     uses: ./.github/workflows/release.yml
     with:

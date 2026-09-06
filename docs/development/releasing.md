@@ -176,7 +176,7 @@ git tag v1.4.0-rc.1 && git push origin main --tags
 | [`.github/workflows/release.yml`](../../.github/workflows/release.yml)               | publishes PyPI + npm + GHCR + Helm for one tag                                 |
 | [`.github/workflows/pr-lint.yml`](../../.github/workflows/pr-lint.yml)               | enforces the title/description contract and version lock-step                  |
 | [`scripts/conventional_commit.py`](../../scripts/conventional_commit.py)             | the validator behind `pr-lint`, the `commit-msg` hook and `make commitlint`    |
-| [`scripts/check_versions.py`](../../scripts/check_versions.py)                       | asserts (or applies) one version across all seven declaration sites            |
+| [`scripts/check_versions.py`](../../scripts/check_versions.py)                       | asserts (or applies) one version across all ten declaration sites              |
 
 ### Why the tag push does not publish twice
 
@@ -188,7 +188,7 @@ triggers the workflow normally.
 
 ### Where the version is declared
 
-`version.txt` is canonical. release-please mirrors it into six more places, and
+`version.txt` is canonical. release-please mirrors it into the application manifests and lockfiles, and
 `scripts/check_versions.py` fails CI if any of them drifts:
 
 ```
@@ -197,11 +197,12 @@ backend/pyproject.toml       PyPI wheel / sdist
 backend/k_shui/__init__.py   `k-shui version`, /api/v1/info, the OpenAPI doc
 packages/npm/package.json    npx launcher
 frontend/package.json        SPA build metadata
+frontend/package-lock.json   npm root version and locked root package
+backend/uv.lock              locked Python project version
 charts/k-shui/Chart.yaml     chart version + appVersion
 ```
 
-The three plain-text ones carry an `# x-release-please-version` comment; the two
-`package.json` files are updated by JSON path. **Adding a new place that
+The four plain-text files carry an `# x-release-please-version` comment; the npm manifests and lockfile are updated by JSON path. **Adding a new place that
 declares the version means adding it to both `SITES` in `check_versions.py` and
 `extra-files` in `release-please-config.json`** — a unit test in
 [`scripts/tests/test_release_tooling.py`](../../scripts/tests/test_release_tooling.py)

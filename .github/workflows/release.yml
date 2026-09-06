@@ -201,6 +201,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      attestations: write
+      artifact-metadata: write
       id-token: write # cosign keyless signing + SBOM attestation
     steps:
       - uses: actions/checkout@v7

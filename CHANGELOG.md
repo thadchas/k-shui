@@ -112,7 +112,7 @@ packaging drop. Tracked in [`docs/roadmap.md`](docs/roadmap.md) and the
 - `ErrorBoundary` did not reset on navigation; Cancel was disabled during a
   pending destructive action.
 
-## [0.1.0] — initial release
+### Initial application and packaging
 
 First public, pre-1.0 release. k-shui is a single-application, Apache-2.0
 control center for Apache Kafka and its streaming ecosystem, deployable via
