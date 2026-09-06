@@ -131,9 +131,10 @@ Every mutating call is audited. Every route is prefixed with `/api/v1`.
 
 **Roles (enforced on every router when `auth` is enabled):** `GET` routes require `viewer`;
 `POST|PUT|PATCH|DELETE` require `editor`; user management and **unclean** leader election require
-`admin`. Endpoints marked `@non_mutating` are viewer-level POSTs that also bypass `readOnly`:
-`ksql/{k}/query`, `ksql/{k}/close-query`, `partitions/reassign/plan`, `flink/{f}/sql/sessions`,
-`connect/{k}/plugins/{class}/validate`. SQL statement endpoints (`ksql/{k}/statement`,
+`admin`. Endpoints marked `@non_mutating` are POSTs that change nothing and therefore bypass
+`readOnly` (they still enforce their own minimum role): `ksql/{k}/query`, `ksql/{k}/close-query`,
+`partitions/reassign/plan`, `flink/{f}/sql/sessions`, `connect/{k}/plugins/{class}/validate`
+(viewer), and `system/connection-test`, `system/connection-config` (admin). SQL statement endpoints (`ksql/{k}/statement`,
 `flink/{f}/sql/sessions/{s}/statements`) are classified server-side: read-only SQL
 (`SELECT|WITH|SHOW|DESCRIBE|EXPLAIN|LIST|PRINT|HELP`) is viewer-level, anything else needs `editor`
 and a writable cluster. `POST .../lineage/openlineage` (ingest) is an editor mutation.
@@ -147,6 +148,30 @@ unknown keys); `order` is `asc|desc`.
 - `GET /events` → SSE stream of `{type, clusterId, ts, payload}` (alert.fired, alert.resolved, topic.created, connector.failed, …)
 - `GET /auth/me`, `POST /auth/login {username,password}` → `{token, user}`, `POST /auth/logout`, `GET /auth/oidc/login`, `GET /auth/oidc/callback`
 - `GET /audit?page&perPage&clusterId&user&action` → `{items:[{id, ts, user, action, resource, clusterId, details, ip}]}`
+
+#### Guided cluster onboarding (admin)
+
+The cluster inventory is deployment-managed: k-shui reads `clusters` once at startup and never
+mutates it at runtime. These two endpoints let an administrator validate candidate connection
+details **before** editing `k-shui.yaml`, and turn them into the fragment to apply. Neither writes
+anything; both are `@non_mutating` (available in `readOnly` deployments) and require `admin`.
+Submitted credentials are never echoed back: URLs are returned without userinfo, generated YAML
+carries `${ENV_VAR}` placeholders, and any secret quoted by an upstream error is replaced with `***`.
+
+- `POST /system/connection-test` — body
+  `{clusterId='local', clusterName?, bootstrapServers, properties?:{librdkafka props incl. security.protocol/sasl.*/ssl.*}, schemaRegistry?:{url, type, auth?}, connect?:{name?, url, auth?}, ksqldb?:{name?, url, auth?}, flink?:{name?, url, sqlGatewayUrl?, auth?}, prometheus?:{url, labels?, auth?}, timeoutSeconds=5 (1–15)}`;
+  `auth = {username?, password?, bearerToken?}`. Only the components present in the body are
+  probed, each independently and concurrently under its own bounded timeout →
+  `{ok, clusterId, durationMs, components:[{component:'kafka'|'schemaRegistry'|'connect'|'ksqldb'|'flink'|'prometheus', label, target (redacted), status:'ok'|'unreachable'|'auth_failed'|'permission_denied'|'invalid', category:'none'|'connectivity'|'credentials'|'permissions'|'configuration', latencyMs, detail, metadata}], config:{yaml, envVars:[{name, component, description}]}}`.
+  `category` is the fixed projection of `status` that answers "network, credentials, or
+  permissions?". `metadata` holds cheap discovered facts (Kafka: `clusterId`, `brokerCount`,
+  `controllerId`, `topicCount`, `brokers[]`; HTTP components: `version` and friends). Probes:
+  Kafka metadata, `GET /subjects`, `GET /` (Connect), `GET /info` (ksqlDB), `GET /overview`
+  (Flink), `GET /api/v1/status/buildinfo` (Prometheus). Audited as `system.connection_test`.
+- `POST /system/connection-config` — same body, no network calls → `{yaml, envVars}`: a
+  `clusters:` fragment to merge into `k-shui.yaml` (restart required), with every credential
+  property (`sasl.password`, `sasl.username`, integration `auth`, …) replaced by
+  `${KSHUI_<CLUSTER>_<KEY>}` and listed in `envVars`. `.location` properties stay literal.
 
 ### Clusters
 

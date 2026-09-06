@@ -114,6 +114,90 @@ export interface ServerEvent<T = unknown> {
   payload: T;
 }
 
+/* --------------------------- guided cluster onboarding -------------------- */
+
+/** Credentials for an HTTP integration. Sent only; never returned by the server. */
+export interface ConnectionAuthInput {
+  username?: string;
+  password?: string;
+  bearerToken?: string;
+}
+
+export interface ConnectionEndpointInput {
+  name?: string;
+  url: string;
+  auth?: ConnectionAuthInput;
+}
+
+export interface SchemaRegistryEndpointInput extends ConnectionEndpointInput {
+  type: 'confluent' | 'apicurio' | 'karapace';
+}
+
+export interface FlinkEndpointInput extends ConnectionEndpointInput {
+  sqlGatewayUrl?: string;
+}
+
+export interface PrometheusEndpointInput extends ConnectionEndpointInput {
+  labels?: Record<string, string>;
+}
+
+export interface ConnectionTestRequest {
+  clusterId: string;
+  clusterName?: string;
+  bootstrapServers: string;
+  /** Raw librdkafka properties (security.protocol, sasl.*, ssl.*). */
+  properties?: Record<string, string>;
+  schemaRegistry?: SchemaRegistryEndpointInput;
+  connect?: ConnectionEndpointInput;
+  ksqldb?: ConnectionEndpointInput;
+  flink?: FlinkEndpointInput;
+  prometheus?: PrometheusEndpointInput;
+  /** Per-component budget, 1–15s. */
+  timeoutSeconds?: number;
+}
+
+export type ConnectionComponent =
+  'kafka' | 'schemaRegistry' | 'connect' | 'ksqldb' | 'flink' | 'prometheus';
+
+export type ConnectionStatus =
+  'ok' | 'unreachable' | 'auth_failed' | 'permission_denied' | 'invalid';
+
+/** Which question a failure answers: is it the network, the credentials, or the permissions? */
+export type ConnectionFailureCategory =
+  'none' | 'connectivity' | 'credentials' | 'permissions' | 'configuration';
+
+export interface ConnectionComponentResult {
+  component: ConnectionComponent;
+  label: string;
+  /** Probed address with any embedded credentials removed. */
+  target: string;
+  status: ConnectionStatus;
+  category: ConnectionFailureCategory;
+  latencyMs: number | null;
+  detail: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ConnectionEnvVar {
+  name: string;
+  component: ConnectionComponent;
+  description: string;
+}
+
+export interface GeneratedClusterConfig {
+  /** `clusters:` fragment for k-shui.yaml; credentials are `${ENV_VAR}` placeholders. */
+  yaml: string;
+  envVars: ConnectionEnvVar[];
+}
+
+export interface ConnectionTestResponse {
+  ok: boolean;
+  clusterId: string;
+  durationMs: number;
+  components: ConnectionComponentResult[];
+  config: GeneratedClusterConfig;
+}
+
 /* --------------------------------- clusters ------------------------------- */
 
 export interface ClusterSummary {

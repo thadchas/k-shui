@@ -18,6 +18,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { toast, toastError } from '@/components/ui/toast';
+import { ConnectionTesterButton } from '@/pages/clusters/ConnectionTesterDialog';
 
 export function ClusterSettingsPage() {
   const cluster = useClusterId();
@@ -36,6 +37,7 @@ export function ClusterSettingsPage() {
       <PageHeader
         title="Cluster settings"
         description="Dynamic cluster-level configuration and metadata quorum."
+        actions={<ConnectionTesterButton label="Test a connection" />}
       />
 
       <section className="space-y-3">
