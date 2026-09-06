@@ -56,7 +56,7 @@ jobs:
           created=$(pick release_created)
           tag=$(pick tag_name)
           version=$(pick version)
-          pr=$(jq -r '.pr // ""' <<<"${OUTPUTS}")
+          pr=$(jq -c '.pr // empty | select(. != "") | if type == "string" then fromjson else . end' <<<"${OUTPUTS}")
           {
             echo "release_created=${created:-false}"
             echo "tag_name=${tag}"
