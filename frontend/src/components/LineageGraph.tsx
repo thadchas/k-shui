@@ -42,6 +42,7 @@ import '@xyflow/react/dist/style.css';
 import type { LineageEdge, LineageNodeFull } from '@/api/types';
 import { cn } from '@/lib/utils';
 import { statusTone, type StatusTone } from '@/components/ui/status-pill';
+import type { ImpactPath } from '@/pages/lineage/lineageLib';
 
 /* ------------------------------ node taxonomy ----------------------------- */
 
@@ -83,6 +84,10 @@ type LineageNodeData = {
   focused: boolean;
   selected: boolean;
   compact: boolean;
+  /** Part of the highlighted downstream impact path from the focused node. */
+  impacted: boolean;
+  /** An impact path is active and this node is not part of it. */
+  dimmed: boolean;
 };
 
 type LineageFlowNode = Node<LineageNodeData, 'lineage'>;
@@ -93,7 +98,7 @@ const COMPACT_WIDTH = 196;
 const COMPACT_HEIGHT = 56;
 
 function LineageNodeCardImpl({ data }: NodeProps<LineageFlowNode>) {
-  const { node, focused, selected, compact } = data;
+  const { node, focused, selected, compact, impacted, dimmed } = data;
   const style = lineageTypeStyle(node.type);
   const Icon = style.icon;
   const tone = statusTone(node.status);
@@ -105,7 +110,10 @@ function LineageNodeCardImpl({ data }: NodeProps<LineageFlowNode>) {
         compact ? 'h-14 w-[196px]' : 'h-[68px] w-[232px]',
         selected || focused
           ? 'border-[var(--primary)] ring-2 ring-[color-mix(in_srgb,var(--primary)_35%,transparent)]'
-          : 'border-[var(--border)] hover:border-[color-mix(in_srgb,var(--primary)_45%,var(--border))]',
+          : impacted
+            ? 'border-[var(--warning)] ring-2 ring-[color-mix(in_srgb,var(--warning)_30%,transparent)]'
+            : 'border-[var(--border)] hover:border-[color-mix(in_srgb,var(--primary)_45%,var(--border))]',
+        dimmed && !selected && !focused && 'opacity-40',
       )}
     >
       <Handle
@@ -166,7 +174,13 @@ const ACTIVE = /^(running|stable|active|online|up)$/i;
 export function layoutLineage(
   nodes: LineageNodeFull[],
   edges: LineageEdge[],
-  options: { focus?: string | null; selected?: string | null; compact?: boolean } = {},
+  options: {
+    focus?: string | null;
+    selected?: string | null;
+    compact?: boolean;
+    /** Downstream blast-radius from the focused node, rendered with distinct emphasis. */
+    impact?: ImpactPath | null;
+  } = {},
 ): { nodes: LineageFlowNode[]; edges: Edge[] } {
   const compact = options.compact ?? false;
   const width = compact ? COMPACT_WIDTH : NODE_WIDTH;
@@ -189,9 +203,11 @@ export function layoutLineage(
   dagre.layout(g);
 
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const impact = options.impact ?? null;
 
   const flowNodes: LineageFlowNode[] = nodes.map((n) => {
     const pos = g.node(n.id) as { x: number; y: number } | undefined;
+    const impacted = impact ? impact.nodeIds.has(n.id) : false;
     return {
       id: n.id,
       type: 'lineage',
@@ -201,6 +217,8 @@ export function layoutLineage(
         focused: options.focus === n.id,
         selected: options.selected === n.id,
         compact,
+        impacted,
+        dimmed: impact !== null && !impacted,
       },
       draggable: true,
       width,
@@ -211,8 +229,10 @@ export function layoutLineage(
   const flowEdges: Edge[] = valid.map((e) => {
     const source = byId.get(e.source);
     const active = ACTIVE.test(source?.status ?? '') || source?.type === 'topic';
-    const color =
+    const inImpact = impact ? impact.edgeIds.has(e.id) : false;
+    const baseColor =
       e.kind === 'transforms' ? '#F59E0B' : e.kind === 'consumes' ? '#0EA5E9' : 'var(--muted)';
+    const color = inImpact ? 'var(--warning)' : baseColor;
     const shipStrategy =
       typeof e.meta?.shipStrategy === 'string' ? (e.meta.shipStrategy as string) : null;
     return {
@@ -220,12 +240,22 @@ export function layoutLineage(
       source: e.source,
       target: e.target,
       type: 'smoothstep',
-      animated: active,
+      animated: active || inImpact,
       label: shipStrategy ?? undefined,
       labelStyle: { fontSize: 10, fill: 'var(--muted)' },
       labelBgStyle: { fill: 'var(--surface)' },
-      style: { stroke: color, strokeWidth: 1.5 },
-      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color },
+      style: {
+        stroke: color,
+        strokeWidth: inImpact ? 3 : 1.5,
+        opacity: impact && !inImpact ? 0.3 : 1,
+      },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: inImpact ? 16 : 14,
+        height: inImpact ? 16 : 14,
+        color,
+      },
+      zIndex: inImpact ? 1 : 0,
     };
   });
 
@@ -245,6 +275,14 @@ export interface LineageGraphCanvasProps {
   showMiniMap?: boolean;
   showControls?: boolean;
   fitViewKey?: string;
+  /**
+   * When set (typically the focused node + its direct neighbours), the
+   * initial/next fitView frames only these node ids instead of the whole
+   * graph, so labels stay readable instead of shrinking to fit everything.
+   */
+  fitViewIds?: string[] | null;
+  /** Downstream blast-radius from the focused node, rendered with distinct emphasis. */
+  impactPath?: ImpactPath | null;
 }
 
 function LineageGraphInner({
@@ -258,10 +296,12 @@ function LineageGraphInner({
   showMiniMap = true,
   showControls = true,
   fitViewKey,
+  fitViewIds,
+  impactPath,
 }: LineageGraphCanvasProps) {
   const laid = useMemo(
-    () => layoutLineage(nodes, edges, { focus, selected: selectedId, compact }),
-    [nodes, edges, focus, selectedId, compact],
+    () => layoutLineage(nodes, edges, { focus, selected: selectedId, compact, impact: impactPath }),
+    [nodes, edges, focus, selectedId, compact, impactPath],
   );
 
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<LineageFlowNode>(laid.nodes);
@@ -274,9 +314,24 @@ function LineageGraphInner({
   }, [laid, setFlowNodes, setFlowEdges]);
 
   useEffect(() => {
-    const t = setTimeout(() => void fitView({ padding: 0.15, duration: 250 }), 60);
+    const laidIds = new Set(laid.nodes.map((n) => n.id));
+    const focusedIds = (fitViewIds ?? []).filter((id) => laidIds.has(id));
+    const t = setTimeout(() => {
+      if (focusedIds.length > 0) {
+        // Fit just the focused node + its direct neighbours at a readable,
+        // capped zoom instead of shrinking the whole graph to fit the pane.
+        void fitView({
+          nodes: focusedIds.map((id) => ({ id })),
+          padding: 0.35,
+          duration: 250,
+          maxZoom: 1.4,
+        });
+      } else {
+        void fitView({ padding: 0.15, duration: 250 });
+      }
+    }, 60);
     return () => clearTimeout(t);
-  }, [fitView, fitViewKey, laid.nodes.length]);
+  }, [fitView, fitViewKey, fitViewIds, laid.nodes]);
 
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: LineageFlowNode) => onSelect?.(node.data.node),

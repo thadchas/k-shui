@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
+  Bell,
   Boxes,
   Cable,
+  FileJson,
   Keyboard,
   Layers,
   Moon,
@@ -11,11 +13,23 @@ import {
   RotateCcw,
   Search,
   Sun,
+  TriangleAlert,
   Users,
+  Workflow,
 } from 'lucide-react';
 import { api } from '@/api/client';
 import { useClusters } from '@/api/hooks/clusters';
-import type { ConsumerGroupSummary, Page, TopicSummary } from '@/api/types';
+import type {
+  AlertTrigger,
+  ConnectCluster,
+  Connector,
+  ConsumerGroupSummary,
+  FlinkCluster,
+  FlinkJob,
+  Page,
+  SchemaSubjectSummary,
+  TopicSummary,
+} from '@/api/types';
 import { NAV_GROUPS, navHref } from '@/lib/nav';
 import { useDebounced } from '@/hooks/useDebounced';
 import { useThemeStore } from '@/stores/theme';
@@ -40,13 +54,37 @@ import {
 } from '@/components/ui/dialog';
 import { Kbd } from '@/components/ui/kbd';
 import { StatusDot } from '@/components/ui/status-pill';
+import {
+  applyKindFilter,
+  buildSourceGroups,
+  flattenSettled,
+  isGroupVisible,
+  matchesTerm,
+  MIN_QUERY_LENGTH,
+  parsePaletteQuery,
+  PREFIX_HELP,
+  RESOURCE_TYPES,
+  summarizePaletteSources,
+  toAlertResults,
+  toConnectorResults,
+  toFlinkJobResults,
+  toGroupResults,
+  toSchemaResults,
+  toTopicResults,
+  type ConnectorHit,
+  type FlinkJobHit,
+  type PaletteSourceInput,
+  type ResourceKind,
+} from '@/components/commandPaletteSources';
 
-interface SearchResults {
-  topics: TopicSummary[];
-  groups: ConsumerGroupSummary[];
-}
-
-const EMPTY: SearchResults = { topics: [], groups: [] };
+const RESULT_ICONS: Record<ResourceKind, typeof Layers> = {
+  topic: Layers,
+  group: Users,
+  connector: Cable,
+  flinkJob: Workflow,
+  schema: FileJson,
+  alert: Bell,
+};
 
 /** True when the keystroke happened inside a text field / editor (global shortcuts must not fire). */
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -102,23 +140,49 @@ function KeyboardShortcutsDialog({
   );
 }
 
-async function searchCluster(cluster: string, query: string): Promise<SearchResults> {
-  const [topics, groups] = await Promise.all([
-    api
-      .get<Page<TopicSummary>>(`/clusters/${cluster}/topics`, {
-        search: query,
-        perPage: 8,
-        page: 1,
-      })
-      .catch(() => null),
-    api
-      .get<ConsumerGroupSummary[]>(`/clusters/${cluster}/consumer-groups`, { search: query })
-      .catch(() => null),
-  ]);
-  return {
-    topics: topics?.items?.slice(0, 8) ?? [],
-    groups: (groups ?? []).slice(0, 8),
-  };
+/* -------------------------------------------------------------------------- *
+ * Fetchers. Each resource type is its own query so one failing backend cannot
+ * blank out the others (`retry: false` — the palette offers an explicit retry).
+ * -------------------------------------------------------------------------- */
+
+async function fetchConnectors(cluster: string, term: string): Promise<ConnectorHit[]> {
+  const kcs = await api.get<ConnectCluster[]>(`/clusters/${cluster}/connect`);
+  if (!kcs?.length) return [];
+  const settled = await Promise.allSettled(
+    kcs.map(async (kc) => {
+      const connectors = await api.get<Connector[]>(
+        `/clusters/${cluster}/connect/${encodeURIComponent(kc.name)}/connectors`,
+        { search: term },
+      );
+      return (connectors ?? [])
+        .filter((connector) => matchesTerm(term, connector.name, connector.connectorClass))
+        .map((connector) => ({ kc: kc.name, connector }));
+    }),
+  );
+  return flattenSettled(settled);
+}
+
+async function fetchFlinkJobs(cluster: string, term: string): Promise<FlinkJobHit[]> {
+  const fcs = await api.get<FlinkCluster[]>(`/clusters/${cluster}/flink`);
+  if (!fcs?.length) return [];
+  const settled = await Promise.allSettled(
+    fcs.map(async (fc) => {
+      const jobs = await api.get<FlinkJob[]>(
+        `/clusters/${cluster}/flink/${encodeURIComponent(fc.name)}/jobs`,
+      );
+      return (jobs ?? [])
+        .filter((job) => matchesTerm(term, job.name, job.jid))
+        .map((job) => ({ fc: fc.name, job }));
+    }),
+  );
+  return flattenSettled(settled);
+}
+
+async function fetchAlertTriggers(term: string): Promise<AlertTrigger[]> {
+  const triggers = await api.get<AlertTrigger[]>('/alerts/triggers');
+  return (triggers ?? []).filter((trigger) =>
+    matchesTerm(term, trigger.name, trigger.metric, trigger.target?.name, trigger.target?.regex),
+  );
 }
 
 export interface CommandPaletteProps {
@@ -133,8 +197,23 @@ export function CommandPalette({ clusterId }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const debounced = useDebounced(query, 250);
-  const needle = debounced.trim().toLowerCase();
+  const inputRef = useRef<HTMLInputElement>(null);
   const { data: clusters } = useClusters();
+
+  const live = useMemo(() => parsePaletteQuery(query), [query]);
+  const parsed = useMemo(() => parsePaletteQuery(debounced), [debounced]);
+  const term = parsed.term;
+  const needle = term.toLowerCase();
+
+  /** Resource search runs once the term is long enough; alerts are not cluster-scoped. */
+  const searching = open && parsed.searchable;
+  const clusterSearching = searching && Boolean(clusterId);
+  const wants = useCallback(
+    (kind: ResourceKind) =>
+      (kind === 'alert' ? searching : clusterSearching) &&
+      (parsed.kind === null || parsed.kind === kind),
+    [searching, clusterSearching, parsed.kind],
+  );
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -164,12 +243,171 @@ export function CommandPalette({ clusterId }: CommandPaletteProps) {
     if (!open) setQuery('');
   }, [open]);
 
-  const { data: results = EMPTY, isFetching } = useQuery({
-    queryKey: ['command-search', clusterId, debounced],
-    queryFn: () => searchCluster(clusterId!, debounced),
-    enabled: open && Boolean(clusterId) && debounced.trim().length >= 2,
-    staleTime: 15_000,
+  const shared = { staleTime: 15_000, retry: false } as const;
+
+  const topicsQuery = useQuery({
+    queryKey: ['command-search', 'topics', clusterId, term],
+    queryFn: () =>
+      api.get<Page<TopicSummary>>(`/clusters/${clusterId}/topics`, {
+        search: term,
+        perPage: 8,
+        page: 1,
+      }),
+    enabled: wants('topic'),
+    ...shared,
   });
+
+  const groupsQuery = useQuery({
+    queryKey: ['command-search', 'consumer-groups', clusterId, term],
+    queryFn: () =>
+      api.get<ConsumerGroupSummary[]>(`/clusters/${clusterId}/consumer-groups`, { search: term }),
+    enabled: wants('group'),
+    ...shared,
+  });
+
+  const connectorsQuery = useQuery({
+    queryKey: ['command-search', 'connectors', clusterId, term],
+    queryFn: () => fetchConnectors(clusterId!, term),
+    enabled: wants('connector'),
+    ...shared,
+  });
+
+  const flinkQuery = useQuery({
+    queryKey: ['command-search', 'flink-jobs', clusterId, term],
+    queryFn: () => fetchFlinkJobs(clusterId!, term),
+    enabled: wants('flinkJob'),
+    ...shared,
+  });
+
+  const schemasQuery = useQuery({
+    queryKey: ['command-search', 'schemas', clusterId, term],
+    queryFn: () =>
+      api.get<SchemaSubjectSummary[]>(`/clusters/${clusterId}/schemas/subjects`, { search: term }),
+    enabled: wants('schema'),
+    ...shared,
+  });
+
+  const alertsQuery = useQuery({
+    queryKey: ['command-search', 'alert-triggers', term],
+    queryFn: () => fetchAlertTriggers(term),
+    enabled: wants('alert'),
+    ...shared,
+  });
+
+  const sources = useMemo<PaletteSourceInput[]>(() => {
+    const c = clusterId ?? '';
+    return [
+      {
+        kind: 'topic',
+        enabled: wants('topic'),
+        isLoading: topicsQuery.isLoading,
+        isError: topicsQuery.isError,
+        error: topicsQuery.error,
+        results: toTopicResults(topicsQuery.data?.items ?? [], c),
+      },
+      {
+        kind: 'group',
+        enabled: wants('group'),
+        isLoading: groupsQuery.isLoading,
+        isError: groupsQuery.isError,
+        error: groupsQuery.error,
+        results: toGroupResults(groupsQuery.data ?? [], c),
+      },
+      {
+        kind: 'connector',
+        enabled: wants('connector'),
+        isLoading: connectorsQuery.isLoading,
+        isError: connectorsQuery.isError,
+        error: connectorsQuery.error,
+        results: toConnectorResults(connectorsQuery.data ?? [], c),
+      },
+      {
+        kind: 'flinkJob',
+        enabled: wants('flinkJob'),
+        isLoading: flinkQuery.isLoading,
+        isError: flinkQuery.isError,
+        error: flinkQuery.error,
+        results: toFlinkJobResults(flinkQuery.data ?? [], c),
+      },
+      {
+        kind: 'schema',
+        enabled: wants('schema'),
+        isLoading: schemasQuery.isLoading,
+        isError: schemasQuery.isError,
+        error: schemasQuery.error,
+        results: toSchemaResults(schemasQuery.data ?? [], c),
+      },
+      {
+        kind: 'alert',
+        enabled: wants('alert'),
+        isLoading: alertsQuery.isLoading,
+        isError: alertsQuery.isError,
+        error: alertsQuery.error,
+        results: toAlertResults(alertsQuery.data ?? []),
+      },
+    ];
+  }, [
+    clusterId,
+    wants,
+    topicsQuery.isLoading,
+    topicsQuery.isError,
+    topicsQuery.error,
+    topicsQuery.data,
+    groupsQuery.isLoading,
+    groupsQuery.isError,
+    groupsQuery.error,
+    groupsQuery.data,
+    connectorsQuery.isLoading,
+    connectorsQuery.isError,
+    connectorsQuery.error,
+    connectorsQuery.data,
+    flinkQuery.isLoading,
+    flinkQuery.isError,
+    flinkQuery.error,
+    flinkQuery.data,
+    schemasQuery.isLoading,
+    schemasQuery.isError,
+    schemasQuery.error,
+    schemasQuery.data,
+    alertsQuery.isLoading,
+    alertsQuery.isError,
+    alertsQuery.error,
+    alertsQuery.data,
+  ]);
+
+  const groups = useMemo(
+    () => buildSourceGroups(sources, { kind: parsed.kind }),
+    [sources, parsed.kind],
+  );
+  const visibleGroups = useMemo(() => groups.filter(isGroupVisible), [groups]);
+  const summary = useMemo(
+    () => summarizePaletteSources(groups, { searched: searching }),
+    [groups, searching],
+  );
+
+  const retry = useCallback(
+    (kind: ResourceKind) => {
+      const byKind: Record<ResourceKind, () => void> = {
+        topic: () => void topicsQuery.refetch(),
+        group: () => void groupsQuery.refetch(),
+        connector: () => void connectorsQuery.refetch(),
+        flinkJob: () => void flinkQuery.refetch(),
+        schema: () => void schemasQuery.refetch(),
+        alert: () => void alertsQuery.refetch(),
+      };
+      byKind[kind]();
+      inputRef.current?.focus();
+    },
+    [topicsQuery, groupsQuery, connectorsQuery, flinkQuery, schemasQuery, alertsQuery],
+  );
+
+  const setKindFilter = useCallback(
+    (kind: ResourceKind | null) => {
+      setQuery((current) => applyKindFilter(current, kind));
+      inputRef.current?.focus();
+    },
+    [setQuery],
+  );
 
   const go = (to: string) => {
     setOpen(false);
@@ -219,52 +457,79 @@ export function CommandPalette({ clusterId }: CommandPaletteProps) {
     <>
       <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false}>
         <CommandInput
-          placeholder="Search pages, topics, consumer groups…"
+          ref={inputRef}
+          placeholder="Search pages, topics, groups, connectors, jobs, schemas, alerts…"
           value={query}
           onValueChange={setQuery}
         />
+
+        <div className="flex flex-wrap items-center gap-1 border-b border-[var(--border)] px-3 py-2">
+          <span className="mr-1 text-2xs uppercase tracking-wide text-[var(--muted)]">Filter</span>
+          <FilterChip active={live.kind === null} onClick={() => setKindFilter(null)}>
+            All
+          </FilterChip>
+          {RESOURCE_TYPES.map((type) => (
+            <FilterChip
+              key={type.kind}
+              active={live.kind === type.kind}
+              onClick={() => setKindFilter(live.kind === type.kind ? null : type.kind)}
+            >
+              {type.chip}
+            </FilterChip>
+          ))}
+        </div>
+
         <CommandList>
-          <CommandEmpty>{isFetching ? 'Searching…' : 'No results found'}</CommandEmpty>
+          <CommandEmpty>No results found</CommandEmpty>
 
-          {debounced.trim().length >= 2 && results.topics.length > 0 ? (
-            <CommandGroup heading="Topics">
-              {results.topics.map((topic) => (
-                <CommandItem
-                  key={topic.name}
-                  value={`topic-${topic.name}`}
-                  onSelect={() => go(`/c/${clusterId}/topics/${encodeURIComponent(topic.name)}`)}
-                >
-                  <Layers />
-                  <span className="min-w-0 flex-1 truncate font-mono text-[13px]">
-                    {topic.name}
-                  </span>
-                  <CommandShortcut>
-                    {topic.partitions}p · rf{topic.replicationFactor}
-                  </CommandShortcut>
-                </CommandItem>
-              ))}
-            </CommandGroup>
+          {!live.term ? (
+            <div className="px-3 py-2 text-2xs leading-relaxed text-[var(--muted)]">
+              Type at least {MIN_QUERY_LENGTH} characters to search topics, consumer groups,
+              connectors, Flink jobs, schemas and alerts. Narrow with a type prefix:{' '}
+              <span className="font-mono text-[var(--foreground)]">{PREFIX_HELP.join(' · ')}</span>
+            </div>
           ) : null}
 
-          {debounced.trim().length >= 2 && results.groups.length > 0 ? (
-            <CommandGroup heading="Consumer groups">
-              {results.groups.map((group) => (
-                <CommandItem
-                  key={group.groupId}
-                  value={`group-${group.groupId}`}
-                  onSelect={() =>
-                    go(`/c/${clusterId}/consumers/${encodeURIComponent(group.groupId)}`)
-                  }
-                >
-                  <Users />
-                  <span className="min-w-0 flex-1 truncate font-mono text-[13px]">
-                    {group.groupId}
-                  </span>
-                  <CommandShortcut>lag {group.totalLag}</CommandShortcut>
-                </CommandItem>
-              ))}
-            </CommandGroup>
+          {summary.message ? (
+            <div
+              className={
+                summary.state === 'partial' || summary.state === 'unavailable'
+                  ? 'px-3 py-2 text-2xs text-[var(--warning)]'
+                  : 'px-3 py-2 text-2xs text-[var(--muted)]'
+              }
+            >
+              {summary.message}
+            </div>
           ) : null}
+
+          {visibleGroups.map((group) => {
+            const Icon = RESULT_ICONS[group.kind];
+            return (
+              <CommandGroup key={group.kind} heading={group.label}>
+                {group.status === 'unavailable' ? (
+                  <CommandItem
+                    value={`retry-${group.kind}`}
+                    onSelect={() => retry(group.kind)}
+                    title={group.detail ?? undefined}
+                  >
+                    <TriangleAlert />
+                    <span className="min-w-0 flex-1 truncate">{group.message}</span>
+                    <CommandShortcut>Retry</CommandShortcut>
+                  </CommandItem>
+                ) : (
+                  group.results.map((result) => (
+                    <CommandItem key={result.id} value={result.id} onSelect={() => go(result.href)}>
+                      <Icon />
+                      <span className="min-w-0 flex-1 truncate font-mono text-[13px]">
+                        {result.title}
+                      </span>
+                      {result.meta ? <CommandShortcut>{result.meta}</CommandShortcut> : null}
+                    </CommandItem>
+                  ))
+                )}
+              </CommandGroup>
+            );
+          })}
 
           <CommandGroup heading="Navigate">
             {navItems
@@ -366,5 +631,31 @@ export function CommandPalette({ clusterId }: CommandPaletteProps) {
       </CommandDialog>
       <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </>
+  );
+}
+
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={[
+        'rounded-full border px-2 py-0.5 text-2xs transition-colors',
+        active
+          ? 'border-[var(--accent)] bg-[var(--surface-2)] text-[var(--foreground)]'
+          : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]',
+      ].join(' ')}
+    >
+      {children}
+    </button>
   );
 }
