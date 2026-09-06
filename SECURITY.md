@@ -34,7 +34,8 @@ timing with the reporter.
 In scope: the `backend/` API and auth/session handling, the `frontend/` SPA,
 the published Docker image (`deploy/docker/Dockerfile`), the Helm chart
 (`charts/k-shui/`), the npm launcher (`packages/npm/`), and the GitHub Actions
-release pipeline (`.github/workflows/release.yml`) that publishes those
+release pipeline (`.github/workflows/release-please.yml` and
+`.github/workflows/release.yml`) that versions, tags and publishes those
 artifacts.
 
 Out of scope: vulnerabilities in upstream services k-shui merely talks to

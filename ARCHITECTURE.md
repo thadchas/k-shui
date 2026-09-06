@@ -55,7 +55,10 @@ k-shui/
 │   └── examples/            k-shui.yaml samples (local lakestream cluster, multi-cluster, SASL/TLS)
 ├── charts/k-shui/           Helm chart (ServiceMonitor, HPA, PDB, NetworkPolicy, Ingress, OIDC secrets)
 ├── docs/                    user docs (getting-started, configuration, features/*, deployment/*, api)
-└── .github/workflows/       ci.yml (lint+test+build), release.yml (PyPI, npm, GHCR image, chart OCI)
+├── scripts/                 release tooling (conventional-commit lint, version lock-step) + its unittest suite
+├── version.txt              canonical version; mirrored into pyproject/__init__/package.json×2/Chart.yaml
+└── .github/workflows/       ci.yml (lint+test+build), pr-lint.yml (conventional commits),
+                             release-please.yml (semver + changelog + tag), release.yml (PyPI, npm, GHCR image, chart OCI)
 ```
 
 ## Configuration (YAML `k-shui.yaml`, overridable by env `KSHUI__<SECTION>__<KEY>`)

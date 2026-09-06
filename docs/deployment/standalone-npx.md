@@ -92,6 +92,10 @@ KSHUI_UVX_FROM=./backend/dist/k_shui-0.1.0-py3-none-any.whl npx k-shui version
 
 ## Publishing note (for maintainers)
 
-The package is published from `.github/workflows/release.yml` on `v*` tags with
-npm provenance (`npm publish --provenance`). See `packages/npm/README.md` for
-local development (`npm test` runs `node bin/k-shui.js --help`).
+The package is published from `.github/workflows/release.yml` with npm
+provenance (`npm publish --provenance`). Releases are cut by merging the
+`chore(release): vX.Y.Z` pull request that release-please keeps open — see
+[releasing](../development/releasing.md); `packages/npm/package.json` is bumped
+there, not by hand. Prereleases publish under the `next` dist-tag, so
+`npx k-shui` keeps resolving to the latest stable. See `packages/npm/README.md`
+for local development (`npm test` runs `node bin/k-shui.js --help`).

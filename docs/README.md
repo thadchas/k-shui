@@ -36,6 +36,13 @@ it, required config, and known tips/limitations.
 - [Security hardening](deployment/security-hardening.md)
 - [Configuration reference](deployment/configuration-reference.md) — every field, type, default, env var
 
+## Development
+
+- [Releasing](development/releasing.md) — Conventional Commits → Semantic
+  Versioning, the release pull request, and how the wheel, npm launcher, image
+  and chart get published.
+- [Contributing](../CONTRIBUTING.md)
+
 ## Reference
 
 - [REST API](api.md) — auth, problem+json errors, pagination, SSE, curl examples, pointer to `/docs` Swagger

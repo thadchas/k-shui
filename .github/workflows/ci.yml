@@ -50,6 +50,32 @@ jobs:
         working-directory: backend
         run: uv run pytest --cov=k_shui --cov-report=term-missing
 
+  release-tooling:
+    name: release tooling (versions in lock-step)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # One release ships a wheel, an npm launcher, an image and a chart, each
+      # carrying its own copy of the version. release-please bumps them together;
+      # this fails the build if they ever drift apart.
+      - name: All artifacts declare the same version
+        run: python3 scripts/check_versions.py
+
+      - name: Unit-test the release tooling
+        run: python3 -m unittest discover -s scripts/tests -t scripts/tests -v
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      # scripts/ has its own ruff.toml; the backend keeps its [tool.ruff] block.
+      - name: ruff check & format --check (scripts)
+        run: |
+          uvx ruff check scripts/
+          uvx ruff format --check scripts/
+
   frontend:
     name: frontend
     runs-on: ubuntu-latest

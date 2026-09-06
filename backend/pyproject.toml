@@ -1,6 +1,6 @@
 [project]
 name = "k-shui"
-version = "0.1.0"
+version = "0.1.0"  # x-release-please-version
 description = "k-shui — Kafka Streaming Hub UI. Open-source control center for Apache Kafka, Connect, Schema Registry, ksqlDB, Flink, metrics, lineage and alerts."
 readme = "README.md"
 license = "Apache-2.0"
