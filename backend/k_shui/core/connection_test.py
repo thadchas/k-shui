@@ -21,7 +21,7 @@ import re
 import time
 from collections.abc import Callable, Coroutine
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 import httpx
 import yaml
@@ -148,15 +148,21 @@ def _secret_values(request: ConnectionTestRequest) -> list[str]:
     for endpoint in _endpoints(request):
         auth = endpoint.auth
         if auth is not None:
-            values.extend(v for v in (auth.password, auth.bearerToken) if v)
-    return [v for v in values if len(v) >= 3]
+            values.extend(v for v in (auth.username, auth.password, auth.bearerToken) if v)
+        try:
+            parts = urlsplit(endpoint.url)
+            for value in (parts.username, parts.password):
+                if value:
+                    values.extend((value, unquote(value)))
+        except ValueError:
+            pass
+    return sorted(set(values), key=len, reverse=True)
 
 
 def _redact(text: str, secrets: list[str]) -> str:
-    out = text
-    for secret in secrets:
-        out = out.replace(secret, "***")
-    return out
+    if not secrets:
+        return text
+    return re.sub("|".join(re.escape(secret) for secret in secrets), "***", text)
 
 
 def redact_url(url: str) -> str:
@@ -167,7 +173,7 @@ def redact_url(url: str) -> str:
         return url
     if not parts.hostname or "@" not in (parts.netloc or ""):
         return url
-    netloc = parts.hostname + (f":{parts.port}" if parts.port else "")
+    netloc = parts.netloc.rsplit("@", 1)[1]
     return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
@@ -256,8 +262,8 @@ async def probe_kafka(request: ConnectionTestRequest, secrets: list[str]) -> Com
             started,
         )
     except Exception as exc:  # a client failure is a test result, not a 500
+        status = classify_kafka_error(str(exc))
         text = _redact(str(exc), secrets)[:400]
-        status = classify_kafka_error(text)
         return _result("kafka", target, status, f"{_KAFKA_HINTS[status]} ({text})", started)
 
     cluster_id = metadata.get("clusterId")
@@ -316,6 +322,18 @@ def _to_http_auth(auth: HttpAuthInput | None) -> HttpAuth | None:
     return HttpAuth(username=auth.username, password=auth.password, bearerToken=auth.bearerToken)
 
 
+def _endpoint_auth(endpoint: EndpointInput) -> HttpAuthInput | None:
+    if endpoint.auth is not None:
+        return endpoint.auth
+    try:
+        parts = urlsplit(endpoint.url)
+    except ValueError:
+        return None
+    if parts.username is None:
+        return None
+    return HttpAuthInput(username=unquote(parts.username), password=unquote(parts.password or ""))
+
+
 def http_status_for(code: int) -> str:
     """Map an upstream HTTP status onto a component status."""
     if code in (401, 407):
@@ -359,9 +377,11 @@ async def probe_http(
     if not urlsplit(endpoint.url).scheme.startswith("http"):
         return _result(component, target, "invalid", f"'{target}' is not an http(s) URL.", started)
 
+    auth = _to_http_auth(_endpoint_auth(endpoint))
+    # Keep userinfo out of HTTPX request URLs (and its standard request logs).
     client = build_client(
-        endpoint.url,
-        _to_http_auth(endpoint.auth),
+        target,
+        auth,
         timeout=httpx.Timeout(
             connect=timeout_seconds, read=timeout_seconds, write=timeout_seconds, pool=timeout_seconds
         ),
@@ -438,7 +458,7 @@ async def run_connection_test(request: ConnectionTestRequest) -> ConnectionTestR
             components.append(outcome)
             continue
         # A probe is not supposed to raise; if one does, report it instead of 500-ing.
-        log.warning("connection_test.probe_failed", component=component, error=str(outcome))
+        log.warning("connection_test.probe_failed", component=component, errorType=type(outcome).__name__)
         components.append(
             _result(
                 component,
@@ -533,7 +553,7 @@ def generate_config(request: ConnectionTestRequest) -> GeneratedConfig:
     registry = request.schemaRegistry
     if registry is not None:
         block: dict[str, Any] = {"url": redact_url(registry.url), "type": registry.type}
-        auth = _auth_block(cluster_id, "schemaRegistry", "schema_registry", registry.auth, hints)
+        auth = _auth_block(cluster_id, "schemaRegistry", "schema_registry", _endpoint_auth(registry), hints)
         if auth:
             block["auth"] = auth
         cluster["schemaRegistry"] = block
@@ -543,7 +563,7 @@ def generate_config(request: ConnectionTestRequest) -> GeneratedConfig:
         if endpoint is None:
             continue
         entry: dict[str, Any] = {"name": endpoint.name or component, "url": redact_url(endpoint.url)}
-        auth = _auth_block(cluster_id, component, component, endpoint.auth, hints)
+        auth = _auth_block(cluster_id, component, component, _endpoint_auth(endpoint), hints)
         if auth:
             entry["auth"] = auth
         cluster[component] = [entry]
@@ -553,7 +573,7 @@ def generate_config(request: ConnectionTestRequest) -> GeneratedConfig:
         entry = {"name": flink.name or "flink", "url": redact_url(flink.url)}
         if flink.sqlGatewayUrl:
             entry["sqlGatewayUrl"] = redact_url(flink.sqlGatewayUrl)
-        auth = _auth_block(cluster_id, "flink", "flink", flink.auth, hints)
+        auth = _auth_block(cluster_id, "flink", "flink", _endpoint_auth(flink), hints)
         if auth:
             entry["auth"] = auth
         cluster["flink"] = [entry]
@@ -563,7 +583,7 @@ def generate_config(request: ConnectionTestRequest) -> GeneratedConfig:
         block = {"url": redact_url(prometheus.url)}
         if prometheus.labels:
             block["labels"] = dict(prometheus.labels)
-        auth = _auth_block(cluster_id, "prometheus", "prometheus", prometheus.auth, hints)
+        auth = _auth_block(cluster_id, "prometheus", "prometheus", _endpoint_auth(prometheus), hints)
         if auth:
             block["auth"] = auth
         cluster["prometheus"] = block

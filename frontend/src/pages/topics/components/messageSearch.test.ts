@@ -306,5 +306,7 @@ describe('saved search serialization', () => {
   it('scopes the storage key per cluster and topic', () => {
     expect(savedSearchesKey('local', 'orders')).not.toBe(savedSearchesKey('prod', 'orders'));
     expect(savedSearchesKey('local', 'a/b')).toContain('a%2Fb');
+    expect(savedSearchesKey('a.b', 'c')).not.toBe(savedSearchesKey('a', 'b.c'));
+    expect(savedSearchesKey('a.b', 'c')).not.toBe(savedSearchesKey('a%2Eb', 'c'));
   });
 });

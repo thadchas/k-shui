@@ -366,7 +366,8 @@ export const SAVED_SEARCH_PREFIX = 'k-shui.messages.savedSearches';
 export const MAX_SAVED_SEARCHES = 50;
 
 export function savedSearchesKey(cluster: string, topic: string): string {
-  return `${SAVED_SEARCH_PREFIX}.${encodeURIComponent(cluster)}.${encodeURIComponent(topic)}`;
+  const segment = (value: string) => encodeURIComponent(value).replace(/\./g, '%2E');
+  return `${SAVED_SEARCH_PREFIX}.${segment(cluster)}.${segment(topic)}`;
 }
 
 function oneOf<T extends string>(value: unknown, allowed: T[], fallback: T): T {
