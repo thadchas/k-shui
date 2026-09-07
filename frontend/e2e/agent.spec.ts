@@ -29,6 +29,51 @@ const status: AgentStatus = {
   unsupportedConnections: [],
 };
 
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test(`Agent panel fits ${viewport.width}px and returns keyboard focus on close`, async ({
+    page,
+    api,
+  }, testInfo) => {
+    await page.setViewportSize(viewport);
+    api.on('GET /agent/status', { json: status });
+    api.on('GET /agent/investigations', { json: [] });
+    await page.goto(`/c/${CLUSTER_ID}/overview`);
+    const trigger = page.getByRole('button', { name: 'Ask K-Shui', exact: true });
+    await expect(trigger).toBeVisible();
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    const panel = page.getByRole('dialog', { name: 'K-Shui Agent', exact: true });
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText(`Cluster: ${CLUSTER_ID}`, { exact: true })).toBeVisible();
+    const composer = panel.getByRole('textbox', { name: 'Ask K-Shui', exact: true });
+    await expect(composer).toBeInViewport();
+    await expect(panel.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
+    expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+      true,
+    );
+    if (viewport.width >= 768) {
+      const resize = panel.getByRole('separator', { name: 'Resize K-Shui Agent panel' });
+      await resize.focus();
+      await page.keyboard.press('Home');
+      await expect(resize).toHaveAttribute('aria-valuenow', '380');
+      await page.keyboard.press('ArrowLeft');
+      await expect(resize).toHaveAttribute('aria-valuenow', '420');
+    }
+    await composer.focus();
+    await testInfo.attach(`agent-panel-${viewport.width}`, {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    expect(api.countOf('POST /agent/investigations')).toBe(0);
+  });
+}
+
 function investigation(): AgentInvestigation {
   return {
     id: 'saved-agent',
