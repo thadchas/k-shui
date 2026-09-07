@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { ArrowUpRight, GitBranch, Search, X } from 'lucide-react';
+import { ArrowUpRight, GitBranch, LayoutGrid, List, Search, X } from 'lucide-react';
 import { useLineageGraphFull, useLineageSearchHits } from '@/api/hooks/lineage';
 import type { LineageNodeFull, LineageSource } from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
@@ -17,9 +17,19 @@ import { Label } from '@/components/ui/label';
 import { PageHeader } from '@/components/ui/page-header';
 import { RefreshPicker } from '@/components/ui/refresh-picker';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SegmentedList, SegmentedTrigger, Tabs } from '@/components/ui/tabs';
 import { Tooltip } from '@/components/ui/tooltip';
+import { DependencyList } from './components/DependencyList';
 import { NodeDetailPanel } from './components/NodeDetailPanel';
-import { ALL_SOURCES, LINEAGE_SOURCES, normalizeFocusId } from './lineageLib';
+import {
+  ALL_SOURCES,
+  downstreamImpact,
+  focusNeighborhoodIds,
+  LINEAGE_SOURCES,
+  normalizeFocusId,
+} from './lineageLib';
+
+type ViewMode = 'graph' | 'list';
 
 export function LineagePage() {
   const cluster = useClusterId();
@@ -30,6 +40,8 @@ export function LineagePage() {
   const [sources, setSources] = useState<LineageSource[]>(ALL_SOURCES);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [viewMode, setViewMode] = useState<ViewMode>('graph');
+  const [impactEnabled, setImpactEnabled] = useState(true);
   const debounced = useDebounced(search, 250);
 
   const graph = useLineageGraphFull(cluster, {
@@ -80,6 +92,20 @@ export function LineagePage() {
 
   const focusedNode = focusParam ? nodes.find((n) => n.id === focusParam) : undefined;
 
+  // Fit the initial viewport to the focused node + its direct neighbours
+  // instead of the whole graph, so labels stay readable (P1 lineage UX fix).
+  const fitViewIds = useMemo(
+    () => (focusParam ? focusNeighborhoodIds(focusParam, edges) : null),
+    [focusParam, edges],
+  );
+
+  // Downstream blast-radius from the focused node, highlighted with a
+  // distinct emphasis style on the canvas.
+  const impactPath = useMemo(
+    () => (focusParam && impactEnabled ? downstreamImpact(focusParam, edges) : null),
+    [focusParam, impactEnabled, edges],
+  );
+
   return (
     <div className="flex h-[calc(100vh-140px)] min-h-[560px] flex-col gap-4">
       <PageHeader
@@ -94,7 +120,19 @@ export function LineagePage() {
           ) : null
         }
         actions={
-          <RefreshPicker onRefresh={() => void graph.refetch()} refreshing={graph.isFetching} />
+          <div className="flex items-center gap-2">
+            <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
+              <SegmentedList>
+                <SegmentedTrigger value="graph" aria-label="Graph view">
+                  <LayoutGrid className="size-3.5" /> Graph
+                </SegmentedTrigger>
+                <SegmentedTrigger value="list" aria-label="Dependency list view">
+                  <List className="size-3.5" /> List
+                </SegmentedTrigger>
+              </SegmentedList>
+            </Tabs>
+            <RefreshPicker onRefresh={() => void graph.refetch()} refreshing={graph.isFetching} />
+          </div>
         }
       />
 
@@ -182,6 +220,16 @@ export function LineagePage() {
                 Showing the whole graph. Select a node and press Focus to zoom in.
               </p>
             )}
+            {focusParam ? (
+              <label className="flex cursor-pointer items-center gap-2 text-2xs text-[var(--muted)]">
+                <Checkbox
+                  checked={impactEnabled}
+                  onCheckedChange={() => setImpactEnabled((v) => !v)}
+                  aria-label="Highlight downstream impact path"
+                />
+                Highlight downstream impact path
+              </label>
+            ) : null}
           </div>
 
           <div className="space-y-2">
@@ -237,6 +285,32 @@ export function LineagePage() {
                 )
               }
             />
+          ) : viewMode === 'list' ? (
+            focusParam ? (
+              <DependencyList
+                cluster={cluster}
+                focusId={focusParam}
+                focusLabel={focusedNode?.label ?? focusParam}
+                nodes={nodes}
+                edges={edges}
+                depth={depth}
+                onFocus={(id) => {
+                  setFocus(id);
+                  setSelectedId(id);
+                }}
+              />
+            ) : (
+              <EmptyState
+                icon={List}
+                title="Focus a resource to list its dependencies"
+                description="The dependency list shows one resource's upstream and downstream neighbours without needing the graph canvas. Search for a node or switch to Graph to pick one."
+                action={
+                  <Button variant="outline" onClick={() => setViewMode('graph')}>
+                    <LayoutGrid /> Switch to Graph
+                  </Button>
+                }
+              />
+            )
           ) : (
             <LineageGraphCanvas
               nodes={nodes}
@@ -245,6 +319,8 @@ export function LineagePage() {
               selectedId={selectedId}
               onSelect={(node) => setSelectedId(node?.id ?? null)}
               fitViewKey={`${focusParam ?? ''}:${depth}:${sources.join(',')}`}
+              fitViewIds={fitViewIds}
+              impactPath={impactPath}
             />
           )}
 
@@ -264,6 +340,8 @@ export function LineagePage() {
           <NodeDetailPanel
             cluster={cluster}
             node={selected}
+            nodes={nodes}
+            edges={edges}
             onClose={() => setSelectedId(null)}
             onFocus={(id) => {
               setFocus(id);

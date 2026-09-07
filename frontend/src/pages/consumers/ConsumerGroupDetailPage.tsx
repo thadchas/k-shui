@@ -1,7 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import type { ColumnDef } from '@tanstack/react-table';
-import { AlertTriangle, ArrowLeft, ChevronDown, RotateCcw, Trash2, Users } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ChevronDown,
+  Info,
+  MoreHorizontal,
+  RotateCcw,
+  Trash2,
+  Users,
+} from 'lucide-react';
 import {
   useConsumerGroup,
   useConsumerGroupLagHistory,
@@ -19,10 +28,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardToolbarHeader } from '@/components/ui/card';
 import { DataTable } from '@/components/ui/data-table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
 import { PageHeader } from '@/components/ui/page-header';
-import { StatusPill } from '@/components/ui/status-pill';
+import { StatusPill, type StatusTone } from '@/components/ui/status-pill';
 import {
   Table,
   TableBody,
@@ -36,7 +51,22 @@ import { TimeRangePicker } from '@/components/ui/time-range-picker';
 import { toast, toastError } from '@/components/ui/toast';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ResetOffsetsDialog } from './components/ResetOffsetsDialog';
-import { TIME_LAG_WARN_MS, formatTimeLag } from './lag';
+import {
+  computeAssignmentSkew,
+  deriveProcessingHealth,
+  findWorstPartition,
+  formatTimeLag,
+  PROCESSING_HEALTH_EXPLAINER,
+  PROCESSING_HEALTH_LABEL,
+  TIME_LAG_WARN_MS,
+  type ProcessingHealth,
+} from './lag';
+
+const PROCESSING_HEALTH_TONE: Record<ProcessingHealth, StatusTone> = {
+  'caught-up': 'success',
+  'falling-behind': 'warning',
+  unknown: 'muted',
+};
 
 function LagBar({ lag, max }: { lag: number; max: number }) {
   const pct = max > 0 ? Math.min(100, (lag / max) * 100) : 0;
@@ -161,6 +191,19 @@ export function ConsumerGroupDetailPage() {
     const total = series.find((s) => !s.labels?.topic) ?? series[0];
     return total?.points;
   }, [lagHistory.data]);
+
+  const worstPartition = useMemo(() => findWorstPartition(data?.partitions), [data]);
+  const assignmentSkew = useMemo(() => computeAssignmentSkew(data?.members), [data]);
+
+  /**
+   * Processing health is derived independently of `data.state` — a "Stable" group (membership
+   * healthy) can still be falling behind on lag. Missing lag data resolves to `unknown`, never
+   * `caught-up`, so a monitoring gap can't masquerade as a healthy group.
+   */
+  const processingHealth = useMemo(
+    () => deriveProcessingHealth({ totalLag: data?.totalLag, points: totalLagPoints }),
+    [data?.totalLag, totalLagPoints],
+  );
 
   const toggleMember = (memberId: string) =>
     setExpandedMembers((prev) => {
@@ -346,17 +389,26 @@ export function ConsumerGroupDetailPage() {
                 </Button>
               </span>
             </Tooltip>
-            <Tooltip content={canEdit ? undefined : REQUIRES_EDITOR}>
-              <span className="inline-flex">
-                <Button
-                  variant="destructive"
-                  disabled={!canEdit}
-                  onClick={() => setDeleteOpen(true)}
-                >
-                  <Trash2 /> Delete
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" aria-label="More actions">
+                  <MoreHorizontal />
                 </Button>
-              </span>
-            </Tooltip>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {!canEdit ? (
+                  <p className="px-2 py-1.5 text-2xs text-[var(--muted)]">{REQUIRES_EDITOR}</p>
+                ) : null}
+                <DropdownMenuItem
+                  destructive
+                  disabled={!data || !canEdit}
+                  title={canEdit ? undefined : REQUIRES_EDITOR}
+                  onSelect={() => setDeleteOpen(true)}
+                >
+                  <Trash2 /> Delete group
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </>
         }
       />
@@ -370,6 +422,22 @@ export function ConsumerGroupDetailPage() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs">
+            <span className="text-[var(--muted)]">Membership</span>
+            <StatusPill status={data?.state} />
+            <span className="text-[var(--muted)]">Processing</span>
+            <StatusPill
+              status={undefined}
+              tone={PROCESSING_HEALTH_TONE[processingHealth]}
+              label={PROCESSING_HEALTH_LABEL[processingHealth]}
+            />
+            <Tooltip content={PROCESSING_HEALTH_EXPLAINER}>
+              <span className="inline-flex cursor-help text-[var(--muted)]">
+                <Info className="size-3.5" />
+              </span>
+            </Tooltip>
+          </div>
+
           <StatTileRow columns={4}>
             <StatTile
               label="State"
@@ -403,6 +471,49 @@ export function ConsumerGroupDetailPage() {
                   ? `≈ ${formatTimeLag(data.maxTimeLagMs)} behind (slowest partition)`
                   : `Last ${range}`
               }
+            />
+          </StatTileRow>
+
+          <StatTileRow columns={2}>
+            <StatTile
+              label="Worst partition"
+              loading={detail.isLoading}
+              value={
+                worstPartition ? (
+                  <span className="text-lg">
+                    {worstPartition.topic}-{worstPartition.partition}
+                  </span>
+                ) : (
+                  <span className="text-lg text-[var(--muted)]">No data</span>
+                )
+              }
+              tone={worstPartition ? 'warning' : undefined}
+              hint={
+                worstPartition
+                  ? `${formatCompact(worstPartition.lag)} lag — highest of any partition`
+                  : 'No known per-partition lag reading'
+              }
+              onClick={() => setTab('partitions')}
+            />
+            <StatTile
+              label="Assignment skew"
+              loading={detail.isLoading}
+              value={
+                assignmentSkew.ratio !== null ? (
+                  <span className="text-lg">{assignmentSkew.ratio.toFixed(1)}×</span>
+                ) : (
+                  <span className="text-lg text-[var(--muted)]">—</span>
+                )
+              }
+              tone={
+                assignmentSkew.ratio !== null && assignmentSkew.ratio >= 1.5 ? 'warning' : undefined
+              }
+              hint={
+                assignmentSkew.memberCount === 0
+                  ? 'No active members'
+                  : `Busiest member: ${assignmentSkew.maxPartitions} partitions · idlest: ${assignmentSkew.minPartitions}`
+              }
+              onClick={() => setTab('members')}
             />
           </StatTileRow>
 

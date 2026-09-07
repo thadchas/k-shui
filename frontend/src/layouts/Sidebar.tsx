@@ -1,13 +1,16 @@
 import { NavLink, useLocation } from 'react-router';
-import { ChevronLeft, PanelLeft } from 'lucide-react';
+import { ChevronLeft, PanelLeft, Pin, PinOff } from 'lucide-react';
 import type { FeatureFlags } from '@/api/types';
 import { ADMIN_NAV, NAV_GROUPS, isFeatureEnabled, navHref, type NavItem } from '@/lib/nav';
+import { RESOURCE_TYPE_ICONS, RESOURCE_TYPE_LABELS } from '@/lib/scope';
 import { cn } from '@/lib/utils';
+import { useRecentsStore, type ResourceEntry } from '@/stores/recents';
 import { useUiStore } from '@/stores/ui';
 import { BrandMark } from '@/components/brand-mark';
 import { ClusterSwitcher } from '@/components/ClusterSwitcher';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
+import { useClusterResources } from './useRecentResources';
 
 interface SidebarLinkProps {
   item: NavItem;
@@ -67,6 +70,102 @@ function SidebarLink({ item, clusterId, collapsed, enabled }: SidebarLinkProps) 
   );
 }
 
+interface ResourceRowProps {
+  entry: ResourceEntry;
+  collapsed: boolean;
+  pinned: boolean;
+  onTogglePin: (entry: ResourceEntry) => void;
+}
+
+function ResourceRow({ entry, collapsed, pinned, onTogglePin }: ResourceRowProps) {
+  const Icon = RESOURCE_TYPE_ICONS[entry.type];
+  const typeLabel = RESOURCE_TYPE_LABELS[entry.type];
+  const location = useLocation();
+  const active = location.pathname === entry.path;
+
+  const link = (
+    <NavLink
+      to={entry.path}
+      className={cn(
+        'flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-[var(--radius-control)] px-2 text-sm transition-colors focus-visible:outline-none',
+        collapsed && 'w-9 flex-none justify-center px-0',
+        active
+          ? 'bg-[color-mix(in_srgb,var(--primary)_14%,transparent)] font-medium text-[var(--primary)]'
+          : 'text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]',
+      )}
+    >
+      <Icon className="size-4 shrink-0" />
+      {!collapsed ? <span className="truncate font-mono text-xs">{entry.name}</span> : null}
+    </NavLink>
+  );
+
+  if (collapsed) {
+    return (
+      <li className="flex justify-center">
+        <Tooltip content={`${typeLabel} · ${entry.name}`} side="right">
+          {link}
+        </Tooltip>
+      </li>
+    );
+  }
+
+  return (
+    <li className="group/resource flex items-center gap-0.5">
+      <Tooltip content={`${typeLabel} · ${entry.name}`} side="right">
+        {link}
+      </Tooltip>
+      <button
+        type="button"
+        onClick={() => onTogglePin(entry)}
+        aria-label={`${pinned ? 'Unpin' : 'Pin'} ${typeLabel.toLowerCase()} ${entry.name}`}
+        aria-pressed={pinned}
+        className={cn(
+          'flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)] focus-visible:opacity-100',
+          pinned
+            ? 'text-[var(--primary)] opacity-100'
+            : 'opacity-0 group-hover/resource:opacity-100 group-focus-within/resource:opacity-100',
+        )}
+      >
+        {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+      </button>
+    </li>
+  );
+}
+
+interface ResourceSectionProps {
+  label: string;
+  entries: ResourceEntry[];
+  collapsed: boolean;
+  pinned: boolean;
+  onTogglePin: (entry: ResourceEntry) => void;
+}
+
+function ResourceSection({ label, entries, collapsed, pinned, onTogglePin }: ResourceSectionProps) {
+  if (entries.length === 0) return null;
+  return (
+    <div className="mb-4" data-testid={`resource-section-${label.toLowerCase()}`}>
+      {!collapsed ? (
+        <p className="mb-1 px-2 text-2xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+          {label}
+        </p>
+      ) : (
+        <div className="mb-1 h-px bg-[var(--border)]" />
+      )}
+      <ul className="space-y-0.5">
+        {entries.map((entry) => (
+          <ResourceRow
+            key={`${entry.type}:${entry.path}`}
+            entry={entry}
+            collapsed={collapsed}
+            pinned={pinned}
+            onTogglePin={onTogglePin}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export interface SidebarProps {
   clusterId: string | null;
   features: Partial<FeatureFlags> | undefined;
@@ -87,6 +186,16 @@ export function Sidebar({
   const toggle = useUiStore((s) => s.toggleSidebar);
   const isDrawer = variant === 'drawer';
   const collapsed = isDrawer ? false : persistedCollapsed;
+
+  const togglePin = useRecentsStore((s) => s.togglePin);
+  const { pinned, recent } = useClusterResources(clusterId);
+
+  // On a global route (Alerts, Audit, Clusters, app settings) there is no cluster in the
+  // URL, which would leave every cluster-scoped link pointing at the cluster list. Fall
+  // back to the last visited cluster, and say so in the rail rather than doing it silently.
+  const lastClusterId = useUiStore((s) => s.lastClusterId);
+  const navClusterId = clusterId ?? lastClusterId;
+  const showFallbackNote = !clusterId && Boolean(lastClusterId) && !collapsed;
 
   return (
     <aside
@@ -115,9 +224,31 @@ export function Sidebar({
 
       <div className={cn('p-3', collapsed && 'flex justify-center px-0')}>
         <ClusterSwitcher clusterId={clusterId} collapsed={collapsed} />
+        {showFallbackNote ? (
+          <p className="mt-2 px-0.5 text-2xs leading-4 text-[var(--muted)]">
+            Viewing all clusters. Cluster pages open{' '}
+            <span className="font-mono">{lastClusterId}</span>.
+          </p>
+        ) : null}
       </div>
 
       <nav className={cn('min-h-0 flex-1 overflow-y-auto px-3 pb-3', collapsed && 'px-3.5')}>
+        <ResourceSection
+          label="Pinned"
+          entries={pinned}
+          collapsed={collapsed}
+          pinned
+          onTogglePin={togglePin}
+        />
+        {/* The collapsed rail has no room for names; recents stay behind the expanded nav. */}
+        <ResourceSection
+          label="Recent"
+          entries={collapsed ? [] : recent}
+          collapsed={collapsed}
+          pinned={false}
+          onTogglePin={togglePin}
+        />
+
         {NAV_GROUPS.map((group) => (
           <div key={group.label} className="mb-4">
             {!collapsed ? (
@@ -132,7 +263,7 @@ export function Sidebar({
                 <SidebarLink
                   key={item.label}
                   item={item}
-                  clusterId={clusterId}
+                  clusterId={navClusterId}
                   collapsed={collapsed}
                   enabled={isFeatureEnabled(item, features)}
                 />
@@ -154,7 +285,7 @@ export function Sidebar({
               <SidebarLink
                 key={item.label}
                 item={item}
-                clusterId={clusterId}
+                clusterId={navClusterId}
                 collapsed={collapsed}
                 enabled
               />

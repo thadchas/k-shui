@@ -7,9 +7,16 @@ import time
 from fastapi import APIRouter, Depends, Request
 
 from k_shui import __version__
+from k_shui.api.schemas.connection import (
+    ConnectionTestRequest,
+    ConnectionTestResponse,
+    GeneratedConfig,
+)
 from k_shui.api.schemas.security import SystemInfo
 from k_shui.config import Settings
-from k_shui.core.auth import Principal, optional_principal
+from k_shui.core.audit import audit
+from k_shui.core.auth import Principal, non_mutating, optional_principal, require_admin
+from k_shui.core.connection_test import generate_config, run_connection_test
 from k_shui.core.registry import ClusterRegistry, get_registry, get_settings
 
 router = APIRouter(tags=["system"])
@@ -59,3 +66,43 @@ async def info(
         readOnly=settings.server.readOnly,
         basePath=settings.server.basePath,
     )
+
+
+@router.post("/system/connection-test", response_model=ConnectionTestResponse)
+@non_mutating
+async def connection_test(
+    body: ConnectionTestRequest,
+    request: Request,
+    principal: Principal = Depends(require_admin),
+) -> ConnectionTestResponse:
+    """Probe candidate connection details for a cluster that is not configured yet.
+
+    Every *provided* component is tested independently with a bounded timeout, and each
+    result says whether the problem is connectivity, credentials, permissions or
+    configuration. Nothing is written: the cluster inventory is deployment-managed, so
+    the response also carries the YAML fragment to apply (credentials as ``${ENV_VAR}``).
+    Submitted secrets are never echoed back.
+    """
+    result = await run_connection_test(body)
+    await audit(
+        request,
+        "system.connection_test",
+        resource=body.clusterId,
+        details={
+            "bootstrapServers": body.bootstrapServers,
+            "ok": result.ok,
+            "results": {c.component: c.status for c in result.components},
+        },
+        cluster_id=body.clusterId,
+    )
+    return result
+
+
+@router.post("/system/connection-config", response_model=GeneratedConfig)
+@non_mutating
+async def connection_config(
+    body: ConnectionTestRequest,
+    principal: Principal = Depends(require_admin),
+) -> GeneratedConfig:
+    """Render the ``k-shui.yaml`` cluster fragment for these details without probing anything."""
+    return generate_config(body)

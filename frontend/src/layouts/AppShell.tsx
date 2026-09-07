@@ -14,6 +14,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { useAuthStore } from '@/stores/auth';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
+import { useRecordRecentResource } from './useRecentResources';
 
 export function AppShell() {
   const { cluster: clusterParam } = useParams<{ cluster: string }>();
@@ -27,6 +28,9 @@ export function AppShell() {
 
   const sessionExpired = useAuthStore((s) => s.sessionExpired);
   const ackSessionExpired = useAuthStore((s) => s.ackSessionExpired);
+
+  // Resource-detail routes feed the sidebar's Recent list (cluster-scoped, persisted).
+  useRecordRecentResource();
 
   // The fetch layer flags 401s; we own the router, so redirect from here and refresh /info so
   // the shell's auth gate below agrees with the server.

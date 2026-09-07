@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
+import { ConnectionTesterButton } from './ConnectionTesterDialog';
 import { ErrorState } from '@/components/ui/error-state';
 import { PageHeader } from '@/components/ui/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -158,6 +159,7 @@ export function ClustersPage() {
         title="Clusters"
         description="Every Kafka cluster configured in k-shui.yaml."
         meta={data ? <Badge variant="secondary">{data.length}</Badge> : null}
+        actions={<ConnectionTesterButton />}
       />
 
       {error ? (
@@ -173,7 +175,8 @@ export function ClustersPage() {
           <EmptyState
             icon={Boxes}
             title="No clusters configured"
-            description="Add a cluster to k-shui.yaml (or set KSHUI_BOOTSTRAP_SERVERS) and restart the server."
+            description="Test your connection details first — k-shui will check the brokers and each integration, then generate the k-shui.yaml fragment to apply and restart with."
+            action={<ConnectionTesterButton variant="default" label="Test a connection" />}
           />
         </Card>
       ) : (

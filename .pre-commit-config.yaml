@@ -26,7 +26,7 @@ repos:
         name: prettier (frontend + deploy YAML/JSON/MD)
         entry: frontend/node_modules/.bin/prettier --write --ignore-unknown
         language: system
-        files: ^(frontend/src|packages/npm|deploy|charts|docs)/.*\.(ts|tsx|css|json|ya?ml|md)$
+        files: ^(frontend/src|frontend/e2e|packages/npm|deploy|charts|docs)/.*\.(ts|tsx|css|json|ya?ml|md)$
         exclude: ^charts/.*/templates/ # Helm templates aren't valid YAML/Go-template mix for prettier
 
   - repo: https://github.com/pre-commit/pre-commit-hooks

@@ -5,6 +5,9 @@ import { useAuthStore } from '@/stores/auth';
 import type {
   AuditEntry,
   AuditQuery,
+  ConnectionTestRequest,
+  ConnectionTestResponse,
+  GeneratedClusterConfig,
   InfoResponse,
   LoginRequest,
   LoginResponse,
@@ -58,6 +61,26 @@ export function useLogout() {
       clear();
       qc.clear();
     },
+  });
+}
+
+/**
+ * Probe candidate cluster connection details (admin only). Changes nothing on the
+ * server: the cluster inventory is deployment-managed, so the response also carries the
+ * YAML fragment to apply. Not cached — a test is an explicit user action.
+ */
+export function useConnectionTest() {
+  return useMutation({
+    mutationFn: (body: ConnectionTestRequest) =>
+      api.post<ConnectionTestResponse>('/system/connection-test', body),
+  });
+}
+
+/** Render the k-shui.yaml fragment for these details without probing anything. */
+export function useConnectionConfig() {
+  return useMutation({
+    mutationFn: (body: ConnectionTestRequest) =>
+      api.post<GeneratedClusterConfig>('/system/connection-config', body),
   });
 }
 

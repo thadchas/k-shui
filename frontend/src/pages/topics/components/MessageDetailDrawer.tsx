@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Message } from '@/api/types';
 import { formatBytes } from '@/lib/format';
-import { Crosshair } from 'lucide-react';
+import { Check, Columns3, Crosshair } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { suggestFieldPaths } from './messageSearch';
 import {
   formatMessageTimestamp,
   isTombstone,
@@ -45,6 +46,10 @@ export interface MessageDetailDrawerProps {
   timestampFormat?: TimestampFormat;
   /** Offered when set: scope the browser's filter to this record's exact key. */
   onFollowKey?: (key: string) => void;
+  /** Dot paths already promoted to table columns. */
+  fieldColumns?: string[];
+  /** Offered when set: promote one of this record's JSON fields to a table column. */
+  onAddFieldColumn?: (path: string) => void;
 }
 
 export function MessageDetailDrawer({
@@ -52,8 +57,14 @@ export function MessageDetailDrawer({
   onOpenChange,
   timestampFormat = 'local',
   onFollowKey,
+  fieldColumns = [],
+  onAddFieldColumn,
 }: MessageDetailDrawerProps) {
   const [view, setView] = useState<'parsed' | 'raw'>('parsed');
+  const fieldPaths = useMemo(
+    () => (message ? suggestFieldPaths([{ value: message.value }], { maxPaths: 24 }) : []),
+    [message],
+  );
   if (!message) return null;
 
   const headerEntries = Object.entries(message.headers ?? {});
@@ -162,6 +173,33 @@ export function MessageDetailDrawer({
               <JsonViewer value={message.value} maxHeight={400} defaultExpandedDepth={3} />
             )}
           </section>
+
+          {onAddFieldColumn && fieldPaths.length > 0 ? (
+            <section className="space-y-2">
+              <h3 className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                <Columns3 className="size-3.5" /> Show a field as a column
+              </h3>
+              <ul className="flex flex-wrap gap-1.5">
+                {fieldPaths.map((path) => {
+                  const added = fieldColumns.includes(path);
+                  return (
+                    <li key={path}>
+                      <button
+                        type="button"
+                        disabled={added}
+                        className="inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--border)] px-2 py-0.5 font-mono text-2xs text-[var(--muted)] hover:border-[var(--primary)] hover:text-[var(--primary)] disabled:cursor-default disabled:border-solid disabled:text-[var(--muted)] disabled:hover:border-[var(--border)]"
+                        aria-label={added ? `${path} is already a column` : `Add column ${path}`}
+                        onClick={() => onAddFieldColumn(path)}
+                      >
+                        {added ? <Check className="size-3" /> : null}
+                        {path}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
 
           <section className="space-y-2">
             <h3 className="text-2xs font-semibold uppercase tracking-wide text-[var(--muted)]">

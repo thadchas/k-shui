@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
+import { useQueries } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import {
   Activity,
@@ -7,7 +8,9 @@ import {
   Boxes,
   CheckCircle2,
   Crown,
+  Fingerprint,
   Layers,
+  Network,
   Scale,
   Server,
   ShieldAlert,
@@ -15,6 +18,7 @@ import {
   Users,
   Vote,
 } from 'lucide-react';
+import { api } from '@/api/client';
 import {
   useCluster,
   useClusterHealth,
@@ -22,8 +26,17 @@ import {
   useOverviewMetrics,
   useUnhealthyPartitions,
 } from '@/api/hooks/clusters';
+import { useConnectClusters } from '@/api/hooks/connect';
 import { useConsumerGroups } from '@/api/hooks/consumerGroups';
-import type { TimeRange, UnhealthyPartition, UnhealthyPartitionReason } from '@/api/types';
+import { useFlinkClusters } from '@/api/hooks/flink';
+import { qk } from '@/api/keys';
+import type {
+  Connector,
+  FlinkJob,
+  TimeRange,
+  UnhealthyPartition,
+  UnhealthyPartitionReason,
+} from '@/api/types';
 import { useClusterId } from '@/hooks/useClusterId';
 import { REQUIRES_EDITOR, usePermissions } from '@/hooks/usePermissions';
 import { pickSeries } from '@/lib/charts';
@@ -61,6 +74,20 @@ import {
 } from '@/components/ui/table';
 import { TimeRangePicker } from '@/components/ui/time-range-picker';
 import { Tooltip } from '@/components/ui/tooltip';
+import { NeedsAttentionQueue } from './NeedsAttentionQueue';
+import {
+  buildNeedsAttention,
+  isAnySourceLoading,
+  isFullyHealthy,
+  LAG_SUSTAINED_POLLS,
+  LAG_WARNING_THRESHOLD,
+  type AttentionSourceId,
+  type ConnectorWithCluster,
+  type FlinkJobWithCluster,
+  type LagCandidate,
+  type NeedsAttentionInput,
+  type SourceState,
+} from './needsAttention';
 
 const REASON_LABEL: Record<
   UnhealthyPartitionReason,
@@ -125,9 +152,149 @@ export function ClusterOverviewPage() {
   const quorum = useKRaftQuorum(cluster);
   const unhealthy = useUnhealthyPartitions(cluster);
   const groups = useConsumerGroups(cluster);
+  const connectClusters = useConnectClusters(cluster);
+  const flinkClusters = useFlinkClusters(cluster);
 
   const data = detail.data;
   const series = metrics.data?.series;
+
+  /* ---------------------------------------------------------------------- *
+   * "Needs attention" queue — ranks offline/under-replicated partitions,
+   * then failed connectors/Flink jobs, then sustained consumer lag. Derived
+   * in the pure src/pages/overview/needsAttention.ts module so ranking and
+   * "unavailable telemetry never means healthy" rules are unit-testable.
+   * ---------------------------------------------------------------------- */
+
+  const connectKcNames = useMemo(
+    () => connectClusters.data?.map((c) => c.name) ?? [],
+    [connectClusters.data],
+  );
+  const flinkFcNames = useMemo(
+    () => flinkClusters.data?.map((f) => f.name) ?? [],
+    [flinkClusters.data],
+  );
+
+  // Fan-out: one connectors/jobs request per Connect/Flink cluster configured
+  // on this Kafka cluster. Reuses the same query keys as useConnectors/
+  // useFlinkJobs so results share the cache with the Connect/Flink pages.
+  const connectorQueries = useQueries({
+    queries: connectKcNames.map((kc) => ({
+      queryKey: qk.connectors(cluster, kc, {}),
+      queryFn: () => api.get<Connector[]>(`/clusters/${cluster}/connect/${kc}/connectors`),
+      enabled: Boolean(cluster),
+      retry: false,
+      staleTime: 15_000,
+    })),
+  });
+  const flinkJobQueries = useQueries({
+    queries: flinkFcNames.map((fc) => ({
+      queryKey: qk.flinkJobs(cluster, fc),
+      queryFn: () => api.get<FlinkJob[]>(`/clusters/${cluster}/flink/${fc}/jobs`),
+      enabled: Boolean(cluster),
+      retry: false,
+      staleTime: 15_000,
+    })),
+  });
+
+  const partitionsSource: SourceState<UnhealthyPartition[]> = useMemo(() => {
+    if (unhealthy.error) return { status: 'error' };
+    if (unhealthy.isLoading) return { status: 'loading' };
+    return { status: 'ok', data: unhealthy.data?.items ?? [] };
+  }, [unhealthy.error, unhealthy.isLoading, unhealthy.data]);
+
+  const connectSource: SourceState<ConnectorWithCluster[]> = useMemo(() => {
+    if (connectClusters.error) return { status: 'error' };
+    if (connectClusters.isLoading) return { status: 'loading' };
+    if (connectorQueries.some((q) => q.error)) return { status: 'error' };
+    if (connectorQueries.some((q) => q.isLoading)) return { status: 'loading' };
+    const list: ConnectorWithCluster[] = [];
+    connectKcNames.forEach((kc, i) => {
+      for (const connector of connectorQueries[i]?.data ?? []) list.push({ kc, connector });
+    });
+    return { status: 'ok', data: list };
+  }, [connectClusters.error, connectClusters.isLoading, connectorQueries, connectKcNames]);
+
+  const flinkSource: SourceState<FlinkJobWithCluster[]> = useMemo(() => {
+    if (flinkClusters.error) return { status: 'error' };
+    if (flinkClusters.isLoading) return { status: 'loading' };
+    if (flinkJobQueries.some((q) => q.error)) return { status: 'error' };
+    if (flinkJobQueries.some((q) => q.isLoading)) return { status: 'loading' };
+    const list: FlinkJobWithCluster[] = [];
+    flinkFcNames.forEach((fc, i) => {
+      for (const job of flinkJobQueries[i]?.data ?? []) list.push({ fc, job });
+    });
+    return { status: 'ok', data: list };
+  }, [flinkClusters.error, flinkClusters.isLoading, flinkJobQueries, flinkFcNames]);
+
+  // Track consecutive polls where a group's lag stayed above the warning
+  // threshold, so a single noisy sample doesn't get flagged as "sustained".
+  const lagObservationsRef = useRef<Map<string, number>>(new Map());
+  const [lagObservationVersion, setLagObservationVersion] = useState(0);
+
+  useEffect(() => {
+    if (!groups.data) return;
+    const seen = new Set<string>();
+    let changed = false;
+    for (const g of groups.data) {
+      seen.add(g.groupId);
+      const prev = lagObservationsRef.current.get(g.groupId) ?? 0;
+      const next = g.totalLag >= LAG_WARNING_THRESHOLD ? Math.min(prev + 1, 10) : 0;
+      if (next !== prev) changed = true;
+      lagObservationsRef.current.set(g.groupId, next);
+    }
+    for (const key of Array.from(lagObservationsRef.current.keys())) {
+      if (!seen.has(key)) {
+        lagObservationsRef.current.delete(key);
+        changed = true;
+      }
+    }
+    if (changed) setLagObservationVersion((v) => v + 1);
+    // groups.data identity changes on every poll; dataUpdatedAt is the stable trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups.dataUpdatedAt]);
+
+  const lagSource: SourceState<LagCandidate[]> = useMemo(() => {
+    if (groups.error) return { status: 'error' };
+    if (groups.isLoading) return { status: 'loading' };
+    const list: LagCandidate[] = (groups.data ?? []).map((group) => ({
+      group,
+      sustained: (lagObservationsRef.current.get(group.groupId) ?? 0) >= LAG_SUSTAINED_POLLS,
+    }));
+    return { status: 'ok', data: list };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups.error, groups.isLoading, groups.data, lagObservationVersion]);
+
+  const needsAttentionInput: NeedsAttentionInput = useMemo(
+    () => ({
+      clusterId: cluster,
+      partitions: partitionsSource,
+      connect: connectSource,
+      flink: flinkSource,
+      lag: lagSource,
+    }),
+    [cluster, partitionsSource, connectSource, flinkSource, lagSource],
+  );
+
+  const attentionItems = useMemo(
+    () => buildNeedsAttention(needsAttentionInput),
+    [needsAttentionInput],
+  );
+  const attentionLoading = isAnySourceLoading(needsAttentionInput);
+  const attentionHealthy = isFullyHealthy(needsAttentionInput, attentionItems);
+
+  const handleAttentionRetry = (source: AttentionSourceId) => {
+    if (source === 'partitions') {
+      void unhealthy.refetch();
+    } else if (source === 'connect') {
+      void connectClusters.refetch();
+      connectorQueries.forEach((q) => void q.refetch());
+    } else if (source === 'flink') {
+      void flinkClusters.refetch();
+      flinkJobQueries.forEach((q) => void q.refetch());
+    } else if (source === 'lag') {
+      void groups.refetch();
+    }
+  };
 
   const topGroups = useMemo(
     () =>
@@ -298,19 +465,6 @@ export function ClusterOverviewPage() {
           tooltip="Open partition health"
         />
         <StatTile
-          label="Controller"
-          loading={detail.isLoading}
-          value={data?.controllerId ?? '—'}
-          icon={Crown}
-          hint={data?.kraft ? 'KRaft mode' : undefined}
-        />
-        <StatTile
-          label="Kafka version"
-          loading={detail.isLoading}
-          value={<span className="text-xl">{data?.version ?? '—'}</span>}
-          icon={Tag}
-        />
-        <StatTile
           label="In-sync replicas"
           loading={detail.isLoading}
           value={
@@ -322,6 +476,13 @@ export function ClusterOverviewPage() {
           icon={Activity}
         />
       </StatTileRow>
+
+      <NeedsAttentionQueue
+        items={attentionItems}
+        loading={attentionLoading}
+        healthy={attentionHealthy}
+        onRetry={handleAttentionRetry}
+      />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
@@ -654,6 +815,39 @@ export function ClusterOverviewPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardToolbarHeader title="Cluster details" description="Version and controller metadata" />
+        <CardContent>
+          <StatTileRow columns={4}>
+            <StatTile
+              label="Kafka version"
+              loading={detail.isLoading}
+              value={<span className="text-xl">{data?.version ?? '—'}</span>}
+              icon={Tag}
+            />
+            <StatTile
+              label="Controller"
+              loading={detail.isLoading}
+              value={data?.controllerId ?? '—'}
+              icon={Crown}
+              hint={data?.kraft ? 'KRaft mode' : undefined}
+            />
+            <StatTile
+              label="Consensus"
+              loading={detail.isLoading}
+              value={data?.kraft ? 'KRaft' : 'ZooKeeper'}
+              icon={Network}
+            />
+            <StatTile
+              label="Cluster ID"
+              loading={detail.isLoading}
+              value={<span className="font-mono text-sm">{data?.clusterId ?? '—'}</span>}
+              icon={Fingerprint}
+            />
+          </StatTileRow>
+        </CardContent>
+      </Card>
 
       <Dialog open={healthOpen} onOpenChange={setHealthOpen}>
         <DialogContent size="lg">

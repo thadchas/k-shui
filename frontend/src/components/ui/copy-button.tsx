@@ -44,6 +44,7 @@ export function CopyButton({
         size={label ? 'sm' : size}
         className={cn('text-[var(--muted)] hover:text-[var(--foreground)]', className)}
         onClick={(e) => {
+          e.preventDefault();
           e.stopPropagation();
           void onCopy();
         }}

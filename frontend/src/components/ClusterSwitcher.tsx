@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router';
 import { Check, ChevronsUpDown, Boxes, Plus } from 'lucide-react';
 import { useClusters } from '@/api/hooks/clusters';
 import type { ClusterSummary } from '@/api/types';
+import { clusterSwitchNotice, clusterSwitchPath } from '@/lib/scope';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -30,13 +31,14 @@ export function ClusterSwitcher({ clusterId, collapsed, className }: ClusterSwit
   const location = useLocation();
   const { data, isLoading } = useClusters();
 
-  /** Keep the current page when switching clusters (`/c/a/topics` → `/c/b/topics`). */
-  const hrefFor = (id: string) => {
-    const m = /^\/c\/[^/]+(\/[^/]+)?/.exec(location.pathname);
-    // Only the first segment is portable; deeper paths (a topic name) rarely exist elsewhere.
-    const section = m?.[1] ?? '/overview';
-    return `/c/${encodeURIComponent(id)}${section}`;
-  };
+  /**
+   * Keep the section when switching clusters (`/c/a/topics` → `/c/b/topics`) and carry the
+   * time window, but never the resource: a resource-detail path degrades to its list page
+   * so cluster B is not silently shown under cluster A's resource name.
+   */
+  const hrefFor = (id: string) => clusterSwitchPath(location.pathname, id, location.search);
+
+  const notice = useMemo(() => clusterSwitchNotice(location.pathname), [location.pathname]);
 
   const current = useMemo<ClusterSummary | undefined>(
     () => data?.find((c) => c.id === clusterId),
@@ -82,6 +84,12 @@ export function ClusterSwitcher({ clusterId, collapsed, className }: ClusterSwit
       <PopoverContent className="w-72 p-0" align="start">
         <Command>
           <CommandInput placeholder="Find cluster…" />
+          {notice ? (
+            <p className="border-b border-[var(--border)] px-3 py-2 text-2xs leading-4 text-[var(--muted)]">
+              Switching cluster leaves <span className="font-mono">{notice.resource.name}</span> and
+              opens {notice.section} in the cluster you pick.
+            </p>
+          ) : null}
           <CommandList>
             <CommandEmpty>No clusters configured</CommandEmpty>
             <CommandGroup heading="Clusters">

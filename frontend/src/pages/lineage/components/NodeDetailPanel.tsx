@@ -1,7 +1,8 @@
+import { useMemo } from 'react';
 import { Link } from 'react-router';
-import { ArrowUpRight, Crosshair, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, ArrowUpRight, Crosshair, X } from 'lucide-react';
 import { useLineageNodeDetail } from '@/api/hooks/lineage';
-import type { LineageNodeFull } from '@/api/types';
+import type { LineageEdge, LineageNodeFull } from '@/api/types';
 import { formatRelative } from '@/lib/format';
 import { lineageTypeStyle } from '@/components/LineageGraph';
 import { Badge } from '@/components/ui/badge';
@@ -12,7 +13,8 @@ import { JsonViewer } from '@/components/ui/json-viewer';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusPill } from '@/components/ui/status-pill';
-import { lineageNodeLink } from '../lineageLib';
+import { Tooltip } from '@/components/ui/tooltip';
+import { directNeighbors, lineageNodeLink, shortNodeId } from '../lineageLib';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -28,6 +30,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export interface NodeDetailPanelProps {
   cluster: string;
   node: LineageNodeFull;
+  /** Nodes/edges currently loaded on the canvas — used to compute one-hop shortcuts. */
+  nodes: LineageNodeFull[];
+  edges: LineageEdge[];
   onClose: () => void;
   onFocus: (id: string) => void;
   onSelectId: (id: string) => void;
@@ -36,6 +41,8 @@ export interface NodeDetailPanelProps {
 export function NodeDetailPanel({
   cluster,
   node,
+  nodes,
+  edges,
   onClose,
   onFocus,
   onSelectId,
@@ -45,6 +52,16 @@ export function NodeDetailPanel({
   const Icon = style.icon;
   const link = lineageNodeLink(node, cluster);
   const d = detail.data;
+
+  const nodesById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const upstreamNeighbors = useMemo(
+    () => directNeighbors(node.id, edges, 'upstream'),
+    [node.id, edges],
+  );
+  const downstreamNeighbors = useMemo(
+    () => directNeighbors(node.id, edges, 'downstream'),
+    [node.id, edges],
+  );
 
   return (
     <aside className="flex w-full min-w-0 flex-col border-l border-[var(--border)] bg-[var(--surface)] lg:w-[380px]">
@@ -85,6 +102,51 @@ export function NodeDetailPanel({
               </Button>
             ) : null}
           </div>
+
+          {upstreamNeighbors.length > 0 || downstreamNeighbors.length > 0 ? (
+            <Section title="Jump one hop">
+              <div className="space-y-2.5">
+                {upstreamNeighbors.length > 0 ? (
+                  <div className="space-y-1">
+                    <p className="flex items-center gap-1 text-2xs text-[var(--muted)]">
+                      <ArrowUpFromLine className="size-3" /> Upstream
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {upstreamNeighbors.map((id) => {
+                        const n = nodesById.get(id);
+                        return (
+                          <Tooltip key={id} content={id}>
+                            <Button size="sm" variant="outline" onClick={() => onFocus(id)}>
+                              {n?.label ?? shortNodeId(id, 24)}
+                            </Button>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+                {downstreamNeighbors.length > 0 ? (
+                  <div className="space-y-1">
+                    <p className="flex items-center gap-1 text-2xs text-[var(--muted)]">
+                      <ArrowDownToLine className="size-3" /> Downstream
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {downstreamNeighbors.map((id) => {
+                        const n = nodesById.get(id);
+                        return (
+                          <Tooltip key={id} content={id}>
+                            <Button size="sm" variant="outline" onClick={() => onFocus(id)}>
+                              {n?.label ?? shortNodeId(id, 24)}
+                            </Button>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </Section>
+          ) : null}
 
           <Section title="Identity">
             <div className="space-y-1.5 text-xs">
