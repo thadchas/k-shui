@@ -90,6 +90,10 @@ telemetry:
   otlpEndpoint: null # OpenTelemetry traces
 alerts:
   evaluationIntervalSeconds: 30
+agent:
+  enabled: false # requires authenticated users; single application worker
+  allowMutations: false # existing user/cluster/read-only authority still applies
+  connections: [] # explicit OpenAI/Anthropic models, server env-key references and rates
 clusters:
   - id: local # url-safe, unique
     name: lakestream (kind)
@@ -309,6 +313,34 @@ carries `${ENV_VAR}` placeholders, and any secret quoted by an upstream error is
 - `GET /alerts/summary` → counts by severity/cluster for the topbar bell.
 - Engine: APScheduler job every `evaluationIntervalSeconds` evaluates every enabled trigger against live data (admin API / Prometheus), applies `bufferSeconds` (condition must hold for that long), fires actions, records history, emits `alert.fired`/`alert.resolved` SSE events, exports `kshui_alerts_firing{severity}` gauge.
 
+### K-Shui Agent
+
+The optional Agent is disabled by default. `agent.enabled`, `allowMutations`, cluster/tool
+allowlists and run limits are deployment-managed. Connections specify an OpenAI or
+Anthropic model, a server environment secret reference and contracted token rates;
+inference credentials grant no Kafka authority. Full configuration fields and defaults
+are in [the configuration reference](docs/deployment/configuration-reference.md#agent-agentconfig).
+
+- `GET /agent/status` reports availability, acting user, effective modes, policy and visible connections; anonymous callers receive disabled status without credentials.
+- `GET /agent/connections` and `POST /agent/connections/{id}/test` list scoped connections and test tool capability (test requires an administrator).
+- `GET|POST /agent/investigations` and `GET /agent/investigations/{id}` persist user-owned investigations with immutable cluster/provider/model/mode context.
+- `POST /agent/investigations/{id}/messages` accepts `{content, requestId}` and starts a bounded background run; repeating the same request ID does not create a second run.
+- `GET /agent/investigations/{id}/events` streams snapshots; `POST /agent/investigations/{id}/cancel` stops subsequent tool work and invalidates pending operation previews.
+- `POST /agent/investigations/{id}/operations/prepare` accepts `{action, target, parameters}`; `POST .../operations/{operationId}/execute` accepts `{confirmation?}`; `POST .../operations/{operationId}/cancel` cancels a pending preview.
+
+The model can inspect allowlisted metadata or prepare a supported change; it cannot
+execute. Execution binds the human user, investigation, cluster, exact parameters,
+five-minute expiry and current resource state, rechecks authority, durably claims the
+operation and writes audit evidence before dispatch. Consequential operations require
+typed confirmation and offset resets require a successful dry run. Verification records
+success, partial completion or an unknown outcome; uncertain mutations are never
+automatically retried. Payloads and raw traces are excluded from evidence.
+
+`agent_investigations` and `agent_operations` persist in the existing SQLAlchemy database.
+Use a single application process because run admission and restart recovery assume one
+worker. Shutdown cancels active investigations; startup marks interrupted work without
+redispatch. See [Agent deployment and supported operations](docs/k-shui-agent.md).
+
 ## Frontend routes (react-router v7)
 
 ```
@@ -330,6 +362,8 @@ carries `${ENV_VAR}` placeholders, and any secret quoted by an upstream error is
 /alerts                             tabs: history, triggers, actions  (/alerts/triggers/new, /alerts/triggers/:id, /alerts/actions/new)
 /audit                              audit log
 /settings                           app settings, users (basic auth), about
+/agent                              investigation workspace (also /c/:cluster/agent)
+/agent/settings                     AI connections, capability tests and data policy
 /login
 ```
 

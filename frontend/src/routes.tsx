@@ -19,6 +19,8 @@ import { ClusterSettingsPage } from '@/pages/settings/ClusterSettingsPage';
 import { AppSettingsPage } from '@/pages/settings/AppSettingsPage';
 import { AuditPage } from '@/pages/audit/AuditPage';
 import { LoginPage } from '@/pages/auth/LoginPage';
+import { AgentPage } from '@/pages/agent/AgentPage';
+import { AgentSettingsPage } from '@/pages/agent/AgentSettingsPage';
 
 import { SchemasPage } from '@/pages/schemas/SchemasPage';
 import { NewSchemaPage } from '@/pages/schemas/NewSchemaPage';
@@ -85,6 +87,12 @@ export const routes: RouteObject[] = [
       },
       { path: 'audit', element: <AuditPage />, handle: { crumb: 'Audit' } },
       { path: 'settings', element: <AppSettingsPage />, handle: { crumb: 'Settings' } },
+      { path: 'agent', element: <AgentPage />, handle: { crumb: 'Investigation' } },
+      {
+        path: 'agent/settings',
+        element: <AgentSettingsPage />,
+        handle: { crumb: 'AI connections' },
+      },
       { path: '*', element: <NotFound /> },
     ],
   },
@@ -95,6 +103,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <Navigate to="overview" replace /> },
       { path: 'overview', element: <ClusterOverviewPage />, handle: { crumb: 'Overview' } },
+      { path: 'agent', element: <AgentPage />, handle: { crumb: 'Investigation' } },
 
       { path: 'brokers', element: <BrokersPage />, handle: { crumb: 'Brokers' } },
       {

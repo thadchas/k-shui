@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { Monitor, Moon, Sun, Users } from 'lucide-react';
 import { useInfo } from '@/api/hooks/system';
 import { FEATURE_LABELS } from '@/lib/nav';
@@ -48,7 +48,15 @@ export function AppSettingsPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader title="Settings" description="Appearance, defaults and build information." />
+      <PageHeader
+        title="Settings"
+        description="Appearance, defaults and build information."
+        actions={
+          <Button variant="outline" asChild>
+            <Link to="/agent/settings">AI connections</Link>
+          </Button>
+        }
+      />
 
       <Tabs
         value={tab}

@@ -58,6 +58,23 @@ export function registerDefaultRoutes(api: ApiMock): void {
   api.on('GET /info', { json: data.info });
   api.on('GET /auth/me', { json: data.ADMIN_USER });
   api.on('POST /auth/logout', { status: 204, body: '' });
+  api.on('GET /agent/status', {
+    json: {
+      enabled: false,
+      actingUser: data.ADMIN_USER.username,
+      effectiveModes: [],
+      policy: {
+        allowPayloads: false,
+        maxToolCalls: 8,
+        maxRunSeconds: 60,
+        maxInputChars: 24000,
+        maxOutputTokens: 2048,
+        maxRunCostUsd: 0.25,
+      },
+      connections: [],
+      unsupportedConnections: [],
+    },
+  });
 
   /* ------------------------------ clusters ------------------------------ */
   api.on('GET /clusters', { json: data.clusters });

@@ -62,6 +62,8 @@ import {
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState, InlineError } from '@/components/ui/error-state';
 import { PageHeader } from '@/components/ui/page-header';
+import { InvestigateButton } from '@/components/agent/AgentPanel';
+import { investigationWindow } from '@/lib/agentContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusPill } from '@/components/ui/status-pill';
 import {
@@ -726,6 +728,16 @@ export function ClusterOverviewPage() {
                         </TableCell>
                         <TableCell>
                           <ReasonBadges reasons={p.reasons} />
+                          <span onClick={(event) => event.stopPropagation()}>
+                            <InvestigateButton
+                              context={{
+                                clusterId: cluster,
+                                resource: { type: 'topic', name: p.topic },
+                                timeWindow: investigationWindow(range),
+                                prompt: `Investigate unhealthy partition ${p.partition} of this topic.`,
+                              }}
+                            />
+                          </span>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -805,6 +817,14 @@ export function ClusterOverviewPage() {
                         <TableCell numeric>{formatNumber(g.memberCount)}</TableCell>
                         <TableCell numeric className="text-[var(--warning)]">
                           {formatCompact(g.totalLag)}
+                          <InvestigateButton
+                            context={{
+                              clusterId: cluster,
+                              resource: { type: 'consumer_group', name: g.groupId },
+                              timeWindow: investigationWindow(range),
+                              prompt: 'Why is this consumer group falling behind?',
+                            }}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}

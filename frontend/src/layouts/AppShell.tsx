@@ -7,6 +7,7 @@ import { useInfo } from '@/api/hooks/system';
 import { qk } from '@/api/keys';
 import type { InfoResponse } from '@/api/types';
 import { CommandPalette } from '@/components/CommandPalette';
+import { AgentPanel } from '@/components/agent/AgentPanel';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -128,6 +129,7 @@ export function AppShell() {
         </main>
       </div>
       <CommandPalette clusterId={clusterId} />
+      <AgentPanel />
     </div>
   );
 }

@@ -65,6 +65,41 @@ class AlertsConfig(BaseModel):
     smtp: dict[str, Any] | None = None  # host, port, username, password, from, tls
 
 
+class AgentConnectionConfig(BaseModel):
+    """Administrator-managed inference connection. Store only an environment secret reference."""
+
+    id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
+    name: str = Field(min_length=1, max_length=160)
+    provider: Literal["openai", "anthropic"]
+    model: str = Field(min_length=1, max_length=200)
+    apiKeyEnv: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    allowedClusters: list[str] | None = None
+    allowedTools: list[str] | None = None
+    # Deployment supplies its contracted rates. Missing prices prevent paid runs.
+    inputUsdPerMillion: float | None = Field(default=None, gt=0)
+    outputUsdPerMillion: float | None = Field(default=None, gt=0)
+
+
+class AgentConfig(BaseModel):
+    enabled: bool = False
+    allowMutations: bool = False
+    allowedClusters: list[str] | None = None
+    allowedTools: list[str] | None = None
+    maxToolCalls: int = Field(default=8, ge=1, le=30)
+    maxRunSeconds: int = Field(default=60, ge=5, le=300)
+    maxInputChars: int = Field(default=24000, ge=2000, le=100000)
+    maxOutputTokens: int = Field(default=2048, ge=128, le=8192)
+    maxRunCostUsd: float = Field(default=0.25, gt=0, le=100)
+    maxConcurrentRuns: int = Field(default=4, ge=1, le=32)
+    connections: list[AgentConnectionConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _unique_connections(self) -> AgentConfig:
+        if len({c.id for c in self.connections}) != len(self.connections):
+            raise ValueError("agent connection IDs must be unique")
+        return self
+
+
 class HttpAuth(BaseModel):
     username: str | None = None
     password: str | None = None
@@ -188,6 +223,7 @@ class Settings(BaseSettings):
     database: DatabaseConfig = DatabaseConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
     alerts: AlertsConfig = AlertsConfig()
+    agent: AgentConfig = Field(default_factory=AgentConfig)
     clusters: list[ClusterConfig] = Field(default_factory=list)
     configPath: str | None = None
 

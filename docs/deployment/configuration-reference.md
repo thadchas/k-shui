@@ -119,6 +119,51 @@ extra.
 | `historyRetentionDays`      | int                                                                  | `30`    | `KSHUI__ALERTS__HISTORYRETENTIONDAYS`      |
 | `smtp`                      | dict \| null (`host`, `port`, `username`, `password`, `from`, `tls`) | `null`  | — (YAML only)                              |
 
+## `agent` (`AgentConfig`)
+
+Disabled by default. Requires `auth.type: basic` or `oidc`; anonymous access does not
+inherit the development server's administrator role. Use one application worker:
+run admission and interrupted-run recovery currently assume a single process.
+
+| Field               | Type                    | Default | Bounds / meaning                                                    |
+| ------------------- | ----------------------- | ------- | ------------------------------------------------------------------- |
+| `enabled`           | bool                    | `false` | Administrator-controlled Agent feature setting                      |
+| `allowMutations`    | bool                    | `false` | Enable Operate subject to user permissions and read-only settings   |
+| `allowedClusters`   | string[] or null        | `null`  | Additional cluster restriction; `[]` allows none                    |
+| `allowedTools`      | string[] or null        | `null`  | Inspection-tool allowlist; `[]` exposes no inspection tools         |
+| `maxToolCalls`      | int                     | `8`     | 1–30 calls per run                                                  |
+| `maxRunSeconds`     | int                     | `60`    | 5–300 seconds                                                       |
+| `maxInputChars`     | int                     | `24000` | 2000–100000 characters across context, history and tool definitions |
+| `maxOutputTokens`   | int                     | `2048`  | 128–8192 tokens per inference call                                  |
+| `maxRunCostUsd`     | number                  | `0.25`  | Greater than 0, at most 100; conservative estimated run budget      |
+| `maxConcurrentRuns` | int                     | `4`     | 1–32 active runs in the application process                         |
+| `connections`       | AgentConnectionConfig[] | `[]`    | Administrator-managed inference connections                         |
+
+Scalar overrides follow the same convention, for example `KSHUI__AGENT__ENABLED=true`.
+The configured price estimate is not a provider invoice cap. Message payloads are
+excluded; there is no payload-access switch in this release. See
+[Agent setup and operation boundaries](../k-shui-agent.md).
+
+### `agent.connections[]` (`AgentConnectionConfig`)
+
+| Field                 | Type                    | Default / constraint                                           |
+| --------------------- | ----------------------- | -------------------------------------------------------------- |
+| `id`                  | string                  | Required, unique; 1–80 letters, digits, underscores or hyphens |
+| `name`                | string                  | Required, 1–160 characters                                     |
+| `provider`            | `openai` or `anthropic` | Required; official HTTPS API endpoints only                    |
+| `model`               | string                  | Required, explicit model ID, 1–200 characters                  |
+| `apiKeyEnv`           | string                  | Required, environment variable **name**, never the key value   |
+| `allowedClusters`     | string[] or null        | `null`; narrows deployment and user cluster scope              |
+| `allowedTools`        | string[] or null        | `null`; narrows the inspection tools exposed to the model      |
+| `inputUsdPerMillion`  | number or null          | `null`; must be greater than 0 before paid runs/tests          |
+| `outputUsdPerMillion` | number or null          | `null`; must be greater than 0 before paid runs/tests          |
+
+Set rates to the API account's contracted prices and maintain them when changing
+models. Keys are read from the server environment and are not returned to the browser
+or stored in investigations. Custom URLs, personal subscription tokens and automatic
+paid-provider fallback are unsupported. Connection capability tests require an
+administrator with access to a permitted cluster and have a 30-second cooldown.
+
 ## `clusters[]` (`ClusterConfig`)
 
 | Field                 | Type                                                                          | Default                                                            |
