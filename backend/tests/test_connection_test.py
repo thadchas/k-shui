@@ -254,6 +254,62 @@ async def test_prometheus_falls_back_when_buildinfo_is_absent(client: AsyncClien
 # --------------------------------------------------------------------------- secrets
 @respx.mock
 @pytest.mark.asyncio
+@pytest.mark.parametrize("secret", ["7", "pw"])
+async def test_short_credentials_are_redacted(client: AsyncClient, secret: str) -> None:
+    respx.get(f"{SR_URL}/subjects").mock(return_value=httpx.Response(401, text=f"rejected [{secret}]"))
+    body = (
+        await client.post(TEST, json=payload(schemaRegistry={"url": SR_URL, "auth": {"password": secret}}))
+    ).json()
+    assert f"[{secret}]" not in by_component(body)["schemaRegistry"]["detail"]
+    assert "[***]" in by_component(body)["schemaRegistry"]["detail"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_embedded_credentials_are_redacted_from_errors(
+    client: AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    route = respx.get(f"{CONNECT_URL}/").mock(return_value=httpx.Response(401, text="rejected hunter@secret"))
+    response = await client.post(
+        TEST, json=payload(connect={"url": "http://user:hunter%40secret@connect.test"})
+    )
+    assert "hunter@secret" not in response.text
+    assert "hunter%40secret" not in response.text
+    assert "hunter%40secret" not in caplog.text
+    assert "hunter@secret" not in caplog.text
+    import base64
+
+    expected = base64.b64encode(b"user:hunter@secret").decode()
+    assert route.calls[0].request.headers["Authorization"] == f"Basic {expected}"
+    generated = yaml.safe_load(response.json()["config"]["yaml"])
+    assert generated["clusters"][0]["connect"][0]["auth"] == {
+        "username": "${KSHUI_LOCAL_CONNECT_USERNAME}",
+        "password": "${KSHUI_LOCAL_CONNECT_PASSWORD}",
+    }
+
+
+@pytest.mark.asyncio
+async def test_unexpected_probe_failure_does_not_log_credentials(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import Mock
+
+    async def fail(*args: Any) -> None:
+        raise RuntimeError("unexpected token top-secret")
+
+    warning = Mock()
+    monkeypatch.setattr(ct, "probe_http", fail)
+    monkeypatch.setattr(ct.log, "warning", warning)
+    response = await client.post(
+        TEST, json=payload(connect={"url": CONNECT_URL, "auth": {"bearerToken": "top-secret"}})
+    )
+    assert "top-secret" not in response.text
+    assert warning.called
+    assert "top-secret" not in str(warning.call_args)
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_response_never_echoes_submitted_secrets(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
