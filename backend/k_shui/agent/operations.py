@@ -420,7 +420,13 @@ async def prepare_operation(
         "preview": preview,
         "after": None,
         "requiresConfirmation": action in CONSEQUENTIAL,
-        "confirmationText": target["name"] if action in CONSEQUENTIAL else None,
+        "confirmationText": (
+            f"{action.split('.')[1]} {target['name']}"
+            if action in ("topic.delete", "topic.purge")
+            else target["name"]
+            if action in CONSEQUENTIAL
+            else None
+        ),
         "createdAt": datetime.fromtimestamp(now, UTC).isoformat(),
         "expiresAt": datetime.fromtimestamp(now + 300, UTC).isoformat(),
         "href": resource_link(cluster_id, kind, target["name"], target.get("connectName", "")),
@@ -522,8 +528,12 @@ async def execute_operation(
         return result
     if row.expires_at <= time.time():
         raise Conflict("operation preview expired; prepare a new preview")
+    if row.body["action"] in ("topic.delete", "topic.purge") and row.body["confirmationText"] != (
+        f"{row.body['action'].split('.')[1]} {row.body['target']['name']}"
+    ):
+        raise Conflict("confirmation policy changed; prepare a new preview")
     if row.body["requiresConfirmation"] and confirmation != row.body["confirmationText"]:
-        raise BadRequest("type the exact resource name to confirm this preview")
+        raise BadRequest("type the exact confirmation phrase shown in this preview")
     action, target, params = row.body["action"], row.body["target"], row.body["parameters"]
     before, preview = await _safe_snapshot(request, fresh, ctx, action, target, params)
     if _fingerprint(before) != _fingerprint(row.body["before"]) or _fingerprint(preview) != _fingerprint(

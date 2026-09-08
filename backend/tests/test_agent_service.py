@@ -265,3 +265,76 @@ async def test_timeout_stops_run_and_reports_timed_out(investigation, monkeypatc
     data = (await client.get(f"{PREFIX}/investigations/{iid}", headers=headers)).json()
     assert data["status"] == "timed_out"
     assert data["error"]["state"] == "timeout"
+
+
+async def seed_evidence(iid):
+    evidence = {
+        "id": "old",
+        "clusterId": "test",
+        "tool": "get_cluster_health",
+        "resource": {},
+        "href": "/c/test/overview",
+        "observedAt": "2000-01-01T00:00:00Z",
+        "status": "fresh",
+        "data": {"count": 1},
+        "limitations": [],
+    }
+    async with db_session.session_scope() as session:
+        row = await session.get(AgentInvestigation, iid)
+        row.data = {**row.data, "evidence": [evidence]}
+    return evidence
+
+
+async def test_refresh_appends_observation_without_rewriting_original(investigation):
+    client, _, headers, iid = investigation
+    original = await seed_evidence(iid)
+    path = f"{PREFIX}/investigations/{iid}"
+    response = await client.post(f"{path}/evidence/old/refresh", headers=headers)
+    assert response.status_code == 200, response.text
+    evidence = response.json()["evidence"]
+    assert evidence[0] == original
+    assert evidence[1]["id"] != "old" and evidence[1]["refreshedFrom"] == "old"
+    assert evidence[1]["observedAt"] != original["observedAt"]
+    reopened = (await client.get(path, headers=headers)).json()
+    assert reopened["evidence"] == evidence
+    assert reopened["clusterId"] == "test" and reopened["messages"] == []
+
+
+@pytest.mark.parametrize("blocked", ["owner", "connection_tool", "deployment_tool", "running", "limit"])
+async def test_refresh_obeys_ownership_policy_and_active_run(investigation, monkeypatch, blocked):
+    client, app, headers, iid = investigation
+    original = await seed_evidence(iid)
+    if blocked == "owner":
+        headers = as_user(app, "vi", "viewer")
+    elif blocked == "connection_tool":
+        app.state.settings.agent.connections[0].allowedTools = []
+    elif blocked == "deployment_tool":
+        app.state.settings.agent.allowedTools = []
+    else:
+        async with db_session.session_scope() as session:
+            row = await session.get(AgentInvestigation, iid)
+            if blocked == "running":
+                row.status = "running"
+            else:
+                row.data = {**row.data, "evidence": [original] * 32}
+    response = await client.post(f"{PREFIX}/investigations/{iid}/evidence/old/refresh", headers=headers)
+    assert response.status_code in (403, 404, 409), response.text
+
+
+async def test_answer_citations_are_validated_and_followups_keep_precise_source(investigation, monkeypatch):
+    client, app, headers, iid = investigation
+    await seed_evidence(iid)
+    complete = AsyncMock(
+        return_value=ProviderReply(
+            text="A historical observation [evidence:old]. Untrusted [evidence:invented]."
+        )
+    )
+    monkeypatch.setattr(service.Provider, "complete", complete)
+    path = f"{PREFIX}/investigations/{iid}"
+    for question in ["Explain the saved evidence", "What does that establish?"]:
+        await client.post(f"{path}/messages", headers=headers, json={"content": question})
+        await finish(app)
+    saved = (await client.get(path, headers=headers)).json()
+    answers = [m for m in saved["messages"] if m["role"] == "assistant"]
+    assert len(answers) == 2 and all(m["evidenceIds"] == ["old"] for m in answers)
+    assert "2000-01-01" in str(complete.call_args.args[1])

@@ -106,6 +106,45 @@ export function useAgentActions() {
       onSettled: refresh,
       retry: false,
     }),
+    cancelOperation: useMutation({
+      mutationKey: ['agent-operation'],
+      mutationFn: ({ id, operationId }: { id: string; operationId: string }) =>
+        api.post<AgentOperation>(
+          `${path(id)}/operations/${encodeURIComponent(operationId)}/cancel`,
+          {},
+        ),
+      onSettled: refresh,
+      retry: false,
+    }),
+    reprepare: useMutation({
+      mutationKey: ['agent-operation'],
+      mutationFn: async (operation: AgentOperation) => {
+        const cancelled = await api.post<AgentOperation>(
+          `${path(operation.investigationId)}/operations/${encodeURIComponent(operation.id)}/cancel`,
+          {},
+        );
+        if (cancelled.status !== 'cancelled')
+          throw new Error(
+            'This operation was already accepted. Reconcile its outcome before preparing another.',
+          );
+        return api.post<AgentOperation>(`${path(operation.investigationId)}/operations/prepare`, {
+          action: operation.action,
+          target: operation.target,
+          parameters: operation.parameters,
+        });
+      },
+      onSettled: refresh,
+      retry: false,
+    }),
+    refreshEvidence: useMutation({
+      mutationFn: ({ id, evidenceId }: { id: string; evidenceId: string }) =>
+        api.post<AgentInvestigation>(
+          `${path(id)}/evidence/${encodeURIComponent(evidenceId)}/refresh`,
+          {},
+        ),
+      onSettled: refresh,
+      retry: false,
+    }),
     test: useMutation({
       mutationFn: (id: string) =>
         api.post<{ state: string; recovery?: string; toolCapable: boolean; testedAt: string }>(

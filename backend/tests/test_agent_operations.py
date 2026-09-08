@@ -93,7 +93,8 @@ async def test_should_enforce_exact_typed_confirmation_and_binding(
     delete = AsyncMock(wraps=admin.delete_topic)
     monkeypatch.setattr(admin, "delete_topic", delete)
     op = await prepare(app, "topic.delete")
-    for confirmation in (None, "yes", "events"):
+    assert op["confirmationText"] == "delete orders"
+    for confirmation in (None, "yes", "events", "orders", "purge orders"):
         with pytest.raises(BadRequest):
             await execute(app, op, confirmation)
     with pytest.raises(Forbidden):
@@ -101,7 +102,7 @@ async def test_should_enforce_exact_typed_confirmation_and_binding(
             request_for(app), OPERATOR, "different-investigation", "test", op["id"], "orders"
         )
     delete.assert_not_awaited()
-    result = await execute(app, op, "orders")
+    result = await execute(app, op, op["confirmationText"])
     assert result["status"] == "succeeded" and result["after"]["exists"] is False
 
 
@@ -109,13 +110,13 @@ async def test_should_reject_expired_preview_and_changed_state(app: Any, admin: 
     op = await prepare(app, "topic.partitions.increase", parameters={"count": 4})
     admin.topics["orders"].partitions[0].replicas = [1]
     with pytest.raises(Conflict, match="state changed"):
-        await execute(app, op, "orders")
+        await execute(app, op, op["confirmationText"])
     async with db_session.session_scope() as session:
         await session.execute(
             update(AgentOperation).where(AgentOperation.id == op["id"]).values(expires_at=1)
         )
     with pytest.raises(Conflict, match="expired"):
-        await execute(app, op, "orders")
+        await execute(app, op, op["confirmationText"])
 
 
 async def test_should_block_permission_revocation_between_preview_and_execution(
@@ -127,7 +128,7 @@ async def test_should_block_permission_revocation_between_preview_and_execution(
     async with db_session.session_scope() as session:
         await session.execute(update(User).where(User.username == "operator").values(role="viewer"))
     with pytest.raises(Forbidden):
-        await execute(app, op, "orders")
+        await execute(app, op, op["confirmationText"])
     dispatch.assert_not_awaited()
 
 
@@ -136,7 +137,7 @@ async def test_should_keep_cancelled_operation_from_dispatch(app: Any, admin: An
     monkeypatch.setattr(admin, "delete_topic", dispatch)
     op = await prepare(app, "topic.delete")
     await cancel_operation(request_for(app), OPERATOR, "investigation", "test", op["id"])
-    assert (await execute(app, op, "orders"))["status"] == "cancelled"
+    assert (await execute(app, op, op["confirmationText"]))["status"] == "cancelled"
     dispatch.assert_not_awaited()
 
 
@@ -144,9 +145,9 @@ async def test_should_never_retry_uncertain_mutation(app: Any, admin: Any, monke
     dispatch = AsyncMock(side_effect=TimeoutError("password=DO-NOT-LEAK"))
     monkeypatch.setattr(admin, "delete_topic", dispatch)
     op = await prepare(app, "topic.delete")
-    result = await execute(app, op, "orders")
+    result = await execute(app, op, op["confirmationText"])
     assert result["status"] == "outcome_unknown" and "DO-NOT-LEAK" not in str(result)
-    assert (await execute(app, op, "orders"))["status"] == "outcome_unknown"
+    assert (await execute(app, op, op["confirmationText"]))["status"] == "outcome_unknown"
     dispatch.assert_awaited_once()
 
 
@@ -165,9 +166,9 @@ async def test_should_claim_once_for_concurrent_execution_retries(
     dispatch = AsyncMock(side_effect=delayed)
     monkeypatch.setattr(admin, "delete_topic", dispatch)
     op = await prepare(app, "topic.delete")
-    first = asyncio.create_task(execute(app, op, "orders"))
+    first = asyncio.create_task(execute(app, op, op["confirmationText"]))
     await entered.wait()
-    second = await execute(app, op, "orders")
+    second = await execute(app, op, op["confirmationText"])
     release.set()
     assert second["status"] == "running"
     assert (await first)["status"] == "succeeded"
@@ -207,8 +208,11 @@ async def test_should_apply_purge_only_to_concrete_preview_offsets(
     dispatch = AsyncMock(wraps=admin.delete_records)
     monkeypatch.setattr(admin, "delete_records", dispatch)
     op = await prepare(app, "topic.purge")
+    assert op["confirmationText"] == "purge orders"
+    with pytest.raises(BadRequest):
+        await execute(app, op, "delete orders")
     assert all(o["beforeOffset"] == 100 for o in op["preview"]["offsets"])
-    result = await execute(app, op, "orders")
+    result = await execute(app, op, op["confirmationText"])
     assert result["status"] == "succeeded"
     assert all(row[2] == 100 for row in dispatch.call_args.args[0])
 
@@ -243,7 +247,7 @@ async def test_should_reconcile_interrupted_state_without_dispatch(
             update(AgentOperation).where(AgentOperation.id == op["id"]).values(status="running")
         )
     await recover_interrupted_operations()
-    assert (await execute(app, op, "orders"))["status"] == "outcome_unknown"
+    assert (await execute(app, op, op["confirmationText"]))["status"] == "outcome_unknown"
     dispatch.assert_not_awaited()
 
 
@@ -351,7 +355,7 @@ async def test_should_stop_before_dispatch_when_audit_transaction_fails(
 
     monkeypatch.setattr(operations.db_session, "session_scope", unavailable_audit)
     with pytest.raises(RuntimeError, match="audit database unavailable"):
-        await execute(app, op, "orders")
+        await execute(app, op, op["confirmationText"])
     dispatch.assert_not_awaited()
 
 
@@ -398,3 +402,12 @@ async def test_should_hide_upstream_error_body_during_preview(app: Any, admin: A
     with pytest.raises(Conflict) as failure:
         await prepare(app, "topic.delete")
     assert "SECRET" not in str(failure.value) and "PRIVATE" not in str(failure.value)
+
+
+async def test_should_reject_legacy_name_only_delete_confirmation(app):
+    op = await prepare(app, "topic.delete")
+    async with db_session.session_scope() as session:
+        row = await session.get(AgentOperation, op["id"])
+        row.body = {**row.body, "confirmationText": "orders"}
+    with pytest.raises(Conflict, match="confirmation policy changed"):
+        await execute(app, op, "orders")

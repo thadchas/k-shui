@@ -123,7 +123,7 @@ async def test_should_distinguish_stable_membership_and_lag(app: Any) -> None:
     result = await inspect_tool(
         request_for(app), Principal("viewer", "viewer"), "test", "get_group_lag", {"name": "app-consumers"}
     )
-    assert result["status"] == "fresh"
+    assert result["status"] == "partial"
     assert result["data"]["membership"]["state"] == "stable"
     assert any(p["lag"] > 0 for p in result["data"]["partitions"])
     assert "membership only" in result["data"]["note"]
@@ -257,3 +257,142 @@ async def test_should_surface_missing_or_stale_cluster_telemetry_on_evidence_car
     )
     assert result["status"] == expected
     assert len(result["limitations"]) == 2
+
+
+@pytest.mark.parametrize(
+    "lags,direction,delta",
+    [([100, 160], "growing", 60), ([160, 100], "draining", -60), ([100, 100], "unchanged", 0)],
+)
+async def test_should_distinguish_backlog_trends_with_timestamped_samples(app, lags, direction, delta):
+    import time
+
+    from k_shui.core.sampler import Sample
+
+    sampler = app.state.samplers.get("test")
+    stamp = time.time()
+    for index, lag in enumerate(lags):
+        sampler.samples.append(
+            Sample(
+                ts=stamp - 30 + index * 15,
+                per_group={"app-consumers": lag},
+                per_group_scope={"app-consumers": "orders-scope"},
+            )
+        )
+    result = await inspect_tool(
+        request_for(app), Principal("viewer", "viewer"), "test", "get_group_lag", {"name": "app-consumers"}
+    )
+    trend = result["data"]["trend"]
+    assert trend["direction"] == direction and trend["netChange"] == delta
+    assert result["status"] == "fresh"
+    assert [point["lag"] for point in trend["points"]] == lags
+    assert all(point["sampledAt"] for point in trend["points"])
+
+
+@pytest.mark.parametrize("issue", ["missing", "stale", "partial", "partition_change", "gap"])
+async def test_should_not_infer_growth_or_drain_from_unusable_history(app, issue):
+    import time
+
+    from k_shui.core.sampler import Sample
+
+    sampler = app.state.samplers.get("test")
+    stamp = time.time() - (300 if issue == "stale" else 0)
+    parts = "orders-scope"
+    if issue != "missing":
+        sampler.samples.extend(
+            [
+                Sample(
+                    ts=stamp - (200 if issue == "gap" else 30),
+                    per_group={"app-consumers": 100},
+                    per_group_scope={"app-consumers": parts},
+                ),
+                Sample(
+                    ts=stamp - 15,
+                    per_group={} if issue == "partial" else {"app-consumers": 20},
+                    per_group_scope={
+                        "app-consumers": "changed-scope" if issue == "partition_change" else parts
+                    },
+                ),
+            ]
+        )
+    result = await inspect_tool(
+        request_for(app), Principal("viewer", "viewer"), "test", "get_group_lag", {"name": "app-consumers"}
+    )
+    assert result["data"]["trend"]["direction"] == "unknown"
+    assert result["status"] == "partial"
+    assert any("wait for two complete samples" in item for item in result["limitations"])
+
+
+@pytest.mark.parametrize(
+    "offset,marks", [(-1, {("orders", 0): (0, 100)}), (50, {}), (101, {("orders", 0): (0, 100)})]
+)
+async def test_should_not_sample_unknown_offsets_as_zero_lag(app, offset, marks):
+    from types import SimpleNamespace
+
+    from k_shui.core.sampler import Sample
+
+    admin = SimpleNamespace(
+        list_groups=AsyncMock(return_value=[{"groupId": "g"}]),
+        group_offsets=AsyncMock(return_value=[{"topic": "orders", "partition": 0, "offset": offset}]),
+    )
+    sample = Sample(ts=1)
+    await app.state.samplers.get("test")._sample_groups(admin, sample, marks)
+    assert "g" not in sample.per_group
+    assert "g" not in sample.per_group_scope
+
+
+async def test_should_bound_lag_history_and_exclude_other_groups(app):
+    import time
+
+    from k_shui.core.sampler import Sample
+
+    stamp = time.time()
+    sampler = app.state.samplers.get("test")
+    for index in range(100):
+        sampler.samples.append(
+            Sample(
+                ts=stamp - 500 + index * 5,
+                per_group={"app-consumers": index, "private-group": 999},
+                per_group_scope={"app-consumers": "orders-scope"},
+            )
+        )
+    result = await inspect_tool(
+        request_for(app), Principal("viewer", "viewer"), "test", "get_group_lag", {"name": "app-consumers"}
+    )
+    assert len(result["data"]["trend"]["points"]) == 60
+    assert "private-group" not in json.dumps(result)
+
+
+async def test_should_explain_missing_schema_candidate_and_next_step(app, monkeypatch):
+    from types import SimpleNamespace
+
+    from k_shui.integrations import schema_registry
+
+    client = SimpleNamespace(
+        get_version=AsyncMock(return_value={"schema": '{"fields": []}', "version": 1}),
+        get_subject_config=AsyncMock(return_value={"compatibility": "BACKWARD"}),
+    )
+    monkeypatch.setattr(schema_registry, "get_schema_registry", lambda _: client)
+    result = await inspect_tool(
+        request_for(app),
+        Principal("viewer", "viewer"),
+        "test",
+        "get_schema_summary",
+        {"name": "orders-value"},
+    )
+    assert result["status"] == "partial"
+    assert any("supply the candidate" in item for item in result["limitations"])
+
+
+def test_should_keep_missing_sampler_data_out_of_group_lag_chart(app):
+    from k_shui.core.sampler import Sample
+
+    sampler = app.state.samplers.get("test")
+    sampler.samples.extend(
+        [
+            Sample(ts=1, per_group={"g": 50}, per_group_topic={"g": {"orders": 50}}),
+            Sample(ts=2),
+            Sample(ts=3, per_group={"g": 20}, per_group_topic={"g": {"orders": 20}}),
+        ]
+    )
+    for series in sampler.group_lag_series("g", 0, 10):
+        assert series["points"] == [[1000, 50], [3000, 20]]

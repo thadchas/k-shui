@@ -14,7 +14,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from k_shui.agent import operations, service  # noqa: F401 - register operation table before create_all
 from k_shui.agent.providers import RECOVERY, ProviderError, connection_state, test_connection
-from k_shui.agent.tools import check_authority
+from k_shui.agent.tools import TOOL_DEFINITIONS, check_authority
 from k_shui.api.schemas.agent import AddMessage, CreateInvestigation, ExecuteOperation, PrepareOperation
 from k_shui.core.auth import Principal, Unauthorized, get_principal, optional_principal
 from k_shui.core.errors import Conflict, Forbidden, KShuiError
@@ -81,6 +81,17 @@ async def _connections(request: Request, clusters: list[str]) -> list[dict[str, 
                 "state": state,
                 "recovery": RECOVERY.get(state),
                 "allowedClusters": allowed,
+                "allowedTools": [
+                    tool["function"]["name"]
+                    for tool in TOOL_DEFINITIONS
+                    if (
+                        request.app.state.settings.agent.allowedTools is None
+                        or tool["function"]["name"] in request.app.state.settings.agent.allowedTools
+                    )
+                    and (
+                        connection.allowedTools is None or tool["function"]["name"] in connection.allowedTools
+                    )
+                ],
                 "toolCapable": tested.get("toolCapable", False),
                 "testedAt": tested.get("testedAt"),
                 "pricingConfigured": connection.inputUsdPerMillion is not None
@@ -204,6 +215,16 @@ async def cancel(
     investigation_id: str, request: Request, principal: Principal = Depends(require_agent)
 ) -> dict[str, Any]:
     return await service.cancel(request, principal, investigation_id)
+
+
+@router.post("/investigations/{investigation_id}/evidence/{evidence_id}/refresh")
+async def refresh_evidence(
+    investigation_id: str,
+    evidence_id: str,
+    request: Request,
+    principal: Principal = Depends(require_agent),
+) -> dict[str, Any]:
+    return await service.refresh_evidence(request, principal, investigation_id, evidence_id)
 
 
 @router.get("/investigations/{investigation_id}/events")

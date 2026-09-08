@@ -24,6 +24,14 @@ const status: AgentStatus = {
       credentialConfigured: true,
       state: 'connected',
       allowedClusters: [CLUSTER_ID],
+      allowedTools: [
+        'get_cluster_health',
+        'get_group_lag',
+        'get_topic_metadata',
+        'get_lineage_neighbors',
+        'get_connector_task_errors',
+        'get_schema_summary',
+      ],
     },
   ],
   unsupportedConnections: [],
@@ -204,4 +212,166 @@ test('operation preview cannot dispatch until typed confirmation and shows the v
   await expect(card.getByText('Succeeded', { exact: true })).toBeVisible();
   await expect(execute).toHaveCount(0);
   expect(api.countOf('POST /agent/investigations/:id/operations/:operationId/execute')).toBe(1);
+});
+
+function deletePreview(saved: AgentInvestigation): AgentOperation {
+  return {
+    id: 'delete-preview',
+    investigationId: saved.id,
+    clusterId: CLUSTER_ID,
+    user: ADMIN_USER.username,
+    action: 'topic.delete',
+    target: { name: 'orders' },
+    parameters: {},
+    before: { exists: true },
+    preview: { effect: 'Delete orders permanently' },
+    status: 'awaiting_confirmation',
+    requiresConfirmation: true,
+    confirmationText: 'delete orders',
+    expiresAt: new Date(Date.now() + 300000).toISOString(),
+    createdAt: saved.createdAt,
+  };
+}
+
+test('completed proposal can be cancelled and remains withdrawn when reopened', async ({
+  page,
+  api,
+}) => {
+  const saved = { ...investigation(), mode: 'operate' as const, status: 'succeeded' };
+  let operation = deletePreview(saved);
+  api.on('GET /agent/status', { json: status });
+  api.on('GET /agent/investigations', { json: [saved] });
+  api.on('GET /agent/investigations/:id', () => ({ json: { ...saved, operations: [operation] } }));
+  api.on('POST /agent/investigations/:id/operations/:operationId/cancel', () => {
+    operation = { ...operation, status: 'cancelled' };
+    return { json: operation };
+  });
+  await page.goto(`/c/${CLUSTER_ID}/agent?id=${saved.id}`);
+  await page.getByRole('button', { name: 'Cancel prepared change' }).click();
+  await expect(page.getByText('Cancelled', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Cancelled', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Confirm and execute' })).toHaveCount(0);
+  expect(api.countOf('POST /agent/investigations/:id/operations/:operationId/execute')).toBe(0);
+});
+
+test('expired proposal is replaced with a new preview and requires fresh confirmation', async ({
+  page,
+  api,
+}) => {
+  const saved = { ...investigation(), mode: 'operate' as const, status: 'succeeded' };
+  const old = { ...deletePreview(saved), expiresAt: '2000-01-01T00:00:00Z' };
+  let operations: AgentOperation[] = [old];
+  api.on('GET /agent/status', { json: status });
+  api.on('GET /agent/investigations', { json: [saved] });
+  api.on('GET /agent/investigations/:id', () => ({ json: { ...saved, operations } }));
+  api.on('POST /agent/investigations/:id/operations/:operationId/cancel', () => {
+    operations = [{ ...old, status: 'cancelled' }];
+    return { json: operations[0] };
+  });
+  api.on('POST /agent/investigations/:id/operations/prepare', (ctx) => {
+    expect(operations[0].status).toBe('cancelled');
+    expect(JSON.parse(ctx.body ?? '{}')).toEqual({
+      action: old.action,
+      target: old.target,
+      parameters: old.parameters,
+    });
+    const next = { ...deletePreview(saved), id: 'new-preview' };
+    operations.push(next);
+    return { json: next };
+  });
+  await page.goto(`/c/${CLUSTER_ID}/agent?id=${saved.id}`);
+  await expect(page.getByRole('button', { name: 'Preview expired' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Prepare new preview' }).click();
+  await expect(page.getByText('Cancelled', { exact: true })).toBeVisible();
+  const execute = page.getByRole('button', { name: 'Confirm and execute' });
+  await expect(execute).toBeDisabled();
+  const input = page.getByRole('textbox', { name: /Type delete orders/ });
+  await expect(input).toHaveValue('');
+  await input.fill('purge orders');
+  await expect(execute).toBeDisabled();
+  await input.fill('delete orders');
+  await expect(execute).toBeEnabled();
+  expect(api.countOf('POST /agent/investigations/:id/operations/:operationId/execute')).toBe(0);
+});
+
+test('historical evidence refresh preserves the original and follow-up citations open precise sources', async ({
+  page,
+  api,
+}, testInfo) => {
+  const saved = { ...investigation(), status: 'succeeded' };
+  const original = {
+    id: 'old',
+    clusterId: CLUSTER_ID,
+    tool: 'get_group_lag',
+    resource: { name: GROUP_ORDERS },
+    href: `/c/${CLUSTER_ID}/consumers/${GROUP_ORDERS}`,
+    observedAt: '2000-01-01T00:00:00Z',
+    status: 'fresh',
+    data: { lag: 100 },
+    limitations: [],
+  };
+  saved.evidence = [original];
+  saved.messages = [
+    {
+      id: 'first',
+      role: 'assistant',
+      content: 'Previous backlog [evidence:old]',
+      evidenceIds: ['old'],
+      createdAt: original.observedAt,
+    },
+  ];
+  api.on('GET /agent/status', { json: status });
+  api.on('GET /agent/investigations', { json: [saved] });
+  api.on('GET /agent/investigations/:id', () => ({ json: saved }));
+  api.on('POST /agent/investigations/:id/evidence/:evidenceId/refresh', (ctx) => {
+    expect(ctx.params.evidenceId).toBe('old');
+    saved.evidence.push({
+      ...original,
+      id: 'new',
+      observedAt: new Date().toISOString(),
+      data: { lag: 50 },
+    });
+    return { json: saved };
+  });
+  api.on('POST /agent/investigations/:id/messages', () => {
+    saved.messages.push({
+      id: 'followup',
+      role: 'assistant',
+      content: 'New observation [evidence:new]',
+      evidenceIds: ['new'],
+      createdAt: new Date().toISOString(),
+    });
+    return { status: 202, json: saved };
+  });
+  await page.goto(`/c/${CLUSTER_ID}/agent?id=${saved.id}`);
+  const oldCard = page.getByRole('article', { name: 'Evidence old', exact: true });
+  await expect(oldCard.getByText('Historical snapshot')).toBeVisible();
+  await oldCard.getByRole('button', { name: 'Refresh evidence' }).click();
+  const newCard = page.getByRole('article', { name: 'Evidence new', exact: true });
+  await expect(newCard.getByText('Recent snapshot')).toBeVisible();
+  await expect(oldCard.locator('time')).toHaveAttribute('datetime', original.observedAt);
+  await page
+    .getByRole('textbox', { name: 'Ask K-Shui', exact: true })
+    .fill('Explain the new observation');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByRole('button', { name: /Evidence ·/ })).toHaveCount(2);
+  await page
+    .getByRole('button', { name: /Evidence ·/ })
+    .last()
+    .click();
+  await expect(newCard).toBeFocused();
+  await expect(newCard.locator('details')).toHaveAttribute('open', '');
+  await page
+    .getByRole('button', { name: /Evidence ·/ })
+    .first()
+    .click();
+  await expect(oldCard).toBeFocused();
+  await page.reload();
+  await expect(oldCard.getByText('Historical snapshot')).toBeVisible();
+  await expect(newCard).toBeVisible();
+  await testInfo.attach('agent-evidence-refresh', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
 });

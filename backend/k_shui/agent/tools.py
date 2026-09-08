@@ -212,7 +212,8 @@ TOOL_DEFINITIONS = [
     ),
     _definition(
         "get_group_lag",
-        "Retrieve membership, assignments and current lag; Stable is not processing health.",
+        "Retrieve current lag and up to 60 complete samples from the last 15 minutes; "
+        "net backlog change is not a cause or a production/consumption rate.",
         ["name"],
         {"name": STRING},
     ),
@@ -298,6 +299,17 @@ async def inspect_tool(
         async with asyncio.timeout(15):
             data = await _collect(request, fresh, ctx, name, arguments)
         evidence["data"] = bounded_data(data)
+        if name == "get_group_lag":
+            trend = data["trend"]
+            if trend["status"] != "available":
+                evidence["status"] = "partial"
+            evidence["limitations"].extend(trend["limitations"])
+        if name == "get_schema_summary":
+            evidence["status"] = "partial"
+            evidence["limitations"].append(
+                "Candidate schema and compatibility error are unavailable. Open the subject's "
+                "compatibility check, supply the candidate there, and inspect the validation errors."
+            )
         if name == "get_cluster_health":
             health = data.get("partitionHealth")
             if health is None:
@@ -327,6 +339,56 @@ async def inspect_tool(
             "Source retrieval failed or timed out. No healthy or zero conclusion is supported."
         )
     return evidence
+
+
+def _lag_trend(request: Request, cluster_id: str, group_id: str) -> dict[str, Any]:
+    from k_shui.core.sampler import get_sampler
+
+    stamp = time.time()
+    sampler = get_sampler(request, cluster_id)
+    samples = [s for s in sampler.samples if stamp - 900 <= s.ts <= stamp][-60:] if sampler else []
+    # Use only the latest contiguous series with a complete, unchanged partition set.
+    usable = []
+    partition_set = None
+    for sample in reversed(samples):
+        parts = sample.per_group_scope.get(group_id)
+        if sample.error or group_id not in sample.per_group or not parts:
+            break
+        if partition_set is not None and parts != partition_set:
+            break
+        if usable and not 0 < usable[-1].ts - sample.ts <= max(120, sampler.interval * 3):
+            break
+        partition_set = parts
+        usable.append(sample)
+    usable.reverse()
+    points = [
+        {"sampledAt": datetime.fromtimestamp(s.ts, UTC).isoformat(), "lag": s.per_group[group_id]}
+        for s in usable
+    ]
+    status = "available" if len(points) >= 2 else "unavailable"
+    if usable and stamp - usable[-1].ts > max(120, sampler.interval * 3):
+        status = "stale"
+    delta = usable[-1].per_group[group_id] - usable[0].per_group[group_id] if len(usable) >= 2 else None
+    limitations = [
+        "Last 15 minutes only, up to 60 complete samples with an unchanged partition set. "
+        "Net backlog change does not establish cause, production/consumption rates, "
+        "or successful processing; offset resets and retention can also change lag."
+    ]
+    if status != "available":
+        limitations.append(
+            "Recent comparable lag history is missing or stale; growth/drain cannot be established now. "
+            "Open the consumer group's lag chart, check sampling, wait for two complete samples, "
+            "then refresh evidence."
+        )
+    return {
+        "status": status,
+        "points": points,
+        "netChange": delta,
+        "direction": ("growing" if delta > 0 else "draining" if delta < 0 else "unchanged")
+        if status == "available" and delta is not None
+        else "unknown",
+        "limitations": limitations,
+    }
 
 
 async def _collect(
@@ -365,10 +427,14 @@ async def _collect(
         group = groups.get(target)
         if not group or group.get("error"):
             raise NotFound("group not found")
-        offsets = (await admin.group_offsets(target))[:MAX_RECORDS]
+        all_offsets = await admin.group_offsets(target)
+        offsets = all_offsets[:MAX_RECORDS]
         marks = await admin.watermarks([(o["topic"], o["partition"]) for o in offsets])
         return {
             "groupId": target,
+            "trend": _lag_trend(request, ctx.id, target),
+            "partitionCount": len(all_offsets),
+            "partitionsTruncated": len(all_offsets) > MAX_RECORDS,
             "membership": group,
             "partitions": [
                 {

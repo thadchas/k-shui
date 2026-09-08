@@ -15,18 +15,9 @@ import { Badge } from '@/components/ui/badge';
 import { EvidenceCard } from './EvidenceCard';
 import { OperationCard } from './OperationCard';
 import { stateLabel } from './agentUtils';
+import { agentStarters } from './agentStarters';
+import { EvidenceReferences } from './EvidenceReferences';
 
-const starters = [
-  'Why is this consumer group falling behind?',
-  'Explain this connector failure.',
-  'Which downstream resources depend on this topic?',
-  'Explain this schema compatibility error.',
-  'Create a topic with specified partitions, replication, and retention.',
-  'Update this topic’s retention to one day.',
-  'Restart the failed connector task.',
-  'Preview an offset reset for this group.',
-  'Draft a query or configuration change for review.',
-];
 const selectStyle =
   'h-9 w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-2 text-sm focus-visible:outline-2 focus-visible:outline-[var(--primary)]';
 
@@ -60,6 +51,7 @@ export function AgentWorkspace() {
     investigation?.status === 'running' || actions.send.isPending || actions.create.isPending;
   const canOperate = !!status.data?.effectiveModes.includes('operate');
   const effectiveMode = investigation?.mode ?? (canOperate ? mode : 'inspect');
+  const starters = agentStarters(scope.resource, effectiveMode, selectedConnection?.allowedTools);
   const error = actions.create.error ?? actions.send.error ?? actions.cancel.error;
   const newContext = (next: AgentContext) => {
     setContext(next);
@@ -359,21 +351,34 @@ export function AgentWorkspace() {
             className="space-y-2 rounded-[var(--radius-card)] bg-[var(--surface-2)] p-3"
           >
             <div className="flex items-center justify-between gap-2 text-xs">
-              <strong>
-                {message.role === 'user' ? 'You' : 'K-Shui analysis · hypotheses require evidence'}
-              </strong>
+              <strong>{message.role === 'user' ? 'You' : 'K-Shui analysis'}</strong>
               <time className="text-[var(--muted)]" dateTime={message.createdAt}>
                 {new Date(message.createdAt).toLocaleTimeString()}
               </time>
             </div>
-            <p className="whitespace-pre-wrap break-words text-sm">{message.content}</p>
+            <p className="whitespace-pre-wrap break-words text-sm">
+              {message.role === 'assistant' ? (
+                <EvidenceReferences
+                  content={message.content}
+                  evidenceIds={message.evidenceIds}
+                  evidence={investigation.evidence}
+                />
+              ) : (
+                message.content
+              )}
+            </p>
           </article>
         ))}
         {!!investigation?.evidence.length && (
           <section aria-label="Retrieved evidence" className="space-y-2">
             <h3 className="text-sm font-semibold">Source evidence</h3>
             {investigation.evidence.map((evidence) => (
-              <EvidenceCard key={evidence.id} evidence={evidence} />
+              <EvidenceCard
+                key={evidence.id}
+                evidence={evidence}
+                investigationId={investigation.id}
+                running={running}
+              />
             ))}
           </section>
         )}

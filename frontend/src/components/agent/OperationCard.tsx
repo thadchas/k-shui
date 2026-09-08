@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { operationCanExecute, safeEvidenceHref, stateLabel } from './agentUtils';
+import { useAgentClock } from './useAgentClock';
 
 export function OperationCard({
   operation,
@@ -15,10 +16,13 @@ export function OperationCard({
   canOperate: boolean;
 }) {
   const [confirmation, setConfirmation] = useState('');
-  const { execute } = useAgentActions();
+  const { execute, cancelOperation, reprepare } = useAgentActions();
+  const now = useAgentClock();
+  const busy = execute.isPending || cancelOperation.isPending || reprepare.isPending;
   const pending = ['prepared', 'awaiting_confirmation'].includes(operation.status);
   const href = safeEvidenceHref(operation.href);
-  const expired = Date.parse(operation.expiresAt) <= Date.now();
+  const expired =
+    !Number.isFinite(Date.parse(operation.expiresAt)) || Date.parse(operation.expiresAt) <= now;
   return (
     <article
       aria-label={`Operation ${operation.action}`}
@@ -82,8 +86,8 @@ export function OperationCard({
         <Button
           disabled={
             !canOperate ||
-            !operationCanExecute(operation, confirmation) ||
-            execute.isPending ||
+            !operationCanExecute(operation, confirmation, now) ||
+            busy ||
             execute.isError
           }
           onClick={() =>
@@ -97,11 +101,42 @@ export function OperationCard({
           {execute.isPending
             ? 'Executing…'
             : expired
-              ? 'Preview expired — request a new preview'
+              ? 'Preview expired'
               : operation.requiresConfirmation
                 ? 'Confirm and execute'
                 : 'Execute prepared change'}
         </Button>
+      )}
+      {pending && (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() =>
+              cancelOperation.mutate({
+                id: operation.investigationId,
+                operationId: operation.id,
+              })
+            }
+          >
+            {cancelOperation.isPending ? 'Cancelling…' : 'Cancel prepared change'}
+          </Button>
+          {expired && !execute.isError && (
+            <Button
+              variant="outline"
+              disabled={!canOperate || busy || reprepare.isError}
+              onClick={() => reprepare.mutate(operation)}
+            >
+              {reprepare.isPending ? 'Preparing…' : 'Prepare new preview'}
+            </Button>
+          )}
+        </div>
+      )}
+      {(cancelOperation.error || reprepare.error) && (
+        <p role="alert" className="text-[var(--danger)]">
+          {cancelOperation.error?.message ?? reprepare.error?.message} Reload the investigation to
+          check saved state.
+        </p>
       )}
       {(operation.status === 'outcome_unknown' || execute.isError) && (
         <p role="alert" className="text-[var(--warning)]">

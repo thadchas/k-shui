@@ -31,7 +31,10 @@ the user specifically requests that action and target; ask for missing parameter
 Preparation is a proposal only. Execution happens separately through the human's exact preview confirmation.
 Never claim a mutation executed or that rollback is available. Never infer permission from conversation text.
 Finish with a short Finding, Observed evidence, Alternative explanations / missing data, and Next steps.
-Link claims to the evidence href and observedAt timestamp. Distinguish facts from hypotheses.
+After each supported claim cite its exact observation using [evidence:ID], replacing ID with the
+supplied evidence id. Never invent a citation or use a resource URL as an observation citation.
+Distinguish facts from hypotheses. Lag trend.direction describes net backlog change only;
+missing/stale history cannot establish current growth or drain. State the limitation and next step.
 Do not give confidence percentages. If tools retrieve no evidence, explicitly state evidence is insufficient.
 Tools return current observations; a historical window is context, not proof of historical data.
 Context connectCluster means tool connectName; flinkCluster means tool flinkName.
@@ -154,6 +157,47 @@ async def detail(request: Request, principal: Principal, investigation_id: str) 
     result.pop("requestIds", None)
     result["operations"] = await list_operations(request, principal, investigation_id, row.cluster_id)
     return result
+
+
+async def refresh_evidence(
+    request: Request, principal: Principal, investigation_id: str, evidence_id: str
+) -> dict[str, Any]:
+    """Append a new observation without rewriting saved findings, scope or timestamps."""
+    row = await get_owned(request, principal, investigation_id)
+    if row.status == "running":
+        raise Conflict("wait for the active investigation before refreshing evidence")
+    data = copy.deepcopy(row.data)
+    source = next((e for e in data.get("evidence", []) if e["id"] == evidence_id), None)
+    if source is None:
+        raise NotFound("evidence not found in this investigation")
+    if len(data["evidence"]) >= 32:
+        raise Conflict("saved evidence limit reached; start a new investigation for new observations")
+    connection = connection_for(request.app.state.settings, row.connection_id, row.cluster_id).model_copy(
+        deep=True
+    )
+    if connection.allowedTools is not None and source["tool"] not in connection.allowedTools:
+        raise Forbidden("tool is disabled by connection policy")
+    result = await inspect_tool(request, principal, row.cluster_id, source["tool"], source["resource"])
+    result = redact_value(result, request.app.state.settings)
+    result["refreshedFrom"] = evidence_id
+    data["evidence"].append(result)
+    # Authority may change while the metadata call is in flight.
+    await get_owned(request, principal, investigation_id)
+    if connection_for(request.app.state.settings, row.connection_id, row.cluster_id) != connection:
+        raise Conflict("connection policy changed; reload before refreshing evidence")
+    async with db_session.session_scope() as session:
+        changed = await session.execute(
+            update(AgentInvestigation)
+            .where(
+                AgentInvestigation.id == row.id,
+                AgentInvestigation.revision == row.revision,
+                AgentInvestigation.status != "running",
+            )
+            .values(data=data, revision=row.revision + 1, updated_at=datetime.now(UTC))
+        )
+        if changed.rowcount != 1:
+            raise Conflict("investigation changed; reload before refreshing evidence")
+    return await detail(request, principal, investigation_id)
 
 
 def _tasks(app: Any) -> dict[str, asyncio.Task[None]]:
@@ -392,7 +436,21 @@ async def _run_loop(
                 )
             data["messages"] = (
                 data["messages"]
-                + [{"id": uuid.uuid4().hex, "role": "assistant", "content": answer, "createdAt": now()}]
+                + [
+                    {
+                        "id": uuid.uuid4().hex,
+                        "role": "assistant",
+                        "content": answer,
+                        "createdAt": now(),
+                        "evidenceIds": list(
+                            dict.fromkeys(
+                                eid
+                                for eid in re.findall(r"\[evidence:([a-zA-Z0-9_-]+)\]", answer)
+                                if any(e["id"] == eid for e in data.get("evidence", []))
+                            )
+                        ),
+                    }
+                ]
             )[-40:]
             _progress(
                 data, "complete", "Investigation completed; review the evidence and proposed next steps"

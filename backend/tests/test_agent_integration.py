@@ -195,3 +195,31 @@ async def test_verified_operation_replay_never_dispatches_twice(
     replay = await client.post(execute_path, headers=headers, json={})
     assert replay.status_code == 200
     assert replay.json()["status"] == "succeeded"
+
+
+async def test_cancel_completed_investigation_proposal_stays_cancelled(basic_auth_client, monkeypatch):
+    from k_shui.db.models import AgentInvestigation
+
+    client = basic_auth_client
+    app = configure(client, monkeypatch)
+    headers, path, op_id = await prepare_topic(client, app)
+    async with db_session.session_scope() as session:
+        row = await session.get(AgentInvestigation, path.rsplit("/", 1)[1])
+        row.status = "succeeded"
+    response = await client.post(f"{path}/operations/{op_id}/cancel", headers=headers)
+    assert response.json()["status"] == "cancelled"
+    reopened = (await client.get(path, headers=headers)).json()
+    assert reopened["operations"][0]["status"] == "cancelled"
+    response = await client.post(f"{path}/operations/{op_id}/execute", headers=headers, json={})
+    assert response.json()["status"] == "cancelled"
+    topics = await KafkaAdmin.get(app.state.registry.get("test")).list_topics()
+    assert all(topic["name"] != "agent-release-gate" for topic in topics)
+
+
+async def test_connection_starters_receive_intersected_tool_policy(basic_auth_client, monkeypatch):
+    client = basic_auth_client
+    app = configure(client, monkeypatch)
+    app.state.settings.agent.allowedTools = ["get_cluster_health", "get_group_lag"]
+    app.state.settings.agent.connections[0].allowedTools = ["get_group_lag", "get_topic_metadata"]
+    response = await client.get(f"{PREFIX}/status", headers=as_user(app, "ed", "editor"))
+    assert response.json()["connections"][0]["allowedTools"] == ["get_group_lag"]

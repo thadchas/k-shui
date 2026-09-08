@@ -21,6 +21,8 @@ export interface AgentConnection {
   state: string;
   recovery?: string;
   allowedClusters: string[];
+  allowedTools?: string[];
+  testedAt?: string;
 }
 export interface AgentStatus {
   reason?: string | null;
@@ -48,6 +50,7 @@ export interface AgentEvidence {
   status: string;
   data: unknown;
   limitations: string[];
+  refreshedFrom?: string;
 }
 export interface AgentOperation {
   id: string;
@@ -80,7 +83,13 @@ export interface AgentInvestigation {
   mode: AgentMode;
   actingUser: string;
   status: string;
-  messages: { id: string; role: string; content: string; createdAt: string }[];
+  messages: {
+    id: string;
+    role: string;
+    content: string;
+    createdAt: string;
+    evidenceIds?: string[];
+  }[];
   evidence: AgentEvidence[];
   operations?: AgentOperation[];
   progress: { id?: string; message?: string; tool?: string; status?: string; createdAt?: string }[];

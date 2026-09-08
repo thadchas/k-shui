@@ -30,14 +30,14 @@ function ConnectionCard({
         <div>
           Credential: {connection.credentialConfigured ? 'Configured on server' : 'Not configured'}
         </div>
-        <div>
-          Clusters:{' '}
-          {connection.allowedClusters?.length
-            ? connection.allowedClusters.join(', ')
-            : 'Subject to deployment and user permissions'}
-        </div>
+        <div>Clusters: {connection.allowedClusters.join(', ')}</div>
       </dl>
       <p className="text-sm">{test.data?.recovery ?? connection.recovery}</p>
+      <p className="text-xs text-[var(--muted)]">
+        Connection test results are informational. They do not gate runs or guarantee current
+        availability; a configured connection may be used before testing or after a failed test.
+        {connection.testedAt && ` Last tested ${new Date(connection.testedAt).toLocaleString()}.`}
+      </p>
       <Button
         variant="outline"
         disabled={!canTest || test.isPending}
@@ -106,7 +106,7 @@ export function AgentSettingsPage() {
                   <dd>{status.data.actingUser}</dd>
                 </div>
                 <div>
-                  <dt className="text-[var(--muted)]">Effective modes</dt>
+                  <dt className="text-[var(--muted)]">Available modes</dt>
                   <dd>{status.data.effectiveModes.map(stateLabel).join(', ') || 'Unavailable'}</dd>
                 </div>
                 <div>
@@ -135,6 +135,12 @@ export function AgentSettingsPage() {
                 </div>
               </dl>
             </section>
+            <p className="text-sm">
+              Questions, conversation context, cluster metadata, redacted configuration and error
+              summaries are sent to the configured OpenAI or Anthropic API. Provider retention
+              policies and terms apply. Review your organization’s data-sharing policy before
+              enabling the agent; do not include sensitive data in questions.
+            </p>
             <section aria-label="AI connections" className="grid gap-4 sm:grid-cols-2">
               {status.data.connections.map((connection) => (
                 <ConnectionCard

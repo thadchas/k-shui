@@ -325,6 +325,7 @@ are in [the configuration reference](docs/deployment/configuration-reference.md#
 - `GET /agent/connections` and `POST /agent/connections/{id}/test` list scoped connections and test tool capability (test requires an administrator).
 - `GET|POST /agent/investigations` and `GET /agent/investigations/{id}` persist user-owned investigations with immutable cluster/provider/model/mode context.
 - `POST /agent/investigations/{id}/messages` accepts `{content, requestId}` and starts a bounded background run; repeating the same request ID does not create a second run.
+- `POST /agent/investigations/{id}/evidence/{evidenceId}/refresh` rechecks authority and tool policy, then appends a new observation using the saved tool/resource. It preserves earlier evidence and findings, rejects active runs and the 32-observation limit, and uses a revision check to prevent overwriting concurrent work.
 - `GET /agent/investigations/{id}/events` streams snapshots; `POST /agent/investigations/{id}/cancel` stops subsequent tool work and invalidates pending operation previews.
 - `POST /agent/investigations/{id}/operations/prepare` accepts `{action, target, parameters}`; `POST .../operations/{operationId}/execute` accepts `{confirmation?}`; `POST .../operations/{operationId}/cancel` cancels a pending preview.
 
@@ -332,9 +333,17 @@ The model can inspect allowlisted metadata or prepare a supported change; it can
 execute. Execution binds the human user, investigation, cluster, exact parameters,
 five-minute expiry and current resource state, rechecks authority, durably claims the
 operation and writes audit evidence before dispatch. Consequential operations require
-typed confirmation and offset resets require a successful dry run. Verification records
+typed confirmation (`delete <topic>` versus `purge <topic>`) and offset resets require a successful dry run. Verification records
 success, partial completion or an unknown outcome; uncertain mutations are never
 automatically retried. Payloads and raw traces are excluded from evidence.
+
+Assistant messages carry validated `evidenceIds` for `[evidence:ID]` citations. The UI
+opens the exact saved observation and distinguishes successful retrieval from present-day
+freshness; observations older than two minutes are historical. Consumer lag tools include
+up to 60 comparable samples from the last 15 minutes, with explicit missing/stale history
+and net backlog direction. Samples with unknown offsets or watermarks are excluded;
+partition-scope fingerprints prevent comparisons across changed subscriptions. Connection
+status includes effective inspection `allowedTools` so resource starters respect policy.
 
 `agent_investigations` and `agent_operations` persist in the existing SQLAlchemy database.
 Use a single application process because run admission and restart recovery assume one
