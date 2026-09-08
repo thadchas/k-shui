@@ -38,6 +38,7 @@ ROUTER_MODULES: list[str] = [
     "metrics",
     "lineage",
     "alerts",
+    "agent",
 ]
 
 

@@ -49,6 +49,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from k_shui.core.auth import sync_config_users
 
         await sync_config_users(settings)
+        from k_shui.agent.service import recover_interrupted_runs
+
+        await recover_interrupted_runs()
     except Exception as exc:
         log.error("db.init_failed", error=str(exc))
 
@@ -66,6 +69,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        from k_shui.agent.service import shutdown_agent
+
+        await shutdown_agent(app)
         await _stop_alert_engine(app)
         with contextlib.suppress(Exception):
             await app.state.samplers.stop()

@@ -37,6 +37,8 @@ import {
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
 import { PageHeader } from '@/components/ui/page-header';
+import { InvestigateButton } from '@/components/agent/AgentPanel';
+import { investigationWindow } from '@/lib/agentContext';
 import { StatusPill, type StatusTone } from '@/components/ui/status-pill';
 import {
   Table,
@@ -379,6 +381,14 @@ export function ConsumerGroupDetailPage() {
         meta={data ? <StatusPill status={data.state} /> : null}
         actions={
           <>
+            <InvestigateButton
+              context={{
+                clusterId: cluster,
+                resource: { type: 'consumer_group', name: group },
+                timeWindow: investigationWindow(range),
+                prompt: 'Why is this consumer group falling behind?',
+              }}
+            />
             <Button variant="outline" onClick={() => void navigate(`/c/${cluster}/consumers`)}>
               <ArrowLeft /> All groups
             </Button>

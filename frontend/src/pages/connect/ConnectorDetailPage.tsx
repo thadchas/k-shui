@@ -61,6 +61,7 @@ import {
   type KeyValuePair,
 } from '@/components/ui/key-value-editor';
 import { PageHeader } from '@/components/ui/page-header';
+import { InvestigateButton } from '@/components/agent/AgentPanel';
 import { RefreshPicker } from '@/components/ui/refresh-picker';
 import {
   SegmentedList,
@@ -408,6 +409,13 @@ export function ConnectorDetailPage() {
         }
         actions={
           <>
+            <InvestigateButton
+              context={{
+                clusterId: cluster,
+                resource: { type: 'connector', name, connectCluster: kc },
+                prompt: 'Explain this connector failure.',
+              }}
+            />
             <Button variant="outline" asChild>
               <Link to={base}>
                 <ArrowLeft /> Connectors

@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
 import { AlertsBell } from '@/components/AlertsBell';
+import { AskKShuiButton } from '@/components/agent/AgentPanel';
 import { RefreshInterval } from '@/components/RefreshInterval';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Breadcrumb, type BreadcrumbItem } from '@/components/ui/breadcrumb';
@@ -150,6 +151,7 @@ export function Topbar({ clusterId, cluster, info, onOpenMenu }: TopbarProps) {
         <Search />
       </Button>
 
+      <AskKShuiButton />
       <AlertsBell />
       <RefreshInterval scope={clusterId ? ['cluster', clusterId] : undefined} />
       <ThemeToggle />

@@ -8,6 +8,7 @@ import { formatDecimal, formatDuration, formatRelative, formatTimestamp } from '
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { InvestigateButton } from '@/components/agent/AgentPanel';
 import { DataTable } from '@/components/ui/data-table';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SimpleSelect } from '@/components/ui/select';
@@ -95,6 +96,19 @@ export function HistoryTab() {
               <Icon className="size-3.5 shrink-0 text-[var(--muted)]" />
               <div className="min-w-0">
                 <p className="truncate text-[13px] font-medium">{row.original.triggerName}</p>
+                {row.original.clusterId ? (
+                  <InvestigateButton
+                    context={{
+                      clusterId: row.original.clusterId,
+                      resource: { type: 'alert', name: row.original.id },
+                      timeWindow: {
+                        start: row.original.firedAt,
+                        end: row.original.resolvedAt ?? new Date().toISOString(),
+                      },
+                      prompt: 'Investigate this alert and explain the available evidence.',
+                    }}
+                  />
+                ) : null}
                 <p className="truncate font-mono text-2xs text-[var(--muted)]">
                   {row.original.target ?? row.original.component}
                 </p>

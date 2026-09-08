@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import itertools
+import json
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -39,6 +41,7 @@ class Sample:
     per_topic: dict[str, int] = field(default_factory=dict)  # topic → total end offset
     per_group: dict[str, int] = field(default_factory=dict)  # groupId → total lag
     per_group_topic: dict[str, dict[str, int]] = field(default_factory=dict)
+    per_group_scope: dict[str, str] = field(default_factory=dict)
     error: str | None = None
 
 
@@ -158,6 +161,14 @@ class ClusterSampler:
                 continue
             total = 0
             per_topic: dict[str, int] = {}
+            # A partial set must not masquerade as a complete, shrinking backlog.
+            if not committed or any(
+                (entry["topic"], entry["partition"]) not in watermarks
+                or entry["offset"] < 0
+                or watermarks[(entry["topic"], entry["partition"])][1] < entry["offset"]
+                for entry in committed
+            ):
+                continue
             for entry in committed:
                 key = (entry["topic"], entry["partition"])
                 end = watermarks.get(key, (0, 0))[1]
@@ -166,6 +177,9 @@ class ClusterSampler:
                 per_topic[entry["topic"]] = per_topic.get(entry["topic"], 0) + lag
             sample.per_group[group_id] = total
             sample.per_group_topic[group_id] = per_topic
+            sample.per_group_scope[group_id] = hashlib.sha256(
+                json.dumps(sorted((entry["topic"], entry["partition"]) for entry in committed)).encode()
+            ).hexdigest()
 
     def _maybe_emit_status(self, offline: bool) -> None:
         previous = self.samples[-2] if len(self.samples) > 1 else None
@@ -232,13 +246,25 @@ class ClusterSampler:
         for s in self.window(start, end):
             topics.update(s.per_group_topic.get(group_id, {}))
         out = [
-            mk("lag", self.series(start, end, lambda s: s.per_group.get(group_id, 0)), {"group": group_id})
+            mk(
+                "lag",
+                [
+                    [int(s.ts * 1000), s.per_group[group_id]]
+                    for s in self.window(start, end)
+                    if group_id in s.per_group
+                ],
+                {"group": group_id},
+            )
         ]
         for topic in sorted(topics):
             out.append(
                 mk(
                     "lag",
-                    self.series(start, end, lambda s, t=topic: s.per_group_topic.get(group_id, {}).get(t, 0)),
+                    [
+                        [int(s.ts * 1000), s.per_group_topic[group_id][topic]]
+                        for s in self.window(start, end)
+                        if topic in s.per_group_topic.get(group_id, {})
+                    ],
                     {"group": group_id, "topic": topic},
                 )
             )

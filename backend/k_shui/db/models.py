@@ -100,6 +100,34 @@ class SavedQuery(Base):
         }
 
 
+class AgentInvestigation(Base):
+    """User-owned, immutable-scope investigation with bounded redacted history."""
+
+    __tablename__ = "agent_investigations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=new_id)
+    user: Mapped[str] = mapped_column(String(200), index=True)
+    cluster_id: Mapped[str] = mapped_column(String(120), index=True)
+    connection_id: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(24), default="idle", index=True)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            **(self.data or {}),
+            "id": self.id,
+            "actingUser": self.user,
+            "clusterId": self.cluster_id,
+            "connectionId": self.connection_id,
+            "status": self.status,
+            "createdAt": (self.created_at or _now()).isoformat(),
+            "updatedAt": (self.updated_at or _now()).isoformat(),
+        }
+
+
 class KVStore(Base):
     """Generic key/value bag for small pieces of state."""
 
@@ -237,6 +265,7 @@ class Dashboard(Base):
 
 
 __all__ = [
+    "AgentInvestigation",
     "AlertAction",
     "AlertHistory",
     "AlertTrigger",
