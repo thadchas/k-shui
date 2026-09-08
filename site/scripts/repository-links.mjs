@@ -16,7 +16,9 @@ export function repositoryLinks() {
       }
       if (['link', 'image', 'definition'].includes(node.type) && node.url &&
           !/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(node.url)) {
-        const [relative, suffix = ''] = node.url.split(/(?=[?#])/s, 2);
+        const boundary = node.url.search(/[?#]/);
+        const relative = boundary < 0 ? node.url : node.url.slice(0, boundary);
+        const suffix = boundary < 0 ? '' : node.url.slice(boundary);
         const target = path.posix.normalize(path.posix.join(path.posix.dirname(source), decodeURI(relative)));
         const published = publishedPath(target);
         if (published) node.url = `${siteBase}${published}${suffix}`;

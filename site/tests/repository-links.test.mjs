@@ -13,6 +13,8 @@ test('nested guide links preserve heading fragments and resolve under the Pages 
   assert.equal(transform({ type: 'link', url: '../deployment/docker.md#configuration' }).url,
     `${siteBase}docs/deployment/docker/#configuration`);
   assert.equal(transform({ type: 'link', url: '../README.md' }).url, `${siteBase}docs/`);
+  assert.equal(transform({ type: 'link', url: '../getting-started.md?from=topics#install' }).url,
+    `${siteBase}docs/getting-started/?from=topics#install`);
   assert.equal(transform({ type: 'link', url: 'features/' }, 'docs/index.md').url,
     `${siteBase}docs/features/`);
 });
