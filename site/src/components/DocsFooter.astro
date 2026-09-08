@@ -1,0 +1,36 @@
+---
+import Footer from '@astrojs/starlight/components/Footer.astro';
+---
+
+<Footer />
+
+<script>
+  async function renderDiagrams() {
+    const diagrams = document.querySelectorAll<HTMLElement>('[data-mermaid-source]');
+    if (!diagrams.length) return;
+    const { default: mermaid } = await import('mermaid');
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default',
+    });
+    for (const [index, source] of [...diagrams].entries()) {
+      try {
+        const { svg } = await mermaid.render(`docs-diagram-${index}`, source.textContent || '');
+        const figure = document.createElement('figure');
+        figure.className = 'docs-diagram';
+        figure.setAttribute('aria-label', 'Architecture diagram');
+        figure.innerHTML = svg;
+        source.replaceWith(figure);
+      } catch {
+        // Keep the readable source if a diagram cannot be rendered.
+      }
+    }
+  }
+  void renderDiagrams();
+</script>
+
+<style is:global>
+  .docs-diagram { overflow-x: auto; }
+  .docs-diagram svg { min-width: 36rem; max-width: 100%; height: auto; }
+</style>

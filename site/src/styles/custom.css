@@ -1,0 +1,21 @@
+:root {
+  --sl-color-accent-low: #062a27;
+  --sl-color-accent: #14b8a6;
+  --sl-color-accent-high: #99f6e4;
+  --sl-color-bg: #0b1220;
+  --sl-color-bg-nav: #111a2b;
+  --sl-color-bg-sidebar: #0b1220;
+  --sl-font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+:root[data-theme='light'] {
+  --sl-color-accent-low: #ccfbf1;
+  --sl-color-accent: #0f766e;
+  --sl-color-accent-high: #134e4a;
+  --sl-color-bg: #ffffff;
+  --sl-color-bg-nav: #f8fafc;
+  --sl-color-bg-sidebar: #f8fafc;
+}
+.sl-markdown-content img {
+  border-radius: 0.65rem;
+  border: 1px solid var(--sl-color-hairline);
+}
