@@ -6,6 +6,9 @@
 .idea
 *.md
 !README.md
+# the runtime stage copies these into /app (LICENSE and NOTICE carry no
+# extension, so only the .md one needs re-including here)
+!THIRD-PARTY-NOTICES.md
 
 # Python
 **/__pycache__/

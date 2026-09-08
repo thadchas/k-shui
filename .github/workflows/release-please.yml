@@ -36,12 +36,22 @@ jobs:
       version: ${{ steps.normalize.outputs.version }}
       pr: ${{ steps.normalize.outputs.pr }}
     steps:
+      # GitHub deliberately does not trigger workflows for a pull request opened
+      # or updated with the built-in GITHUB_TOKEN, so a release PR authored by
+      # that token gets *no* `ci` and *no* `pr-lint` run — and the release PR is
+      # exactly the one that rewrites every version declaration and both
+      # lockfiles. A fine-grained PAT in RELEASE_PLEASE_TOKEN (this repo only;
+      # Contents: read & write, Pull requests: read & write, Metadata: read)
+      # makes the PR look like it came from a user, so the normal checks run.
+      # GITHUB_TOKEN stays a working fallback — the release still tags and
+      # publishes correctly — but its PRs arrive unchecked; see
+      # docs/development/releasing.md for what to verify by hand in that case.
       - uses: googleapis/release-please-action@v4
         id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
       # release-please prefixes its outputs with the package path for every
       # package except the root one, and which form you get has moved between

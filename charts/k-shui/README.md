@@ -12,6 +12,11 @@ helm upgrade --install k-shui charts/k-shui \
   -f my-values.yaml
 ```
 
+No release has published yet, so the default `image.repository`
+(`ghcr.io/thadchas/k-shui`) has no image to pull until `v0.1.0` ships — see
+the [release status note](https://github.com/thadchas/k-shui#quick-start);
+build and set your own image in the meantime.
+
 See `values-lakestream.yaml` for a worked example pointing at a Strimzi-managed cluster
 plus Connect/Apicurio/Flink/Prometheus/Marquez, with ingress, autoscaling, PDB,
 NetworkPolicy, persistence and a ServiceMonitor all turned on.

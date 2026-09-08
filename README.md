@@ -6,10 +6,9 @@
 
 [![License](https://img.shields.io/github/license/thadchas/k-shui?color=0D9488)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/thadchas/k-shui/ci.yml?branch=main&label=CI&logo=github)](https://github.com/thadchas/k-shui/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/thadchas/k-shui?include_prereleases&label=release&logo=github)](https://github.com/thadchas/k-shui/releases)
 [![PyPI](https://img.shields.io/pypi/v/k-shui?label=PyPI&logo=pypi&logoColor=white&color=0D9488)](https://pypi.org/project/k-shui/)
 [![npm](https://img.shields.io/npm/v/k-shui?label=npm&logo=npm&color=CB3837)](https://www.npmjs.com/package/k-shui)
-[![Docker](https://img.shields.io/badge/ghcr.io-k--shui%2Fk--shui-0D9488?logo=docker&logoColor=white)](https://github.com/orgs/k-shui/packages/container/package/k-shui)
-[![Helm](https://img.shields.io/badge/helm-oci%3A%2F%2Fghcr.io%2Fk--shui%2Fcharts%2Fk--shui-0EA5E9?logo=helm&logoColor=white)](charts/k-shui)
 
 </div>
 
@@ -77,6 +76,13 @@ k-shui is built for incident time, when a wrong click is expensive:
   the start offset") rather than just asking "are you sure?".
 
 ## Quick start
+
+> **Release status.** k-shui has not made its first public release yet — no
+> PyPI/npm package, no GHCR image or Helm chart, and no GitHub release. The
+> commands below are the intended install path and become valid once
+> `v0.1.0` ships; passing CI is not publication. Track progress in
+> [`docs/development/releasing.md`](docs/development/releasing.md) and
+> [epic #54](https://github.com/thadchas/k-shui/issues/54).
 
 Pick whichever you have installed — all four run the same application.
 

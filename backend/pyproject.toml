@@ -4,13 +4,20 @@ version = "0.1.0"  # x-release-please-version
 description = "k-shui — Kafka Streaming Hub UI. Open-source control center for Apache Kafka, Connect, Schema Registry, ksqlDB, Flink, metrics, lineage and alerts."
 readme = "README.md"
 license = "Apache-2.0"
+# PEP 639 license-files. Paths are relative to this file, so the wheel/sdist can
+# only carry copies that live under backend/ — scripts/check_licenses.py keeps
+# backend/LICENSE and backend/NOTICE byte-identical to the ones at the repo root.
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.11"
 authors = [{ name = "k-shui contributors" }]
 keywords = ["kafka", "control-center", "kafka-ui", "flink", "kafka-connect", "schema-registry", "lineage"]
+# No `License :: OSI Approved :: ...` classifier: PEP 639 makes the SPDX
+# `license` expression above authoritative, and a Metadata 2.4 distribution that
+# carries both a License-Expression and a license classifier is rejected on
+# upload. scripts/check_licenses.py enforces that.
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Framework :: FastAPI",
-  "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3",
   "Topic :: System :: Monitoring",
 ]
@@ -63,7 +70,7 @@ packages = ["k_shui"]
 artifacts = ["k_shui/static/**"]
 
 [tool.hatch.build.targets.sdist]
-include = ["k_shui/**", "README.md"]
+include = ["k_shui/**", "README.md", "LICENSE", "NOTICE"]
 
 [dependency-groups]
 dev = [

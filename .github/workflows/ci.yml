@@ -62,6 +62,13 @@ jobs:
       - name: All artifacts declare the same version
         run: python3 scripts/check_versions.py
 
+      # Same idea for licensing: the root LICENSE must stay the full Apache-2.0
+      # text (GitHub's detector is text-similarity based), every artifact must
+      # carry a byte-identical copy of it plus the NOTICE, and every SPDX
+      # declaration must still say Apache-2.0.
+      - name: All artifacts ship the same Apache-2.0 licence
+        run: python3 scripts/check_licenses.py
+
       - name: Unit-test the release tooling
         run: python3 -m unittest discover -s scripts/tests -t scripts/tests -v
 
@@ -153,6 +160,28 @@ jobs:
           echo "static assets in wheel: ${assets}"
           test "${assets}" -gt 0
 
+      # Apache-2.0 §4 wants the licence and the NOTICE to travel with every copy.
+      # PEP 639 (`license-files` in backend/pyproject.toml) puts them in
+      # .dist-info/licenses/; accept the pre-639 .dist-info/ location too so a
+      # hatchling downgrade reports a real problem rather than a path change.
+      - name: Assert the wheel and the sdist ship LICENSE and NOTICE
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          whl=$(ls dist/*.whl)
+          sdist=$(ls dist/*.tar.gz)
+          # listed into files rather than piped: `grep -q` stops reading at the
+          # first hit, which would SIGPIPE the producer and trip pipefail.
+          unzip -l "${whl}" > "${RUNNER_TEMP}/wheel.txt"
+          tar tzf "${sdist}" > "${RUNNER_TEMP}/sdist.txt"
+          for f in LICENSE NOTICE; do
+            grep -qE "\.dist-info/(licenses/)?${f}$" "${RUNNER_TEMP}/wheel.txt"
+            grep -qE "^[^/]+/${f}$" "${RUNNER_TEMP}/sdist.txt"
+            echo "${f}: present in wheel and sdist"
+          done
+          unzip -p "${whl}" '*.dist-info/METADATA' > "${RUNNER_TEMP}/METADATA"
+          grep -q '^License-Expression: Apache-2.0$' "${RUNNER_TEMP}/METADATA"
+
       - name: Smoke-test the wheel via uvx
         working-directory: backend
         run: |
@@ -177,6 +206,18 @@ jobs:
       - name: npm test
         working-directory: packages/npm
         run: npm test
+
+      # npm auto-includes LICENSE from the package directory but not NOTICE, so
+      # NOTICE has to be listed in `files` — assert on what npm would really pack.
+      - name: Assert the published tarball ships LICENSE and NOTICE
+        working-directory: packages/npm
+        run: |
+          set -euo pipefail
+          npm pack --dry-run --json > "${RUNNER_TEMP}/pack.json"
+          for f in LICENSE NOTICE bin/k-shui.js; do
+            jq -e --arg f "${f}" '.[0].files | map(.path) | index($f)' "${RUNNER_TEMP}/pack.json" > /dev/null
+            echo "${f}: present in the npm tarball"
+          done
 
   helm:
     name: helm lint & template
@@ -203,6 +244,14 @@ jobs:
             --set metrics.podMonitor.enabled=true \
             --set persistence.enabled=true \
             --set existingSecret=k-shui-credentials
+      - name: Assert the packaged chart ships LICENSE
+        run: |
+          set -euo pipefail
+          helm package charts/k-shui --destination "${RUNNER_TEMP}"
+          tgz=$(ls "${RUNNER_TEMP}"/k-shui-*.tgz)
+          tar tzf "${tgz}" > "${RUNNER_TEMP}/chart.txt"
+          grep -qx 'k-shui/LICENSE' "${RUNNER_TEMP}/chart.txt"
+          echo "LICENSE: present in $(basename "${tgz}")"
 
   kustomize:
     name: kustomize render
@@ -232,9 +281,28 @@ jobs:
           context: .
           file: deploy/docker/Dockerfile
           push: false
+          # load into the local daemon so the licence assertion below can read
+          # the runtime stage back out of the built image
+          load: true
           tags: k-shui:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
             VERSION=0.0.0-ci
             VCS_REF=${{ github.sha }}
+
+      # The image is a redistribution of k-shui and of the fonts/icons compiled
+      # into the SPA, so it has to carry the licence, the NOTICE and the
+      # third-party notices (see the runtime stage's COPY, and .dockerignore's
+      # `!THIRD-PARTY-NOTICES.md` re-include).
+      - name: Assert the image ships LICENSE, NOTICE and THIRD-PARTY-NOTICES.md
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint cat k-shui:ci \
+            /app/NOTICE /app/THIRD-PARTY-NOTICES.md > /dev/null
+          docker run --rm --entrypoint cat k-shui:ci /app/LICENSE > "${RUNNER_TEMP}/image-LICENSE"
+          grep -q 'Apache License' "${RUNNER_TEMP}/image-LICENSE"
+          diff -q LICENSE "${RUNNER_TEMP}/image-LICENSE"
+          label=$(docker image inspect k-shui:ci \
+            --format '{{ index .Config.Labels "org.opencontainers.image.licenses" }}')
+          test "${label}" = "Apache-2.0"

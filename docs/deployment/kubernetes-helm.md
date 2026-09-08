@@ -22,10 +22,12 @@ helm upgrade --install k-shui charts/k-shui \
   -f charts/k-shui/values-lakestream.yaml
 ```
 
-Once published, it's also available as an OCI chart from GHCR:
+Once published, it's also available as an OCI chart from GHCR — no release has
+shipped yet, so this does not resolve until then (see the
+[release status note](../../README.md#quick-start)):
 
 ```bash
-helm install k-shui oci://ghcr.io/<owner>/charts/k-shui --version <x.y.z>
+helm install k-shui oci://ghcr.io/thadchas/charts/k-shui --version <x.y.z>
 ```
 
 ## What it deploys

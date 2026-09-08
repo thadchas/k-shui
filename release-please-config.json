@@ -10,11 +10,13 @@
   "draft": false,
   "prerelease": false,
   "pull-request-title-pattern": "chore(release): v${version}",
-  "pull-request-header": "## Release ${version}\n\nMerging this pull request bumps every version declaration, updates `CHANGELOG.md`, tags `v${version}` and publishes the wheel, the npm launcher, the container image and the Helm chart. Squash-merge it \u2014 do not rebase or edit the title.",
+  "group-pull-request-title-pattern": "chore(release): v${version}",
+  "pull-request-header": "## Release\n\nMerging this pull request bumps every version declaration, updates `CHANGELOG.md`, creates the tag, and publishes the wheel, the npm launcher, the container image and the Helm chart. The exact version is in the title and in the changelog entry below. Squash-merge it \u2014 do not rebase or edit the title.",
   "changelog-path": "CHANGELOG.md",
   "packages": {
     ".": {
       "package-name": "k-shui",
+      "initial-version": "0.1.0",
       "changelog-sections": [
         {
           "type": "feat",
