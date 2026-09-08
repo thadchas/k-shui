@@ -23,7 +23,7 @@ it, required config, and known tips/limitations.
 | [Kafka Connect](features/connect.md)                   | [ksqlDB](features/ksqldb.md)                       | [Flink](features/flink.md)                            |
 | [Metrics](features/metrics.md)                         | [Stream lineage](features/lineage.md)              | [Alerts](features/alerts.md)                          |
 | [Security](features/security.md)                       | [Settings & audit](features/settings-and-audit.md) | [Auth & RBAC](features/auth-rbac.md)                  |
-| [Keyboard, URLs & accessibility](features/security.md) | [Settings & audit](features/settings-and-audit.md) | [Auth & RBAC](features/keyboard-and-accessibility.md) |
+| [Keyboard, URLs & accessibility](features/keyboard-and-accessibility.md) | | |
 
 ## Deployment
 
@@ -38,6 +38,8 @@ it, required config, and known tips/limitations.
 
 ## Development
 
+- [Website and documentation](development/website.md) — editing, previewing,
+  and publishing the Starlight site on GitHub Pages.
 - [Releasing](development/releasing.md) — Conventional Commits → Semantic
   Versioning, the release pull request, and how the wheel, npm launcher, image
   and chart get published.

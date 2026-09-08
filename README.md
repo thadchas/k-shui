@@ -4,6 +4,8 @@
 
 **Kafka Streaming Hub UI — one open-source control center for Apache Kafka® and its entire streaming ecosystem**
 
+[Website](https://thadchas.github.io/k-shui/) · [Getting started](https://thadchas.github.io/k-shui/docs/getting-started/) · [Documentation](https://thadchas.github.io/k-shui/docs/)
+
 [![License](https://img.shields.io/github/license/thadchas/k-shui?color=0D9488)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/thadchas/k-shui/ci.yml?branch=main&label=CI&logo=github)](https://github.com/thadchas/k-shui/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/k-shui?label=PyPI&logo=pypi&logoColor=white&color=0D9488)](https://pypi.org/project/k-shui/)
