@@ -11,6 +11,14 @@
 # The tag is the source of truth for the version, and `resolve` refuses to
 # publish unless the committed version declarations already agree with it —
 # release-please bumps them in the release PR, so they always should.
+#
+# Every publish job is written to be **re-runnable**: it first asks the registry
+# whether this exact version is already there, and if it is it verifies what is
+# published instead of trying to overwrite it. PyPI and npm versions are
+# immutable, so "verify, don't overwrite" is the only correct behaviour; for
+# GHCR and the OCI chart it is a deliberate choice, so a recovery re-run cannot
+# silently replace the bits somebody already pulled. See
+# docs/development/releasing.md for the maintainer runbook.
 name: release
 
 on:
@@ -30,7 +38,7 @@ on:
         required: true
         type: string
       release-exists:
-        description: "The GitHub release already exists (release-please created it); append install notes instead of creating it"
+        description: "Advisory only — `github-release` asks `gh release view` whether the release exists and appends or creates accordingly"
         required: false
         default: false
         type: boolean
@@ -45,6 +53,8 @@ concurrency:
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/k-shui
   CHART_NAME: k-shui
+  PYPI_NAME: k-shui
+  NPM_NAME: k-shui
 
 jobs:
   resolve:
@@ -56,6 +66,7 @@ jobs:
       major_minor: ${{ steps.v.outputs.major_minor }}
       prerelease: ${{ steps.v.outputs.prerelease }}
       npm_tag: ${{ steps.v.outputs.npm_tag }}
+      sha: ${{ steps.sha.outputs.sha }}
     steps:
       - name: Resolve the tag and parse the semantic version
         id: v
@@ -94,6 +105,16 @@ jobs:
       - name: Every version declaration must match the tag
         run: python3 scripts/check_versions.py --expect "${{ steps.v.outputs.version }}"
 
+      # `github.sha` is the *triggering* commit, which on the workflow_call and
+      # workflow_dispatch paths is a branch head that may have moved past the
+      # tag. The commit the tag points at is the one we are actually shipping,
+      # so it — not github.sha — becomes the image's image.revision label.
+      - name: Resolve the commit the tag points at
+        id: sha
+        run: |
+          set -euo pipefail
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   frontend-build:
     name: build frontend static assets
     needs: [resolve]
@@ -127,6 +148,10 @@ jobs:
     permissions:
       contents: read # actions/checkout — a job that declares permissions gets nothing else
       id-token: write # trusted publishing (OIDC)
+    outputs:
+      # `existing` when PyPI already had this version, `published` otherwise —
+      # read by `github-release` to write an honest per-artifact line.
+      state: ${{ steps.state.outputs.state }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -153,6 +178,24 @@ jobs:
           assets=$(unzip -l "${whl}" | grep -c 'k_shui/static/assets/')
           echo "static assets in wheel: ${assets}"
           test "${assets}" -gt 0
+      # Apache-2.0 obliges us to ship the licence and the NOTICE with the
+      # binary. `[project] license-files` in backend/pyproject.toml puts them in
+      # the wheel's dist-info; this is the guard that it really happened.
+      - name: Assert the wheel ships LICENSE and NOTICE
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          whl=$(ls dist/*.whl)
+          names=$(unzip -Z1 "${whl}")
+          for f in LICENSE NOTICE; do
+            # PEP 639 backends use `<name>-<ver>.dist-info/licenses/`; older ones
+            # drop the file straight into `.dist-info/`. Accept either.
+            if ! grep -Eq "^k_shui-[^/]+\.dist-info/(licenses/)?${f}$" <<<"${names}"; then
+              echo "::error::${whl} carries no ${f} in its dist-info — check 'license-files' in backend/pyproject.toml"
+              exit 1
+            fi
+            echo "wheel carries ${f}"
+          done
       - name: Assert the wheel is versioned like the tag
         working-directory: backend
         env:
@@ -173,10 +216,66 @@ jobs:
               metadata = BytesParser().parsebytes(wheel.read(metadata_path))
           assert Version(metadata["Version"]) == Version(os.environ["RELEASE_VERSION"])
           PYTHON
+
+      # PyPI versions are immutable: a re-run must not try to re-upload one.
+      # Note the URL uses the PEP 440 form of the version, which differs from
+      # the semver tag for prereleases (v1.4.0-rc.1 → 1.4.0rc1), so we read the
+      # normalized version back off the wheel we just built rather than guess.
+      - name: Is this version already on PyPI?
+        id: state
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          whl=$(ls dist/*.whl)
+          pep440=$(basename "${whl}" | cut -d- -f2)
+          url="https://pypi.org/pypi/${PYPI_NAME}/${pep440}/json"
+          code=$(curl -sSL -o /tmp/pypi-release.json -w '%{http_code}' "${url}")
+          case "${code}" in
+            200) exists=true ;;
+            404) exists=false ;;
+            *) echo "::error::PyPI answered HTTP ${code} for ${url}; refusing to guess"; exit 1 ;;
+          esac
+          {
+            echo "exists=${exists}"
+            echo "pep440=${pep440}"
+            echo "wheel=${whl}"
+            echo "state=$([[ "${exists}" == true ]] && echo existing || echo published)"
+          } >> "$GITHUB_OUTPUT"
+          echo "PyPI ${PYPI_NAME} ${pep440}: exists=${exists}"
+
+      # Verify rather than overwrite. The wheel filename has to be listed; the
+      # sha256 is reported but not enforced, because a rebuild of the same
+      # commit is not bit-for-bit reproducible (zip member mtimes come from the
+      # checkout), so a differing digest is expected and not by itself a fault.
+      - name: Verify the already-published wheel
+        if: steps.state.outputs.exists == 'true'
+        working-directory: backend
+        env:
+          WHEEL: ${{ steps.state.outputs.wheel }}
+          PEP440: ${{ steps.state.outputs.pep440 }}
+        run: |
+          set -euo pipefail
+          name=$(basename "${WHEEL}")
+          local_sha=$(sha256sum "${WHEEL}" | cut -d' ' -f1)
+          if ! remote_sha=$(jq -er --arg n "${name}" '.urls[] | select(.filename == $n) | .digests.sha256' /tmp/pypi-release.json); then
+            echo "::error::PyPI has ${PYPI_NAME} ${PEP440} but not the file ${name}; the published release is incomplete and cannot be repaired in place — cut the next patch version"
+            jq -r '.urls[].filename' /tmp/pypi-release.json
+            exit 1
+          fi
+          echo "PyPI already serves ${name} (sha256 ${remote_sha})"
+          if [[ "${remote_sha}" != "${local_sha}" ]]; then
+            echo "::notice::${name} on PyPI has sha256 ${remote_sha}; this re-build produced ${local_sha}. Wheel builds are not bit-reproducible, so this does not by itself mean a different commit was published — confirm via the wheel's version and the release commit instead."
+          fi
+          echo "PyPI: **${PYPI_NAME} ${PEP440}** was already published; verified, not overwritten." >> "$GITHUB_STEP_SUMMARY"
+
+      # `skip-existing` is the belt to the check above's braces: it also covers
+      # the race where a concurrent run uploads between the check and here.
       - name: Publish to PyPI (trusted publishing)
+        if: steps.state.outputs.exists == 'false'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: backend/dist/
+          skip-existing: true
 
   npm:
     name: publish npm package
@@ -185,6 +284,8 @@ jobs:
     permissions:
       id-token: write # npm provenance
       contents: read
+    outputs:
+      state: ${{ steps.state.outputs.state }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -202,8 +303,54 @@ jobs:
       - name: npm test
         working-directory: packages/npm
         run: npm test
+
+      # npm versions are immutable too (and unpublishable after 72 hours), so a
+      # re-run verifies instead of republishing.
+      - name: Is this version already on npm?
+        id: state
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          # `npm view` exits non-zero when the *package* is unknown and prints
+          # nothing (exit 0) when only the *version* is unknown. Both mean "not
+          # published"; anything else is a real registry error we should not
+          # paper over, but npm does not distinguish it, so treat non-zero as
+          # absent and let the publish step surface the truth.
+          published=$(npm view "${NPM_NAME}@${RELEASE_VERSION}" version 2>/dev/null || true)
+          if [[ "${published}" == "${RELEASE_VERSION}" ]]; then exists=true; else exists=false; fi
+          {
+            echo "exists=${exists}"
+            echo "state=$([[ "${exists}" == true ]] && echo existing || echo published)"
+          } >> "$GITHUB_OUTPUT"
+          echo "npm ${NPM_NAME}@${RELEASE_VERSION}: exists=${exists}"
+
+      - name: Verify the already-published npm version
+        if: steps.state.outputs.exists == 'true'
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          EXPECTED_TAG: ${{ needs.resolve.outputs.npm_tag }}
+        run: |
+          set -euo pipefail
+          actual=$(npm view "${NPM_NAME}" dist-tags --json | jq -r --arg t "${EXPECTED_TAG}" '.[$t] // ""')
+          if [[ "${actual}" == "${RELEASE_VERSION}" ]]; then
+            echo "dist-tag ${EXPECTED_TAG} points at ${RELEASE_VERSION}"
+          else
+            # Not fatal: a newer release legitimately owns `latest`/`next`.
+            echo "::warning::npm dist-tag '${EXPECTED_TAG}' points at '${actual:-<unset>}', not ${RELEASE_VERSION}. That is expected if a newer version has since been released; otherwise move it by hand with 'npm dist-tag add ${NPM_NAME}@${RELEASE_VERSION} ${EXPECTED_TAG}'."
+          fi
+          if npm view "${NPM_NAME}@${RELEASE_VERSION}" dist.attestations --json | jq -e '. != null and . != {}' >/dev/null; then
+            echo "the published tarball carries provenance attestations"
+          else
+            # Also not fatal: the version is immutable, so this cannot be fixed
+            # by re-running — it has to be superseded.
+            echo "::warning::npm reports no provenance attestations for ${NPM_NAME}@${RELEASE_VERSION}. An npm version cannot be re-published, so fixing this means cutting the next version with provenance enabled."
+          fi
+          echo "npm: **${NPM_NAME}@${RELEASE_VERSION}** was already published; verified, not overwritten." >> "$GITHUB_STEP_SUMMARY"
+
       # Prereleases land under `next` so `npx k-shui` keeps resolving to stable.
       - name: npm publish
+        if: steps.state.outputs.exists == 'false'
         working-directory: packages/npm
         run: npm publish --provenance --access public --tag "${{ needs.resolve.outputs.npm_tag }}"
         env:
@@ -219,6 +366,8 @@ jobs:
       attestations: write
       artifact-metadata: write
       id-token: write # cosign keyless signing + SBOM attestation
+    outputs:
+      state: ${{ steps.state.outputs.state }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -228,9 +377,6 @@ jobs:
           name: static-assets
           path: backend/k_shui/static/
 
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
-
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -238,12 +384,95 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Installed before the existence check so the verify-only path can use it.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      # A version tag in GHCR is mutable, but treating it as mutable is how you
+      # replace bits somebody has already pulled and verified. A re-run
+      # therefore verifies the existing image rather than rebuilding over it.
+      #
+      # `docker buildx imagetools inspect` rather than `docker manifest
+      # inspect`: the latter is still gated behind the CLI's experimental flag,
+      # and imagetools returns the index digest we need in the same call.
+      - name: Is this version already in GHCR?
+        id: state
+        env:
+          REF: ${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          if inspected=$(docker buildx imagetools inspect "${REF}" 2>/dev/null); then
+            exists=true
+            digest=$(awk '/^Digest:/ {print $2; exit}' <<<"${inspected}")
+            if [[ -z "${digest}" ]]; then
+              echo "::error::${REF} exists but its digest could not be read"
+              exit 1
+            fi
+          else
+            exists=false
+            digest=""
+          fi
+          {
+            echo "exists=${exists}"
+            echo "digest=${digest}"
+            echo "state=$([[ "${exists}" == true ]] && echo existing || echo published)"
+          } >> "$GITHUB_OUTPUT"
+          echo "${REF}: exists=${exists} digest=${digest:-<none>}"
+
+      # The signing identity is this workflow file, but the ref inside it varies
+      # with the entry point: `refs/tags/vX.Y.Z` for a tag push, `refs/heads/…`
+      # when release-please calls it or a maintainer dispatches it. Match the
+      # workflow, not one particular ref.
+      - name: Verify the already-published image
+        if: steps.state.outputs.exists == 'true'
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.state.outputs.digest }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          identity="^https://github\.com/${REPO}/\.github/workflows/release\.yml@refs/(heads|tags)/.+$"
+          cosign verify "${IMAGE_NAME}@${DIGEST}" \
+            --certificate-identity-regexp "${identity}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            > /dev/null
+          echo "cosign signature verified for ${IMAGE_NAME}@${DIGEST}"
+          echo "Image: **${IMAGE_NAME}@${DIGEST}** was already published; cosign signature verified, not rebuilt." >> "$GITHUB_STEP_SUMMARY"
+
+      # The SBOM is a GitHub artifact attestation, not a cosign attestation, so
+      # it is checked with `gh` and only advisory here — a missing attestation
+      # on an already-published digest cannot be repaired by re-running.
+      - name: Verify the already-published SBOM attestation
+        if: steps.state.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.state.outputs.digest }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh attestation verify "oci://${IMAGE_NAME}@${DIGEST}" --repo "${REPO}" \
+            || echo "::warning::Could not verify an SBOM attestation for ${IMAGE_NAME}@${DIGEST}. Check it by hand before relying on it."
+
+      - uses: docker/setup-qemu-action@v4
+        if: steps.state.outputs.exists == 'false'
+      - uses: docker/setup-buildx-action@v4
+        if: steps.state.outputs.exists == 'false'
+
       # Explicit `type=raw` tags rather than `type=semver`: when release-please
       # calls this workflow the triggering ref is `main`, not the tag, so the
       # semver pattern would have nothing to parse. A prerelease never moves
       # `latest`.
+      #
+      # `image.licenses` is set explicitly rather than left to metadata-action's
+      # repository-license lookup, so GitHub's licence detection can never leak
+      # a wrong (or empty) value into the image labels. `image.revision` is
+      # overridden for the same reason as VCS_REF below — metadata-action would
+      # otherwise stamp `github.sha`, which is not always the tagged commit.
+      # Labels passed to build-push-action win over the Dockerfile's LABELs.
       - name: Docker metadata
         id: meta
+        if: steps.state.outputs.exists == 'false'
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
@@ -251,9 +480,14 @@ jobs:
             type=raw,value=${{ needs.resolve.outputs.version }}
             type=raw,value=${{ needs.resolve.outputs.major_minor }},enable=${{ needs.resolve.outputs.prerelease == 'false' }}
             type=raw,value=latest,enable=${{ needs.resolve.outputs.prerelease == 'false' }}
+          labels: |
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.revision=${{ needs.resolve.outputs.sha }}
+            org.opencontainers.image.version=${{ needs.resolve.outputs.version }}
 
       - name: Build & push
         id: build
+        if: steps.state.outputs.exists == 'false'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -264,21 +498,21 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ needs.resolve.outputs.version }}
-            VCS_REF=${{ github.sha }}
+            VCS_REF=${{ needs.resolve.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Install cosign
-        uses: sigstore/cosign-installer@v3
-
       - name: Sign image (keyless)
+        if: steps.state.outputs.exists == 'false'
         run: |
+          set -euo pipefail
           cosign sign --yes "${IMAGE_NAME}@${DIGEST}"
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           DIGEST: ${{ steps.build.outputs.digest }}
 
       - name: Generate SBOM (syft)
+        if: steps.state.outputs.exists == 'false'
         uses: anchore/sbom-action@v0
         with:
           image: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
@@ -286,6 +520,7 @@ jobs:
           output-file: sbom.spdx.json
 
       - name: Attest SBOM
+        if: steps.state.outputs.exists == 'false'
         uses: actions/attest-sbom@v4
         with:
           subject-name: ${{ env.IMAGE_NAME }}
@@ -300,6 +535,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      state: ${{ steps.state.outputs.state }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -320,42 +557,173 @@ jobs:
         run: test -f "dist/${CHART_NAME}-${{ needs.resolve.outputs.version }}.tgz"
 
       - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      # Helm treats a published chart version as immutable in practice (clients
+      # cache by version), so a re-run verifies the pushed chart rather than
+      # pushing over it.
+      - name: Is this chart version already in GHCR?
+        id: state
+        env:
+          CHART_REPO: oci://ghcr.io/${{ github.repository_owner }}/charts
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p pulled
+          if helm pull "${CHART_REPO}/${CHART_NAME}" --version "${RELEASE_VERSION}" --destination pulled/ >/dev/null 2>&1; then
+            exists=true
+          else
+            exists=false
+          fi
+          {
+            echo "exists=${exists}"
+            echo "state=$([[ "${exists}" == true ]] && echo existing || echo published)"
+          } >> "$GITHUB_OUTPUT"
+          echo "${CHART_REPO}/${CHART_NAME} ${RELEASE_VERSION}: exists=${exists}"
+
+      - name: Verify the already-published chart
+        if: steps.state.outputs.exists == 'true'
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          tgz="pulled/${CHART_NAME}-${RELEASE_VERSION}.tgz"
+          test -f "${tgz}"
+          meta=$(helm show chart "${tgz}")
+          version=$(awk '/^version:/ {print $2; exit}' <<<"${meta}" | tr -d '"')
+          app_version=$(awk '/^appVersion:/ {print $2; exit}' <<<"${meta}" | tr -d '"')
+          echo "published chart: version=${version} appVersion=${app_version}"
+          if [[ "${version}" != "${RELEASE_VERSION}" || "${app_version}" != "${RELEASE_VERSION}" ]]; then
+            echo "::error::the chart already at ${RELEASE_VERSION} declares version=${version} appVersion=${app_version}; it was not built from this tag"
+            exit 1
+          fi
+          echo "Chart: **${CHART_NAME} ${RELEASE_VERSION}** was already published; verified, not overwritten." >> "$GITHUB_STEP_SUMMARY"
 
       - name: helm push
-        run: helm push dist/${CHART_NAME}-*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+        if: steps.state.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          helm push dist/${CHART_NAME}-*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
 
   github-release:
     name: publish GitHub release notes
-    needs: [resolve, pypi, npm, docker, helm]
+    needs: [resolve, frontend-build, pypi, npm, docker, helm]
+    # Runs even when a publish job failed, so the release notes tell the truth
+    # about which artifacts exist. It still fails at the end if any did.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      # Only so `gh` knows which repository it is talking about; the release
+      # notes themselves are generated server-side from the tag.
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.tag }}
-          fetch-depth: 0
-      # When release-please already published the release, its CHANGELOG-derived
-      # body is the good one — append the install matrix rather than replace it.
+
+      - name: Compose the install matrix
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          OWNER: ${{ github.repository_owner }}
+          PYPI_RESULT: ${{ needs.pypi.result }}
+          PYPI_STATE: ${{ needs.pypi.outputs.state }}
+          NPM_RESULT: ${{ needs.npm.result }}
+          NPM_STATE: ${{ needs.npm.outputs.state }}
+          DOCKER_RESULT: ${{ needs.docker.result }}
+          DOCKER_STATE: ${{ needs.docker.outputs.state }}
+          HELM_RESULT: ${{ needs.helm.result }}
+          HELM_STATE: ${{ needs.helm.outputs.state }}
+        run: |
+          set -euo pipefail
+          # $1 job result, $2 job state output, $3 artifact label
+          line() {
+            case "$1" in
+              success)
+                if [[ "$2" == "existing" ]]; then
+                  printf -- '- %s — already published; verified, not overwritten\n' "$3"
+                else
+                  printf -- '- %s — published by this run\n' "$3"
+                fi ;;
+              failure)   printf -- '- %s — **FAILED**; this artifact is not available for %s\n' "$3" "${VERSION}" ;;
+              cancelled) printf -- '- %s — cancelled\n' "$3" ;;
+              *)         printf -- '- %s — not attempted\n' "$3" ;;
+            esac
+          }
+          {
+            echo "<!-- k-shui:install-matrix -->"
+            echo "## Install k-shui ${VERSION}"
+            echo
+            echo '```bash'
+            echo "uvx k-shui@${VERSION} serve          # PyPI"
+            echo "npx k-shui@${VERSION}                # npm launcher"
+            echo "docker pull ${IMAGE_NAME}:${VERSION}"
+            echo "helm install k-shui oci://ghcr.io/${OWNER}/charts/k-shui \\"
+            echo "  --version ${VERSION}"
+            echo '```'
+            echo
+            echo "### Artifact status"
+            echo
+            line "${PYPI_RESULT}" "${PYPI_STATE}" "PyPI \`k-shui\` ${VERSION}"
+            line "${NPM_RESULT}" "${NPM_STATE}" "npm \`k-shui@${VERSION}\`"
+            line "${DOCKER_RESULT}" "${DOCKER_STATE}" "Image \`${IMAGE_NAME}:${VERSION}\`"
+            line "${HELM_RESULT}" "${HELM_STATE}" "Chart \`oci://ghcr.io/${OWNER}/charts/k-shui\` ${VERSION}"
+            echo
+            # Only claim the supply-chain material when the image job succeeded.
+            if [[ "${DOCKER_RESULT}" == "success" ]]; then
+              echo "The image is cosign-signed (keyless) and ships an SPDX SBOM attestation."
+            fi
+            echo "<!-- /k-shui:install-matrix -->"
+          } > install-matrix.md
+          cat install-matrix.md
+
+      # release-please writes the good, CHANGELOG-derived body. Never replace
+      # it: read whatever body is there, drop any install matrix a previous run
+      # appended (so re-runs refresh rather than stack), and append the new one.
       - name: Create or annotate the release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.resolve.outputs.tag }}
-          name: k-shui ${{ needs.resolve.outputs.tag }}
-          prerelease: ${{ needs.resolve.outputs.prerelease == 'true' }}
-          make_latest: ${{ needs.resolve.outputs.prerelease == 'false' }}
-          generate_release_notes: ${{ inputs.release-exists != true }}
-          append_body: ${{ inputs.release-exists == true }}
-          body: |
-            ## Install k-shui ${{ needs.resolve.outputs.version }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          flags=()
+          if [[ "${PRERELEASE}" == "true" ]]; then flags+=(--prerelease); else flags+=(--latest); fi
 
-            ```bash
-            uvx k-shui@${{ needs.resolve.outputs.version }} serve          # PyPI
-            npx k-shui@${{ needs.resolve.outputs.version }}                # npm launcher
-            docker pull ${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.version }}
-            helm install k-shui oci://ghcr.io/${{ github.repository_owner }}/charts/k-shui \
-              --version ${{ needs.resolve.outputs.version }}
-            ```
+          if gh release view "${TAG}" --json tagName >/dev/null 2>&1; then
+            gh release view "${TAG}" --json body --jq '.body // ""' > existing-body.md
+            python3 - <<'PYTHON'
+          import re
+          from pathlib import Path
 
-            The image is cosign-signed (keyless) and ships an SPDX SBOM attestation.
+          body = Path("existing-body.md").read_text()
+          body = re.sub(
+              r"\n*<!-- k-shui:install-matrix -->.*?<!-- /k-shui:install-matrix -->\n*",
+              "\n",
+              body,
+              flags=re.S,
+          )
+          matrix = Path("install-matrix.md").read_text()
+          Path("release-body.md").write_text(body.rstrip() + "\n\n" + matrix)
+          PYTHON
+            gh release edit "${TAG}" --notes-file release-body.md "${flags[@]}"
+            echo "Updated the existing release ${TAG}." >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh release create "${TAG}" \
+              --title "k-shui ${TAG}" \
+              --verify-tag \
+              --generate-notes \
+              --notes-file install-matrix.md \
+              "${flags[@]}"
+            echo "Created release ${TAG}." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # The notes are accurate either way; the run still has to go red so a
+      # partial release is not mistaken for a complete one.
+      - name: Fail if any artifact job failed
+        if: ${{ contains(needs.*.result, 'failure') }}
+        run: |
+          set -euo pipefail
+          echo "::error::At least one publish job failed. The release notes list which artifacts exist; fix the cause and re-run 'release' (Actions → release → Run workflow) with tag ${{ needs.resolve.outputs.tag }}."
+          exit 1

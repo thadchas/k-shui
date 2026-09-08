@@ -1,7 +1,10 @@
 # Kubernetes: Kustomize
 
 `deploy/kustomize/` is an alternative to the Helm chart for teams that prefer
-plain manifests + overlays.
+plain manifests + overlays. The base manifests reference `ghcr.io/thadchas/k-shui`,
+which has no published image yet (see the
+[release status note](../../README.md#quick-start)); build your own image
+until `v0.1.0` ships.
 
 ```
 deploy/kustomize/

@@ -40,7 +40,9 @@ it, required config, and known tips/limitations.
 
 - [Releasing](development/releasing.md) — Conventional Commits → Semantic
   Versioning, the release pull request, and how the wheel, npm launcher, image
-  and chart get published.
+  and chart get published. Also the maintainer runbook: publishing accounts and
+  one-time setup, the first release, recovering a partial release, prerelease
+  promotion and rollback limits, and the clean-install evidence checklist.
 - [Contributing](../CONTRIBUTING.md)
 
 ## Reference

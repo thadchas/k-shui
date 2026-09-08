@@ -1,7 +1,9 @@
 # k-shui (npx launcher)
 
 Run [k-shui](https://github.com/thadchas/k-shui) — the open-source Kafka Streaming Hub UI —
-without installing Python or Node dependencies yourself:
+without installing Python or Node dependencies yourself. No release has
+published yet, so this package isn't on npm until `v0.1.0` ships — see the
+[release status note](https://github.com/thadchas/k-shui#quick-start):
 
 ```bash
 npx k-shui serve --config k-shui.yaml --port 8090

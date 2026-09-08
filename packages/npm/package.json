@@ -27,7 +27,9 @@
     "k-shui": "bin/k-shui.js"
   },
   "files": [
-    "bin/"
+    "bin/",
+    "LICENSE",
+    "NOTICE"
   ],
   "engines": {
     "node": ">=18"

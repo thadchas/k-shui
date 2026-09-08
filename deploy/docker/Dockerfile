@@ -78,6 +78,12 @@ COPY --from=builder --chown=kshui:kshui /app/.venv /app/.venv
 COPY --from=builder --chown=kshui:kshui /app/k_shui /app/k_shui
 COPY --from=builder --chown=kshui:kshui /app/pyproject.toml /app/pyproject.toml
 
+# Apache-2.0 section 4 asks redistributors to carry the licence and the NOTICE
+# with every copy of the work; THIRD-PARTY-NOTICES.md covers the fonts and icons
+# compiled into the SPA. Copied from the build context (the repo root), so
+# .dockerignore must not exclude them.
+COPY --chown=kshui:kshui LICENSE NOTICE THIRD-PARTY-NOTICES.md /app/
+
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

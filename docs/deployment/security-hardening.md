@@ -73,9 +73,29 @@ plaintext in a ConfigMap, a compose file, or version control.
 
 ## Supply chain
 
-- Verify released images: they're cosign-signed and carry an SPDX SBOM
-  attestation (see `docker.md`'s "Published images" section for the
-  `cosign verify` command).
+- Verify released images: they're cosign-signed (keyless, Sigstore) and carry an
+  SPDX SBOM attestation. Verification is only worth anything if you pin the
+  signer, so check the certificate identity rather than accepting any of them —
+  `--certificate-identity-regexp '.*'` verifies that the image was signed by
+  *somebody*, which is not the property you want:
+
+  ```bash
+  cosign verify ghcr.io/thadchas/k-shui:<version> \
+    --certificate-identity-regexp '^https://github\.com/thadchas/k-shui/\.github/workflows/release\.yml@refs/(heads|tags)/.+$' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+  # the SPDX SBOM is a GitHub artifact attestation, not a cosign attestation
+  gh attestation verify oci://ghcr.io/thadchas/k-shui:<version> --repo thadchas/k-shui
+  ```
+
+  The identity is the release workflow's file path; the ref differs by how the
+  release was cut (`refs/tags/v<version>` for a hand-cut tag, `refs/heads/main`
+  when release-please calls the workflow), so narrow the pattern to the exact
+  ref if you know which path produced the image. Renaming
+  `.github/workflows/release.yml` changes the identity of everything signed
+  afterwards. See
+  [`development/releasing.md`](../development/releasing.md#release-evidence-checklist)
+  for the full per-artifact verification checklist.
 - Pin image tags/chart versions in production rather than tracking `latest`.
 - `dependabot.yml` keeps backend (`uv`), frontend/npm-package (`npm`), the
   Dockerfile's base images, and GitHub Actions up to date — review and merge

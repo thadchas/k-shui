@@ -1,0 +1,10 @@
+k-shui
+Copyright 2026 k-shui contributors
+
+This product includes software developed by the k-shui contributors
+(https://github.com/thadchas/k-shui).
+
+Third-party components redistributed inside k-shui artifacts — notably the
+fonts and icons compiled into the single-page app — are listed with their
+license texts in THIRD-PARTY-NOTICES.md:
+https://github.com/thadchas/k-shui/blob/main/THIRD-PARTY-NOTICES.md

@@ -97,15 +97,22 @@ with a transport error, which k-shui reports rather than crashing.
 
 ## Published images
 
-Releases publish multi-arch (`linux/amd64`, `linux/arm64`) images to
-`ghcr.io/<owner>/k-shui`, cosign-signed and with an attached SPDX SBOM
-attestation (`.github/workflows/release.yml`). Verify with:
+No release has shipped yet, so `ghcr.io/thadchas/k-shui` does not exist until
+`v0.1.0` publishes (see the [release status note](../../README.md#quick-start)).
+Once it does, releases publish multi-arch (`linux/amd64`, `linux/arm64`)
+images to `ghcr.io/thadchas/k-shui`, cosign-signed and with an attached SPDX
+SBOM attestation (`.github/workflows/release.yml`). Verify with:
 
 ```bash
-cosign verify ghcr.io/<owner>/k-shui:<tag> \
-  --certificate-identity-regexp '.*' \
+cosign verify ghcr.io/thadchas/k-shui:<tag> \
+  --certificate-identity-regexp '^https://github\.com/thadchas/k-shui/\.github/workflows/release\.yml@refs/(heads|tags)/.+$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+The identity pins the signature to this repository's release workflow; a
+`.*` regexp would accept any GitHub Actions signer. See
+[security-hardening.md](security-hardening.md) for SBOM attestation
+verification.
 
 ## `.dockerignore`
 

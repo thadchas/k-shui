@@ -8,15 +8,19 @@ Stdlib-only so they run anywhere `python3` does:
 from __future__ import annotations
 
 import io
+import shutil
 import sys
+import tempfile
 import textwrap
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS))
 
+import check_licenses  # noqa: E402
 import check_versions  # noqa: E402
 import conventional_commit as cc  # noqa: E402
 
@@ -271,7 +275,20 @@ class ReleasePleaseConfigTests(unittest.TestCase):
         self.package = self.config["packages"]["."]
 
     def test_manifest_matches_the_repository_version(self) -> None:
-        self.assertEqual(self.manifest["."], check_versions.read_site(check_versions.SITES[0])[0])
+        # Before the first release the manifest is empty and `initial-version`
+        # names the version release-please will cut; afterwards release-please
+        # writes the released version into the manifest and both must agree
+        # with version.txt, otherwise the next release PR bumps from the wrong base.
+        repository_version = check_versions.read_site(check_versions.SITES[0])[0]
+        if "." in self.manifest:
+            self.assertEqual(self.manifest["."], repository_version)
+        else:
+            self.assertEqual(self.manifest, {}, "a non-empty manifest must carry the root package")
+            self.assertEqual(
+                self.package.get("initial-version"),
+                repository_version,
+                "with an empty manifest, initial-version must match the committed version",
+            )
 
     def test_release_please_bumps_every_non_canonical_site(self) -> None:
         # version.txt is handled by the `simple` release type itself.
@@ -308,6 +325,180 @@ class ReleasePleaseConfigTests(unittest.TestCase):
     def test_every_type_has_a_changelog_section(self) -> None:
         configured = {s["type"] for s in self.package["changelog-sections"]}
         self.assertEqual(configured, set(cc.TYPES))
+
+
+class LicenseTests(unittest.TestCase):
+    """The real repository must be licensing-consistent, and drift must be caught."""
+
+    maxDiff = None
+
+    def run_check(self) -> tuple[int, str]:
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            code = check_licenses.check()
+        return code, buffer.getvalue()
+
+    def sandbox(self) -> Path:
+        """A throwaway copy of every file check_licenses looks at."""
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        root = check_licenses.REPO_ROOT
+        paths = {
+            check_licenses.ROOT_LICENSE,
+            check_licenses.ROOT_NOTICE,
+            check_licenses.THIRD_PARTY,
+            *(copy.path for copy in check_licenses.COPIES),
+            *(declaration.path for declaration in check_licenses.DECLARATIONS),
+            *(requirement.path for requirement in check_licenses.REQUIREMENTS),
+            *(forbidden.path for forbidden in check_licenses.FORBIDDEN),
+        }
+        for relative in paths:
+            target = tmp / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(root / relative, target)
+        return tmp
+
+    def check_in(self, sandbox: Path) -> tuple[int, str]:
+        with mock.patch.object(check_licenses, "REPO_ROOT", sandbox):
+            return self.run_check()
+
+    def test_repository_licensing_is_consistent(self) -> None:
+        code, out = self.run_check()
+        self.assertEqual(code, 0, out)
+
+    def test_root_license_is_the_full_apache_text(self) -> None:
+        text = (check_licenses.REPO_ROOT / check_licenses.ROOT_LICENSE).read_text(encoding="utf-8")
+        for marker in check_licenses.LICENSE_MARKERS:
+            self.assertIn(marker, text)
+        self.assertGreaterEqual(len(text.splitlines()), check_licenses.MIN_LICENSE_LINES)
+        self.assertIsNotNone(check_licenses.COPYRIGHT_RE.search(text))
+
+    def test_every_copy_is_byte_identical(self) -> None:
+        root = check_licenses.REPO_ROOT
+        for copy in check_licenses.COPIES:
+            self.assertEqual(
+                (root / copy.path).read_bytes(),
+                (root / copy.source).read_bytes(),
+                f"{copy.path} has drifted from {copy.source}",
+            )
+
+    def test_every_artifact_declares_apache_2_0(self) -> None:
+        for declaration in check_licenses.DECLARATIONS:
+            text = (check_licenses.REPO_ROOT / declaration.path).read_text(encoding="utf-8")
+            match = declaration.regex.search(text)
+            self.assertIsNotNone(match, f"no licence declaration in {declaration.path}")
+            self.assertEqual(match.group("spdx").strip(), check_licenses.SPDX, declaration.path)
+
+    def test_the_wheel_and_the_npm_tarball_are_covered(self) -> None:
+        """Both packaging worlds need an explicit manifest entry; regressions are silent."""
+        covered = {requirement.path for requirement in check_licenses.REQUIREMENTS}
+        self.assertLessEqual(
+            {"backend/pyproject.toml", "packages/npm/package.json", "deploy/docker/Dockerfile"},
+            covered,
+        )
+
+    def test_a_truncated_license_is_rejected(self) -> None:
+        sandbox = self.sandbox()
+        full = (sandbox / check_licenses.ROOT_LICENSE).read_text(encoding="utf-8")
+        # The 17-line boilerplate header that GitHub reports as NOASSERTION.
+        (sandbox / check_licenses.ROOT_LICENSE).write_text(
+            "\n".join(full.splitlines()[-17:]) + "\n", encoding="utf-8"
+        )
+        code, out = self.check_in(sandbox)
+        self.assertEqual(code, 1)
+        self.assertIn("not the complete Apache-2.0 text", out)
+
+    def test_a_drifted_copy_is_reported(self) -> None:
+        sandbox = self.sandbox()
+        (sandbox / "packages/npm/NOTICE").write_text("Copyright 2026 someone else\n", encoding="utf-8")
+        code, out = self.check_in(sandbox)
+        self.assertEqual(code, 1)
+        self.assertIn("packages/npm/NOTICE differs from NOTICE", out)
+
+    def test_a_wrong_spdx_identifier_is_reported(self) -> None:
+        sandbox = self.sandbox()
+        chart = sandbox / "charts/k-shui/Chart.yaml"
+        chart.write_text(
+            chart.read_text(encoding="utf-8").replace(
+                "artifacthub.io/license: Apache-2.0", "artifacthub.io/license: MIT"
+            ),
+            encoding="utf-8",
+        )
+        code, out = self.check_in(sandbox)
+        self.assertEqual(code, 1)
+        self.assertIn("declares 'MIT'", out)
+
+    def test_dropping_the_pep_639_license_files_is_reported(self) -> None:
+        sandbox = self.sandbox()
+        pyproject = sandbox / "backend/pyproject.toml"
+        pyproject.write_text(
+            pyproject.read_text(encoding="utf-8").replace('license-files = ["LICENSE", "NOTICE"]\n', ""),
+            encoding="utf-8",
+        )
+        code, out = self.check_in(sandbox)
+        self.assertEqual(code, 1)
+        self.assertIn(".dist-info/licenses/", out)
+
+    def test_a_reintroduced_license_classifier_is_reported(self) -> None:
+        sandbox = self.sandbox()
+        pyproject = sandbox / "backend/pyproject.toml"
+        pyproject.write_text(
+            pyproject.read_text(encoding="utf-8").replace(
+                '  "Framework :: FastAPI",',
+                '  "Framework :: FastAPI",\n  "License :: OSI Approved :: Apache Software License",',
+            ),
+            encoding="utf-8",
+        )
+        code, out = self.check_in(sandbox)
+        self.assertEqual(code, 1)
+        self.assertIn("deprecated license classifier", out)
+
+    def test_sync_restores_a_drifted_copy(self) -> None:
+        sandbox = self.sandbox()
+        (sandbox / "backend/LICENSE").write_text("nope\n", encoding="utf-8")
+        buffer = io.StringIO()
+        with mock.patch.object(check_licenses, "REPO_ROOT", sandbox), redirect_stdout(buffer):
+            self.assertEqual(check_licenses.main(["--sync"]), 0)
+        self.assertEqual(
+            (sandbox / "backend/LICENSE").read_bytes(),
+            (sandbox / check_licenses.ROOT_LICENSE).read_bytes(),
+        )
+        self.assertEqual(self.check_in(sandbox)[0], 0)
+
+    def test_cli_exits_zero_on_the_real_repository(self) -> None:
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            self.assertEqual(check_licenses.main([]), 0, buffer.getvalue())
+
+
+class ThirdPartyNoticeTests(unittest.TestCase):
+    """THIRD-PARTY-NOTICES.md must keep naming what the SPA actually bundles."""
+
+    def setUp(self) -> None:
+        root = check_licenses.REPO_ROOT
+        self.notices = (root / check_licenses.THIRD_PARTY).read_text(encoding="utf-8")
+        import json
+
+        self.frontend = json.loads((root / "frontend/package.json").read_text(encoding="utf-8"))
+
+    def test_every_bundled_font_and_icon_package_is_listed(self) -> None:
+        for package in (
+            "@fontsource-variable/inter",
+            "@fontsource-variable/jetbrains-mono",
+            "monaco-editor",
+            "lucide-react",
+        ):
+            self.assertIn(package, self.frontend["dependencies"], f"{package} is no longer a dependency")
+            self.assertIn(package, self.notices, f"{package} is missing from {check_licenses.THIRD_PARTY}")
+
+    def test_the_license_texts_are_reproduced_not_summarised(self) -> None:
+        for phrase in (
+            "SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007",
+            "The MIT License (MIT)",
+            "THIRD-PARTY SOFTWARE NOTICES AND INFORMATION",
+            "ISC License",
+        ):
+            self.assertIn(phrase, self.notices)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -6,6 +6,10 @@ connectivity, and touring the UI. For the exhaustive config schema, see
 
 ## 1. Install and run
 
+> k-shui has not published its first release yet, so none of the commands
+> below resolve to a real package/image/chart until `v0.1.0` ships — see the
+> [release status note](../README.md#quick-start) in the README.
+
 Pick whichever fits your environment — all four run the same application.
 
 ### uv / uvx (recommended for local use)
