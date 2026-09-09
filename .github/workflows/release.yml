@@ -359,3 +359,189 @@ jobs:
             ```
 
             The image is cosign-signed (keyless) and ships an SPDX SBOM attestation.
+
+  # Hand the published release to `thadchas/k-shui-docs`.
+  #
+  # Why this is a job here and not a `release.published` workflow in the docs
+  # repository: release-please creates the GitHub release *before* any artifact
+  # is published — it is the thing that creates the tag this workflow then
+  # publishes from. A `release.published` trigger therefore fires while PyPI,
+  # npm, GHCR and the chart registry are still empty, and the docs repository
+  # would freeze a version archive for a release that may still fail to ship.
+  # Waiting on `needs: [pypi, npm, docker, helm, github-release]` is the only
+  # signal that every artifact the documentation describes actually exists.
+  #
+  # Documentation is downstream of publication and must never break it. This job
+  # runs after everything is already public, so nothing it does can unpublish a
+  # package; and when the docs bot is not configured it says so and stops rather
+  # than failing the run. A dispatch that is lost for any other reason is
+  # repaired by the docs repository's daily `reconcile` workflow, which compares
+  # published releases against its version registry and opens the missing import
+  # pull requests.
+  docs-handoff:
+    name: hand the release to k-shui-docs
+    needs: [resolve, pypi, npm, docker, helm, github-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # upload the reference bundle onto the existing release
+    env:
+      DOCS_REPOSITORY: thadchas/k-shui-docs
+      TAG: ${{ needs.resolve.outputs.tag }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+      PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+    steps:
+      # A missing DOCS_BOT_APP_ID means the docs bot has not been installed yet.
+      # That is a documentation gap, not a release failure: report it and stop.
+      - name: Is the docs bot configured?
+        id: guard
+        env:
+          DOCS_BOT_APP_ID: ${{ vars.DOCS_BOT_APP_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${DOCS_BOT_APP_ID}" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Docs handoff skipped::vars.DOCS_BOT_APP_ID is not set; ${TAG} was published but no reference bundle was attached and k-shui-docs was not notified."
+            {
+              echo "### Docs handoff skipped"
+              echo
+              echo "\`vars.DOCS_BOT_APP_ID\` is not set on this repository, so the reference"
+              echo "bundle for **${TAG}** was neither attached to the release nor handed to"
+              echo "\`${DOCS_REPOSITORY}\`. **The release itself published normally.**"
+              echo
+              echo "To enable it: install the docs GitHub App on \`${DOCS_REPOSITORY}\`, then set"
+              echo "the repository variable \`DOCS_BOT_APP_ID\` and the secret \`DOCS_BOT_PRIVATE_KEY\`."
+              echo "Re-run this workflow for \`${TAG}\`, or let the docs repository's \`reconcile\`"
+              echo "workflow pick the release up on its next scheduled run."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.guard.outputs.enabled == 'true'
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
+
+      # The docs repository validates that this sha is what the tag resolves to,
+      # so it has to come from the checkout rather than from `github.sha` (which
+      # is `main` when release-please calls this workflow).
+      - name: Resolve the release commit
+        id: commit
+        if: steps.guard.outputs.enabled == 'true'
+        run: echo "sha=$(git rev-parse HEAD^{commit})" >> "$GITHUB_OUTPUT"
+
+      - uses: astral-sh/setup-uv@v7
+        if: steps.guard.outputs.enabled == 'true'
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      # `--no-dev` keeps this to the runtime dependencies the generator needs to
+      # import the app. It never starts it: no lifespan, no database, no Kafka.
+      - name: Generate the reference bundle
+        id: bundle
+        if: steps.guard.outputs.enabled == 'true'
+        env:
+          COMMIT: ${{ steps.commit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          uv run --project backend --frozen --no-dev python scripts/generate_release_reference.py \
+            --tag "${TAG}" --commit "${COMMIT}" --output-dir dist/reference --check
+          asset="k-shui-docs-reference-${TAG}.tar.gz"
+          sha256=$(cut -d' ' -f1 < "dist/reference/${asset}.sha256")
+          {
+            echo "asset=${asset}"
+            echo "sha256=${sha256}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Reference bundle \`${asset}\` — \`sha256:${sha256}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # `gh release upload --clobber` adds (or replaces) assets and never touches
+      # the release body, which `github-release` has already composed.
+      - name: Attach the bundle to the GitHub release
+        if: steps.guard.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ASSET: ${{ steps.bundle.outputs.asset }}
+        run: |
+          set -euo pipefail
+          gh release upload "${TAG}" \
+            "dist/reference/${ASSET}" \
+            "dist/reference/${ASSET}.sha256" \
+            --clobber --repo "${GITHUB_REPOSITORY}"
+
+      - name: Read the release identity
+        id: release
+        if: steps.guard.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          release=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")
+          {
+            echo "id=$(jq -r '.id' <<<"${release}")"
+            echo "url=$(jq -r '.html_url' <<<"${release}")"
+          } >> "$GITHUB_OUTPUT"
+
+      # A short-lived installation token, scoped to one repository and one
+      # permission. Contents:write is what `POST /dispatches` requires on the
+      # destination.
+      - name: Mint a docs-bot installation token
+        id: token
+        if: steps.guard.outputs.enabled == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.DOCS_BOT_APP_ID }}
+          private-key: ${{ secrets.DOCS_BOT_PRIVATE_KEY }}
+          owner: thadchas
+          repositories: k-shui-docs
+          permission-contents: write
+
+      # Creating the import pull request publishes nothing in the docs
+      # repository; only a reviewed merge deploys.
+      - name: Dispatch release-ready to k-shui-docs
+        if: steps.guard.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          COMMIT: ${{ steps.commit.outputs.sha }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+          RELEASE_URL: ${{ steps.release.outputs.url }}
+          ASSET: ${{ steps.bundle.outputs.asset }}
+          BUNDLE_SHA256: ${{ steps.bundle.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg tag "${TAG}" \
+            --arg version "${VERSION}" \
+            --arg commit "${COMMIT}" \
+            --argjson prerelease "${PRERELEASE}" \
+            --argjson releaseId "${RELEASE_ID}" \
+            --arg releaseUrl "${RELEASE_URL}" \
+            --arg bundleAsset "${ASSET}" \
+            --arg bundleSha256 "${BUNDLE_SHA256}" \
+            --arg sourceRunId "${GITHUB_RUN_ID}" \
+            '{
+              event_type: "release-ready",
+              client_payload: {
+                schemaVersion: 1,
+                repository: $repository,
+                tag: $tag,
+                version: $version,
+                commit: $commit,
+                prerelease: $prerelease,
+                releaseId: $releaseId,
+                releaseUrl: $releaseUrl,
+                bundleAsset: $bundleAsset,
+                bundleSha256: $bundleSha256,
+                sourceRunId: $sourceRunId
+              }
+            }' > dispatch.json
+          gh api --method POST "repos/${DOCS_REPOSITORY}/dispatches" --input dispatch.json
+          {
+            echo "### Docs handoff"
+            echo
+            echo "Dispatched \`release-ready\` for **${TAG}** to \`${DOCS_REPOSITORY}\`."
+            echo "It opens a documentation import pull request; publishing the docs site"
+            echo "still requires a reviewed merge there."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -69,12 +69,32 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
 
       # scripts/ has its own ruff.toml; the backend keeps its [tool.ruff] block.
       - name: ruff check & format --check (scripts)
         run: |
           uvx ruff check scripts/
           uvx ruff format --check scripts/
+
+      # The reference generator imports the application, so unlike the rest of
+      # scripts/ it needs the backend environment. One sync serves both steps
+      # below; `--no-sync` keeps them from re-resolving it.
+      - name: Sync the backend environment
+        run: uv sync --project backend --frozen
+
+      - name: Unit-test the reference generator
+        run: uv run --project backend --frozen --no-sync python -m pytest scripts/tests/test_release_reference.py -q
+
+      # A reference bundle that is not byte-reproducible cannot be verified by
+      # the docs repository, so prove it on every pull request rather than
+      # discovering it during a release. `--check` regenerates into a temporary
+      # directory and diffs; the tag is a stand-in, the commit is this build's.
+      - name: The reference bundle is deterministic
+        run: |
+          uv run --project backend --frozen --no-sync python scripts/generate_release_reference.py \
+            --tag v0.0.0-ci --commit "${{ github.sha }}" --output-dir "${RUNNER_TEMP}/reference" --check
 
   frontend:
     name: frontend
