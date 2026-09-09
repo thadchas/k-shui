@@ -20,6 +20,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
 import tarfile
 import tempfile
@@ -513,3 +514,39 @@ class IsolationTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+# --------------------------------------------------------------------------- #
+# configuration.md must not link at headings it never emits
+# --------------------------------------------------------------------------- #
+
+
+@needs_backend
+class ConfigurationAnchorTests(unittest.TestCase):
+    """Every internal link in `configuration.md` must resolve to a heading it emits.
+
+    A block is headed by its config key (`## server`) while its schema type is named
+    `ServerConfig`, so linking a `$ref` by type name silently produced seven dead
+    anchors — invisible in the generator, fatal in the docs site's link checker.
+    """
+
+    @staticmethod
+    def _slug(text: str) -> str:
+        text = re.sub(r"[^a-z0-9 -]", "", text.strip().lower())
+        return re.sub(r"\s+", "-", text)
+
+    def test_every_internal_anchor_resolves(self) -> None:
+        markdown = g.build_reference("v0.2.0", COMMIT, REPO_ROOT)["configuration.md"].decode()
+        headings = {self._slug(m.group(1)) for m in re.finditer(r"^#{2,4}\s+(.+)$", markdown, re.M)}
+        links = {m.group(1) for m in re.finditer(r"\(#([a-z0-9-]+)\)", markdown)}
+        self.assertTrue(links, "configuration.md should cross-link its referenced types")
+        self.assertEqual(sorted(links - headings), [], "configuration.md links at missing headings")
+
+    def test_top_level_blocks_are_linked_by_their_config_key(self) -> None:
+        markdown = g.build_reference("v0.2.0", COMMIT, REPO_ROOT)["configuration.md"].decode()
+        # `server` is emitted as `## server`, so references to ServerConfig point there.
+        self.assertIn("[`ServerConfig`](#server)", markdown)
+        self.assertNotIn("(#serverconfig)", markdown)
+        # A type that only ever appears nested keeps its own name as the heading.
+        self.assertIn("### HttpAuth", markdown)
+        self.assertIn("(#httpauth)", markdown)

@@ -454,27 +454,41 @@ def render_configuration_markdown(schema: dict[str, Any], tag: str, commit: str)
         "| Key | Type | Default | Description |",
         "| --- | --- | --- | --- |",
     ]
-    for name, node in top.items():
-        lines.append(_field_row(name, node, defs, name in required))
+    summary_rows = [(name, node, name in required) for name, node in top.items()]
     lines.append("")
 
-    emitted: set[str] = set()
+    # A type rendered as a top-level block is headed by its config key, so that is the
+    # anchor every link to it must use. Only types that fall through to "Referenced types"
+    # are headed by their own name. Build the whole map before rendering anything, or the
+    # links point at headings that do not exist.
+    emitted: dict[str, str] = {}
     for name in blocks:
         def_name = _block_def_name(top[name], defs)
         assert def_name is not None
-        emitted.add(def_name)
-        lines += _object_section(f"## {name}", top[name], defs)
+        emitted[def_name] = _anchor(name)
+    anchors = {def_name: _anchor(def_name) for def_name in _reachable(top, defs)}
+    anchors.update(emitted)
 
-    referenced = _reachable(top, defs) - emitted
+    summary_at = lines.index("| --- | --- | --- | --- |") + 1
+    lines[summary_at:summary_at] = [
+        _field_row(name, node, defs, req, anchors) for name, node, req in summary_rows
+    ]
+
+    for name in blocks:
+        lines += _object_section(f"## {name}", top[name], defs, anchors)
+
+    referenced = _reachable(top, defs) - set(emitted)
     if referenced:
         lines += ["## Referenced types", ""]
         for def_name in sorted(referenced):
-            lines += _object_section(f"### {def_name}", {"$ref": f"#/$defs/{def_name}"}, defs)
+            lines += _object_section(f"### {def_name}", {"$ref": f"#/$defs/{def_name}"}, defs, anchors)
 
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def _object_section(heading: str, node: dict[str, Any], defs: dict[str, Any]) -> list[str]:
+def _object_section(
+    heading: str, node: dict[str, Any], defs: dict[str, Any], anchors: dict[str, str]
+) -> list[str]:
     resolved = _resolve(node, defs)
     is_list = resolved.get("type") == "array"
     if is_list:
@@ -495,13 +509,15 @@ def _object_section(heading: str, node: dict[str, Any], defs: dict[str, Any]) ->
         return out
     out += ["| Field | Type | Default | Description |", "| --- | --- | --- | --- |"]
     for name, sub in properties.items():
-        out.append(_field_row(name, sub, defs, name in required))
+        out.append(_field_row(name, sub, defs, name in required, anchors))
     out.append("")
     return out
 
 
-def _field_row(name: str, node: dict[str, Any], defs: dict[str, Any], required: bool) -> str:
-    type_label = _type_label(node, defs)
+def _field_row(
+    name: str, node: dict[str, Any], defs: dict[str, Any], required: bool, anchors: dict[str, str]
+) -> str:
+    type_label = _type_label(node, defs, anchors)
     if "default" in node:
         default = f"`{json.dumps(_display_default(name, node['default']), ensure_ascii=False)}`"
     elif required:
@@ -517,12 +533,12 @@ def _display_default(name: str, default: Any) -> Any:
     return redact(default, key=name)
 
 
-def _type_label(node: dict[str, Any], defs: dict[str, Any]) -> str:
+def _type_label(node: dict[str, Any], defs: dict[str, Any], anchors: dict[str, str]) -> str:
     ref = _ref_name(node)
     if ref:
-        return f"[`{ref}`](#{_anchor(ref)})"
+        return f"[`{ref}`](#{anchors.get(ref, _anchor(ref))})"
     if "anyOf" in node:
-        parts = [_type_label(option, defs) for option in node["anyOf"]]
+        parts = [_type_label(option, defs, anchors) for option in node["anyOf"]]
         return " \\| ".join(dict.fromkeys(parts))
     if "enum" in node:
         return " \\| ".join(json.dumps(value, ensure_ascii=False) for value in node["enum"])
@@ -530,7 +546,7 @@ def _type_label(node: dict[str, Any], defs: dict[str, Any]) -> str:
         return json.dumps(node["const"], ensure_ascii=False)
     kind = node.get("type")
     if kind == "array":
-        return f"array of {_type_label(node.get('items', {}), defs)}"
+        return f"array of {_type_label(node.get('items', {}), defs, anchors)}"
     if kind == "object":
         return "object"
     if kind is None:
