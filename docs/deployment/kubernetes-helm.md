@@ -1,5 +1,8 @@
 # Kubernetes: Helm
 
+The chart deploys the agent-capable k-shui engine, but its default values keep
+k-shui Agent disabled and authentication off for initial connectivity checks.
+
 `charts/k-shui/` is a standard Helm v2-apiVersion chart. See
 `charts/k-shui/README.md` for the full values table — this page covers the
 common workflows.
@@ -75,6 +78,65 @@ config:
 
 `extraEnv` also supports direct `KSHUI__<SECTION>__<KEY>` overrides for scalar
 fields without touching `config` at all.
+
+## Enable k-shui Agent
+
+Keep a current model ID, provider key, and contracted input/output rates in the
+server deployment. Put secret values in `existingSecret`; the ConfigMap should
+contain only environment placeholders and the `apiKeyEnv` variable name.
+
+```bash
+kubectl create secret generic k-shui-credentials -n k-shui \
+  --from-literal=KSHUI_JWT_SECRET=... \
+  --from-literal=KSHUI_ADMIN_PASSWORD_HASH=... \
+  --from-literal=KSHUI_AGENT_OPENAI_MODEL=... \
+  --from-literal=KSHUI_AGENT_OPENAI_KEY=... \
+  --from-literal=KSHUI_AGENT_INPUT_PRICE=... \
+  --from-literal=KSHUI_AGENT_OUTPUT_PRICE=...
+```
+
+```yaml
+replicaCount: 1
+autoscaling:
+  enabled: false
+existingSecret: k-shui-credentials
+config:
+  auth:
+    type: basic
+    jwtSecret: "${KSHUI_JWT_SECRET}"
+    users:
+      - username: admin
+        password: "${KSHUI_ADMIN_PASSWORD_HASH}"
+        role: admin
+  agent:
+    enabled: true
+    allowMutations: false
+    allowedClusters: [lakestream]
+    connections:
+      - id: operations-openai
+        name: Operations OpenAI
+        provider: openai
+        model: "${KSHUI_AGENT_OPENAI_MODEL}"
+        apiKeyEnv: KSHUI_AGENT_OPENAI_KEY
+        allowedClusters: [lakestream]
+        inputUsdPerMillion: "${KSHUI_AGENT_INPUT_PRICE}"
+        outputUsdPerMillion: "${KSHUI_AGENT_OUTPUT_PRICE}"
+```
+
+The `lakestream` scope matches `values-lakestream.yaml`; change both lists to
+the ID in your own `config.clusters[]`. Supply positive current prices in the
+Secret before installing; missing or non-positive prices are rejected or
+prevent paid runs. Sign in as the configured admin and test the connection in
+**Settings → AI connections** before adding routine editor/viewer accounts or
+considering `allowMutations: true`.
+
+Agent-enabled deployments currently require one pod/application process because
+run admission and interrupted-run recovery do not coordinate across replicas.
+This overrides the chart's general scaling guidance: keep `replicaCount: 1` and
+`autoscaling.enabled: false`. The worked `values-lakestream.yaml` enables
+multiple replicas and autoscaling, so it must be overridden before adding agent
+configuration. See [`../k-shui-agent.md`](../k-shui-agent.md) for the evidence,
+authorization, mutation, and data-retention boundaries.
 
 ## Ingress under a sub-path
 

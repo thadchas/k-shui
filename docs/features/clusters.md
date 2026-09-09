@@ -1,7 +1,9 @@
 # Clusters
 
-The landing page and the top of the sidebar's cluster switcher. Every other
-feature area is scoped under a cluster (`/c/:cluster/...`).
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. The cluster landing page and sidebar switcher establish
+the scope used by the k-shui engine and every investigation
+(`/c/:cluster/...`).
 
 ## What it does
 
@@ -12,6 +14,20 @@ feature area is scoped under a cluster (`/c/:cluster/...`).
 - Per-cluster **Overview** page: stat tiles, throughput time series, a health
   checklist, and — for KRaft clusters — quorum state (leader, epoch,
   voters/observers).
+
+## k-shui Agent workflow
+
+Use **Ask K-Shui** in the top bar for a cluster-wide investigation, or select
+**Investigate** beside an unhealthy partition to carry that resource and the
+current time window into the agent. Inspect mode reads bounded, allowlisted
+metadata; cluster health combines current Kafka metadata with sampled
+partition health and marks missing or stale telemetry explicitly.
+
+k-shui Agent is disabled by default and requires an authenticated user. It
+does not monitor continuously or heal the cluster autonomously. Operate mode
+can prepare only the selected topic, connector, and consumer-offset mutations
+documented on their feature pages; every preview still requires explicit
+human review and execution.
 
 ## UI walkthrough
 

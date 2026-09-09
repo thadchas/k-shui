@@ -2,9 +2,25 @@
 
 ## What it does
 
-Grafana-equivalent dashboards over Prometheus, plus a raw PromQL explorer —
-built-in dashboards for cluster/broker/topic/consumer-lag/Connect/Flink/JVM/
-KRaft, and support for importing your own Grafana JSON dashboards.
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its observability workspace provides Grafana-equivalent
+dashboards over Prometheus, plus a raw PromQL explorer: built-in dashboards
+for cluster/broker/topic/consumer-lag/Connect/Flink/JVM/KRaft, and support for
+importing your own Grafana JSON dashboards.
+
+## k-shui Agent boundary
+
+Use **Ask K-Shui** for a cluster-scoped investigation. Inspect mode can use
+the bounded health and resource summaries in its allowlist, including sampled
+partition health with retrieval timestamps. It does not expose an arbitrary
+PromQL tool, dashboard panels, or the full metrics catalog to the model.
+
+[k-shui Agent](../k-shui-agent.md) is disabled by default and requires an
+authenticated k-shui user.
+
+Create dashboards and run PromQL through the visual workspace and direct k-shui engine APIs below.
+Operate mode has no metrics or dashboard mutation, and the agent does not
+monitor continuously or heal from metric changes automatically.
 
 ## UI walkthrough
 

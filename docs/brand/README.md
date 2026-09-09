@@ -1,9 +1,34 @@
 # k-shui Brand Guide
 
-**k-shui** — Kafka Streaming Hub UI. "shui" (水) is Chinese for _water_: the brand is built on
-flowing water and converging streams — data currents merging into one hub. The mark is a "K"
-whose diagonal arms are flowing wave curves, with fainter stream trails echoing them, set on a
-teal gradient tile.
+**k-shui** — open-source, agent-driven Kafka management. The name originated
+from "Kafka Streaming Hub UI," and "shui" (水) is Chinese for _water_: the
+brand is built on flowing water and converging streams — data currents merging
+into one hub. The mark is a "K" whose diagonal arms are flowing wave curves,
+with fainter stream trails echoing them, set on a teal gradient tile.
+
+## Positioning and names
+
+k-shui is an **open-source, agent-driven Kafka management application**. Lead
+product stories with the **k-shui Agent** as the primary workflow: it helps an
+authenticated operator investigate Kafka and supported streaming integrations,
+then brings exact supported operations back for human review.
+
+Use **k-shui engine** for the FastAPI application and management APIs that
+collect evidence, enforce policy, audit changes, and dispatch approved work.
+Use **visual workspace** for the React experience that combines Agent evidence
+and review with direct expert controls. Keep implementation names such as
+FastAPI, Kafka Admin API, OpenAI, Anthropic, Kafka Connect, and REST/SSE in
+technical reference and configuration text.
+
+Describe the current Agent as an implemented, optionally enabled MVP. It is
+disabled by default, requires authentication, inspects through a limited set of
+metadata tools, and supports only reviewed topic, connector, and consumer-offset
+operations. Do not imply autonomous execution, arbitrary tools, message-payload
+access, or future provider/runtime support. Tie feature and security claims to
+current code, tests, or maintained technical documentation.
+
+Suggested short description: **Open-source, agent-driven Kafka management with
+the k-shui Agent, k-shui engine, and a visual workspace for expert control.**
 
 ## Logo files
 

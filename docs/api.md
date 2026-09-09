@@ -1,9 +1,11 @@
 # REST API
 
-k-shui's UI is a client of its own public REST API — everything the frontend
-does, you can script. This page covers the conventions; the field-level
-contract for every route lives in [`../ARCHITECTURE.md`](../ARCHITECTURE.md#rest-api-contract-apiv1-json-camelcase-fields-rfc-9457-problemjson-errors),
-and an interactive, always-in-sync reference is served by the app itself.
+k-shui's primary workflow is the k-shui Agent in the visual workspace. Both
+use the public REST API exposed by the k-shui engine, and the same direct API
+remains available for expert automation. This page covers the conventions; the
+field-level contract for every route lives in
+[`../ARCHITECTURE.md`](../ARCHITECTURE.md#rest-api-contract-apiv1-json-camelcase-fields-rfc-9457-problemjson-errors),
+and an interactive, generated-from-code reference is served by the app itself.
 
 ## Base URL and versioning
 
@@ -46,6 +48,13 @@ curl -s http://localhost:8090/api/v1/clusters \
 
 See [`features/auth-rbac.md`](features/auth-rbac.md) for roles and OIDC
 config.
+
+The Agent has a stricter authentication boundary than the rest of the API. It
+is disabled by default, and every investigation, inspection, preview, or
+execution requires an authenticated human user with current cluster access.
+`auth.type: none` therefore leaves the Agent unavailable even though direct API
+routes may be open. Operate mode additionally requires an editor, deployment
+mutation enablement, and a writable server and cluster.
 
 ## Errors: RFC 9457 problem+json
 
@@ -103,6 +112,43 @@ curl -N http://localhost:8090/api/v1/events \
 curl -N "http://localhost:8090/api/v1/clusters/prod/topics/orders/messages?mode=latest&stream=true&limit=20" \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+## k-shui Agent API
+
+The Agent routes support the visual investigation workspace. Provider
+credentials and model selection are deployment-managed; clients cannot submit
+provider URLs, credentials, tools, or an acting identity. Except for the status
+probe, these routes enforce the Agent authentication boundary described above.
+
+| Method         | Route                                                                | Purpose                                                                                       |
+| -------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `GET`          | `/api/v1/agent/status`                                               | Effective availability, modes, policy limits, and visible connections for the current session |
+| `GET`          | `/api/v1/agent/connections`                                          | List permitted deployment-managed connections                                                 |
+| `POST`         | `/api/v1/agent/connections/{connectionId}/test`                      | Administrator-only, rate-limited provider capability test                                     |
+| `GET` / `POST` | `/api/v1/agent/investigations`                                       | List the initiating user's investigations or create one                                       |
+| `GET`          | `/api/v1/agent/investigations/{id}`                                  | Investigation, evidence, findings, and operation state                                        |
+| `POST`         | `/api/v1/agent/investigations/{id}/evidence/{evidenceId}/refresh`    | Append refreshed evidence under current authority; preserve earlier observations              |
+| `POST`         | `/api/v1/agent/investigations/{id}/messages`                         | Add a question and start a bounded run (`202`)                                                |
+| `GET`          | `/api/v1/agent/investigations/{id}/events`                           | Stream investigation snapshots over SSE                                                       |
+| `POST`         | `/api/v1/agent/investigations/{id}/cancel`                           | Stop subsequent investigation work                                                            |
+| `POST`         | `/api/v1/agent/investigations/{id}/operations/prepare`               | Prepare an exact supported operation; does not execute it                                     |
+| `POST`         | `/api/v1/agent/investigations/{id}/operations/{operationId}/execute` | Execute a reviewed preview, with confirmation when required                                   |
+| `POST`         | `/api/v1/agent/investigations/{id}/operations/{operationId}/cancel`  | Cancel a prepared operation before dispatch                                                   |
+
+Investigations are fixed to one cluster and one connection and may optionally
+carry resource and time-window context. Inspect mode exposes only bounded
+metadata for cluster health, topics, consumer lag, connector tasks, Flink
+checkpoints, lineage neighbors, schema summaries, alert evidence, and audit
+headers. It does not expose messages, arbitrary URLs, SQL, logs, or shell tools.
+
+The supported operation actions are `topic.create`, `topic.config.update`,
+`topic.delete`, `topic.purge`, `topic.partitions.increase`, `connector.pause`,
+`connector.resume`, `connector.restart`, `connector.task.restart`, and
+`group.offsets.reset`. The engine limits targets and parameters, excludes
+internal topics, requires a successful dry run for offset resets, expires
+previews after five minutes, and rechecks authority and resource state before
+dispatch. See [`k-shui-agent.md`](k-shui-agent.md) for the complete operational
+and deployment boundaries.
 
 ## curl examples per area
 

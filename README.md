@@ -2,7 +2,9 @@
 
 # k-shui
 
-**Kafka Streaming Hub UI — one open-source control center for Apache Kafka® and its entire streaming ecosystem**
+**Open-source, agent-driven Kafka management**
+
+[Website](https://thadchas.github.io/k-shui/) · [Getting started](https://thadchas.github.io/k-shui/docs/getting-started/) · [Documentation](https://thadchas.github.io/k-shui/docs/)
 
 [Website](https://thadchas.github.io/k-shui/) · [Getting started](https://thadchas.github.io/k-shui/docs/getting-started/) · [Documentation](https://thadchas.github.io/k-shui/docs/)
 
@@ -15,33 +17,61 @@
 
 </div>
 
-k-shui is a single, modern web UI for operating Apache Kafka and everything that
-grows around it — brokers, topics, consumers, schemas, Connect, ksqlDB, Flink,
-metrics, and stream lineage — without stitching together five different tools.
-It's Apache-2.0 licensed, ships as a single binary/container, and talks to the
-clusters and services you already run.
+k-shui helps you investigate and manage Apache Kafka and its streaming ecosystem
+through **k-shui Agent**. Ask about a lagging consumer, investigate a failed
+connector, or request a supported change. The agent gathers scoped evidence,
+explains its findings, and prepares concrete operations for you to review.
 
-## Why k-shui
+The **k-shui engine** connects to your services, enforces permissions, executes
+reviewed actions, and records their outcomes. A **visual workspace** gives you
+resource pages, message browsing, dashboards, and lineage alongside the agent.
+The project is Apache-2.0 licensed and connects to the clusters you already run.
 
-Operating a streaming platform today usually means running a tab farm: one UI
-for topics, another for stream-processing jobs, a third for dashboards, a
-fourth for lineage — each with its own login, its own look, and none of them
-talking to each other. The full-suite alternatives are commercial,
-closed-source, and tied to a single vendor's distribution.
+[Get started](docs/getting-started.md) · [Enable k-shui Agent](docs/k-shui-agent.md) · [Documentation](docs/README.md)
 
-k-shui takes a different path — one open application that unifies:
+## Ask, investigate, review, act
 
-- **Cluster, topic & consumer operations** — browse, create, configure, reset offsets, tail messages live
-- **Flink operations** — jobs, checkpoints, execution graphs, and SQL Gateway
-- **Kafka Connect** — connector/task management, including MirrorMaker2 replication views
-- **Schema management** — any registry speaking the standard `ccompat` API: Apicurio, Karapace, Confluent Schema Registry
-- **Metrics dashboards** — Prometheus-backed with Grafana-JSON import, plus a zero-dependency sampled-metrics fallback
-- **Stream lineage** — OpenLineage/Marquez graphs, enriched with edges derived from Connect, ksqlDB, Flink, and consumer groups
+1. **Ask in context.** Open **Ask K-Shui** or a resource's **Investigate** action.
+   Choose the cluster and resource you want to understand.
+2. **Investigate with evidence.** Review linked observations, retrieval times,
+   possible explanations, missing information, and next steps.
+3. **Request a supported action.** In **Operate** mode, ask for a specific change
+   and review its exact target, parameters, and effect.
+4. **Execute and check the outcome.** Complete any required confirmation. The
+   engine rechecks permissions and resource state, runs the operation, and
+   records verification and audit evidence.
 
-…in one application, with one auth model, one command to start it, and a
-design system that doesn't look like five apps welded together.
+Start with questions such as **“Why is this consumer group falling behind?”**,
+**“Explain this connector failure”**, or **“What is connected to this topic?”**
+When you want a change, make it explicit: **“Restart task 2 on connector orders”**
+or **“Prepare a retention change for topic orders to one day.”**
 
-## Features
+![k-shui Agent investigates scoped evidence, prepares changes for human review, and uses the k-shui engine to manage the Kafka ecosystem](docs/images/k-shui-agent-architecture.png)
+
+## What the agent can do today
+
+| Workflow            | Current capability                                                                                                                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Investigate         | Cluster health, topic metadata, consumer lag and membership, connector task states, streaming-job/checkpoint summaries, schema summaries, lineage neighbors, alert evidence, and recent audit headers              |
+| Explain             | Findings linked to retrieved evidence, possible explanations, missing information, and next steps                                                                                                                  |
+| Prepare and operate | Create topics, update supported topic settings, pause/resume/restart connectors, restart individual connector tasks, delete/purge topics, increase partitions, and reset consumer offsets with the required checks |
+| Preserve context    | Scoped investigations, saved history, progress, cancellation, and bounded tool/time/usage limits                                                                                                                   |
+
+**Inspect mode makes no changes.** Operations are a defined subset of the
+workspace's capabilities; the agent does not have arbitrary shell, SQL, or
+message-payload access. Missing evidence and uncertain outcomes remain visible.
+See the [agent guide](docs/k-shui-agent.md) for exact operation boundaries.
+
+**Agent setup is explicit:** the agent is disabled by default. An administrator
+must enable it, configure an AI connection and usage rates, and require user
+sign-in. Mutations are a separate opt-in. The current agent runs in one
+application worker/process; see [deployment requirements](docs/k-shui-agent.md#deployment).
+
+## Visual workspace and ecosystem coverage
+
+Use resource pages to examine the evidence behind an investigation and perform
+expert workflows beyond the agent's supported tools. The table below describes
+the whole application, not a promise that every operation is agent-accessible.
 
 | Area                     | What you get                                                                                                                                                                            | Docs                                                         |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -63,8 +93,11 @@ design system that doesn't look like five apps welded together.
 
 ## Operator safety model
 
-k-shui is built for incident time, when a wrong click is expensive:
+Every agent operation and visual workflow must respect the acting user's authority:
 
+- **Reviewed agent operations** — exact previews, permission and resource-state
+  rechecks, expiring operation identifiers, and recorded outcomes. A diagnostic
+  question does not authorize a change.
 - **Typed confirmation** for every irreversible action (delete/purge/add
   partitions, ACL and quota removal, Flink cancel, ksqlDB terminate), and a
   mandatory **dry-run preview** before any offset reset.
@@ -80,13 +113,14 @@ k-shui is built for incident time, when a wrong click is expensive:
 
 ## Quick start
 
-Pick whichever you have installed — all four run the same application.
+Start the application using one of these deployment methods. These commands
+open the visual workspace; they do not enable the agent by themselves.
 
 ```bash
 # uv (no local Python install needed)
 uvx k-shui serve
 
-# npx (no local Node/Python install needed — wraps uv/pipx/docker)
+# npx (requires Node.js; launches the application through uv or Docker)
 npx k-shui serve
 
 # Docker
@@ -99,7 +133,7 @@ helm install k-shui oci://ghcr.io/thadchas/charts/k-shui
 Then open **http://localhost:8090**. With no config file at all, k-shui starts
 with a single cluster pointed at `localhost:9092` (or `$KSHUI_BOOTSTRAP_SERVERS`).
 
-### A real config
+### Connect your ecosystem
 
 Generate one with `k-shui init`, or start from this:
 
@@ -130,7 +164,16 @@ See [`docs/getting-started.md`](docs/getting-started.md) for the full install
 walkthrough and [`docs/deployment/configuration-reference.md`](docs/deployment/configuration-reference.md)
 for every field.
 
-## Screenshots
+### Enable your first agent investigation
+
+Follow the [agent setup guide](docs/k-shui-agent.md#deployment) to configure
+sign-in, an AI connection, model usage rates, and permitted clusters. Keep
+`agent.allowMutations: false` for your first investigation. Restart the
+application, sign in, test the configured connection, and open **Ask K-Shui**
+in **Inspect** mode. See [getting started](docs/getting-started.md) for the
+complete walkthrough.
+
+## Visual workspace screenshots
 
 | Cluster overview                              | Message browser                                   | Stream lineage                             |
 | --------------------------------------------- | ------------------------------------------------- | ------------------------------------------ |
@@ -146,7 +189,8 @@ clusters, overview, topics and message-browser screens.
 ## Connect to your existing stack
 
 k-shui speaks plain Kafka Admin protocol plus the standard HTTP APIs of each
-integration — no agents, no sidecars.
+integration. No collector agent or sidecar is required on your brokers;
+**k-shui Agent** runs within the application.
 
 <details>
 <summary><b>Strimzi</b> (Kubernetes-native Kafka)</summary>
@@ -240,26 +284,21 @@ flink:
 
 </details>
 
-## Architecture
+## Product architecture
 
-```mermaid
-flowchart LR
-    Browser["Browser\n(React SPA)"] -- HTTPS / SSE --> API["FastAPI\n/api/v1"]
-    API --> Admin["Kafka Admin\n(confluent-kafka)"]
-    API --> SR["Schema Registry\nConfluent / Apicurio / Karapace"]
-    API --> Connect["Kafka Connect"]
-    API --> Ksql["ksqlDB"]
-    API --> Flink["Flink REST / SQL Gateway"]
-    API --> Prom["Prometheus"]
-    API --> Lineage["Marquez / OpenLineage"]
-    API --> DB[("SQLite / Postgres\nusers, alerts, dashboards, audit")]
-    Admin --> Kafka[("Apache Kafka\ncluster(s)")]
-    Sched["asyncio tasks\nalert engine + metrics sampler"] --> API
-```
+| Component               | Responsibility                                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **k-shui Agent**        | Investigates questions, explains evidence, and prepares supported changes                                      |
+| **k-shui engine**       | Connects services, checks authority, executes reviewed operations, and records verification and audit evidence |
+| **Visual workspace**    | Presents resources, messages, dashboards, lineage, and investigation history                                   |
+| **Connected ecosystem** | Your Kafka clusters, connectors, registries, streaming processors, metrics, and lineage services               |
 
-One process serves the built SPA and the REST/SSE API. See
-[`docs/architecture.md`](docs/architecture.md) for the component and request-flow
-detail, including the background sampler and alert-evaluation jobs.
+The agent uses bounded tools under the signed-in user's authority. The visual
+workspace and agent share the engine's resource integrations; connected
+streaming services continue to run the workloads.
+
+See [architecture](docs/architecture.md) for implementation details and
+[the platform contract](ARCHITECTURE.md) for configuration and API behavior.
 
 ## Deployment
 
@@ -276,25 +315,11 @@ detail, including the background sampler and alert-evaluation jobs.
 
 ## How it compares
 
-Honest, feature-by-feature. See [`docs/comparison.md`](docs/comparison.md) for the
-full breakdown — including a page-by-page migration map if you're moving off a
-commercial control center.
-
-|                                        |             k-shui             |    Kafbat UI    |    AKHQ    |    Redpanda Console     |
-| -------------------------------------- | :----------------------------: | :-------------: | :--------: | :---------------------: |
-| License                                |           Apache-2.0           |   Apache-2.0    | Apache-2.0 |    BSL / Apache-2.0¹    |
-| Topics, brokers, consumers             |               ✅               |       ✅        |     ✅     |           ✅            |
-| Schema Registry                        | ✅ Confluent/Apicurio/Karapace |       ✅        |     ✅     | ✅ Confluent-compatible |
-| Kafka Connect                          |     ✅ + MirrorMaker2 view     |       ✅        |     ✅     |       ➖ limited        |
-| ksqlDB                                 |               ✅               |       ➖        |     ❌     |           ❌            |
-| Flink (jobs/SQL)                       |               ✅               |       ❌        |     ❌     |           ❌            |
-| Prometheus/Grafana-style dashboards    |          ✅ built-in           |       ➖        |     ❌     |        ➖ basic         |
-| Stream lineage (OpenLineage)           |               ✅               |       ❌        |     ❌     |           ❌            |
-| Alerting (email/Slack/PagerDuty/Teams) |               ✅               |       ❌        |     ❌     |           ❌            |
-| RBAC / OIDC                            |        ✅ basic + OIDC         |       ✅        |     ✅     |     ✅ (Enterprise)     |
-| Single-binary / npx / uvx install      |               ✅               | ➖ (Docker/JAR) |  ➖ (JAR)  |   ➖ (binary/Docker)    |
-
-¹ Redpanda Console is BSL-licensed with some features gated to Redpanda Enterprise.
+Evaluate k-shui around its investigation-to-action workflow: scoped evidence,
+reviewed operations, and the resource workspace that supports both. The
+[comparison guide](docs/comparison.md) covers ecosystem capabilities and a
+migration map. Agent access is narrower than the application's full feature set;
+use the [agent guide](docs/k-shui-agent.md) when evaluating operational coverage.
 
 ## Contributing
 

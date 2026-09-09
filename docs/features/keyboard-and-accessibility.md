@@ -2,8 +2,24 @@
 
 ## What it does
 
-k-shui is meant to be driven from the keyboard during an incident, shared as
-links in a chat, and usable with a screen reader or on a phone.
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its UI, including k-shui Agent, is meant to be driven
+from the keyboard during an incident, shared as links in a chat, and usable
+with a screen reader or on a phone.
+
+## k-shui Agent interaction
+
+The top-bar **Ask K-Shui** control opens the investigation panel; contextual
+**Investigate** controls appear on consumer groups, unhealthy partitions,
+connectors, and alerts. The panel can expand to a dedicated investigation
+page while retaining its scoped evidence. Keyboard focus returns to the
+trigger when the panel closes, and its resize controls are keyboard
+accessible.
+
+Inspect is read-only. Operate prepares a supported topic, connector, or
+consumer-offset change for explicit human review and execution, including any
+required typed confirmation. The agent is disabled by default and requires an
+authenticated user.
 
 ## Keyboard shortcuts
 

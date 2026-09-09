@@ -2,8 +2,29 @@
 
 ## What it does
 
-Create, inspect, configure, and delete topics; add partitions; purge or clone
-a topic; see per-topic consumers, metrics, and schema linkage.
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its topic workspace creates, inspects, configures, and
+deletes topics; adds partitions; purges or clones a topic; and shows per-topic
+consumers, metrics, and schema linkage.
+
+## k-shui Agent workflow
+
+Use **Ask K-Shui** with the relevant cluster and topic. Inspect mode retrieves
+partition metadata and only allowlisted, non-secret topic configuration. In
+Operate mode, an explicit human request can prepare topic creation, an
+allowlisted config update, partition-count increase, purge, or deletion.
+
+[k-shui Agent](../k-shui-agent.md) is disabled by default and requires an
+authenticated k-shui user.
+
+The human reviews the exact target and effect before choosing execute.
+Partition increase requires typing the topic name; purge and deletion require
+`purge <topic>` and `delete <topic>` respectively;
+previews expire after five minutes, and changed resource state requires a new
+preview. Internal and reserved topics are excluded. Clone, replica
+reassignment, leader election, throttle clearing, arbitrary config keys,
+and message production remain outside the agent; use the visual workspace
+and direct engine APIs where supported. The agent has no shell tool.
 
 ## UI walkthrough
 

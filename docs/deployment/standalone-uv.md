@@ -12,6 +12,23 @@ uvx k-shui serve --config k-shui.yaml --port 8090
 `uvx` downloads k-shui into an ephemeral, cached environment and runs it. Repeat
 invocations reuse the cache, so subsequent starts are fast.
 
+This starts the management engine with its configured defaults. k-shui Agent is
+the intended investigation workflow, but remains disabled until the YAML enables
+it alongside basic or OIDC authentication and a server-side AI connection.
+
+## Enable k-shui Agent
+
+Use the example in [`../k-shui-agent.md`](../k-shui-agent.md), provide every
+`${VAR}` and the provider-key variable named by `apiKeyEnv` from the launching
+shell or secret manager, then run the same `uvx ... serve` command. The child
+process inherits those environment variables; provider keys never need to be
+stored in YAML or entered in the browser. Start with `allowMutations: false`,
+sign in as an admin, and test **Settings → AI connections**.
+
+Run one k-shui application worker/process while the agent is enabled. The
+default CLI invocation satisfies this; do not wrap it in a multi-worker process
+manager until cross-process agent admission and recovery are supported.
+
 ## Running a pre-release or locally built wheel
 
 Until `k-shui` is published to PyPI, point `--from` at an artifact instead of the

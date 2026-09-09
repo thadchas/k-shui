@@ -1,7 +1,8 @@
 # k-shui (npx launcher)
 
-Run [k-shui](https://github.com/thadchas/k-shui) — the open-source Kafka Streaming Hub UI —
-without installing Python or Node dependencies yourself:
+Run [k-shui](https://github.com/thadchas/k-shui) — open-source, agent-driven
+Kafka ecosystem management — without installing Python or Node dependencies
+yourself:
 
 ```bash
 npx k-shui serve --config k-shui.yaml --port 8090
@@ -19,6 +20,22 @@ This package is a small launcher, not the application itself. It resolves, in or
 Everything else — `init`, `serve`, `check`, `version`, `--config`, `--port`, ... — is
 forwarded verbatim to the real `k-shui` CLI; this wrapper only understands
 `--help`/`-h`, `--docker`, and `--yes`/`-y` itself.
+
+## k-shui Agent
+
+k-shui Agent investigates scoped evidence and prepares supported changes; the
+k-shui engine enforces the signed-in user's role, executes reviewed actions,
+verifies outcomes, and audits mutations. It is disabled by default. Enabling it
+requires basic or OIDC authentication plus an administrator-managed AI
+provider/model connection, explicit pricing, and a provider key in the server
+environment. Start with mutations disabled. See the
+[agent guide](https://github.com/thadchas/k-shui/blob/main/docs/k-shui-agent.md).
+
+The normal uv/uvx/pipx path inherits environment variables from the `npx`
+process. The `--docker` path currently does not forward arbitrary host
+environment variables, so use an explicit `docker run --env ...` command or a
+Compose/Kubernetes deployment when the agent needs provider secrets. Run a
+single k-shui application worker/process while the agent is enabled.
 
 ## Examples
 

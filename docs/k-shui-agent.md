@@ -1,10 +1,43 @@
-# K-Shui Agent
+# k-shui Agent
 
-The agent adds scoped investigations and reviewed operations to the existing K-Shui application. It is disabled by default and requires an authenticated K-Shui user. The server's `auth.type: none` mode does not grant agent access.
+**k-shui Agent** is the primary workflow for open-source, agent-driven Kafka
+management: ask a question, investigate evidence, review a requested operation,
+and check its outcome. The **k-shui engine** connects to the ecosystem, enforces
+permissions, and records activity. The visual workspace provides resource detail,
+message browsing, dashboards, and lineage alongside each investigation.
+
+The agent is disabled by default and requires an authenticated k-shui user.
+The server's `auth.type: none` mode does not grant agent access.
+
+## Start with a question
+
+1. Sign in and open **Ask K-Shui**, or **Investigate** from a supported resource.
+2. Confirm the cluster and resource, then use **Inspect** to ask, for example,
+   “Why is this consumer group falling behind?” or “Explain this connector failure.”
+3. Review linked evidence, timestamps, possible explanations, and missing data.
+4. When you want a supported change, use **Operate** and name the exact action
+   and target. Review the preview, execute it, and inspect the outcome and audit
+   record. Asking a diagnostic question does not authorize a change.
+
+![k-shui Agent gathers evidence and prepares reviewed operations through the k-shui engine](images/k-shui-agent-architecture.png)
+
+## Current capability boundaries
+
+| Agent workflow       | Supported scope                                                                                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Inspect              | Cluster health, topic metadata, consumer-group lag and membership, connector task states, job/checkpoint summaries, registered schema summaries, lineage neighbors, alert evidence, and recent audit headers |
+| Operate              | The selected topic, connector/task, and consumer-offset operations listed below, after review and applicable confirmation                                                                                    |
+| Supporting workspace | Full message browser, SQL editors, dashboards and resource controls; their availability does not make them agent tools                                                                                       |
+
+The agent has no message-payload reader, arbitrary query executor, shell tool,
+or unattended remediation loop. It reports missing evidence and uncertain
+outcomes rather than inventing a diagnosis or success.
 
 ## Deployment
 
-Configure connections in the deployment's `k-shui.yaml`, supply provider keys through the server's secrets/environment mechanism, then restart K-Shui. AI connections in Settings shows the effective configuration and offers a connection test. Keys are never entered into browser storage.
+Start with the [complete authentication and agent setup example](getting-started.md#4-enable-k-shui-agent). The fragment below adds agent settings to an already authenticated deployment. Connection tests require an administrator with access to a permitted cluster.
+
+Configure connections in the deployment's `k-shui.yaml`, supply provider keys through the server's secrets/environment mechanism, then restart K-Shui. An administrator can open AI connections in Settings, which shows the effective configuration and offers a connection test. Keys are never entered into browser storage.
 
 ```yaml
 agent:
@@ -42,7 +75,7 @@ Connection tests are informational observations, not an admission gate: configur
 
 Use **Ask K-Shui** in the top bar or **Investigate** on a consumer group, unhealthy partition, connector, or alert. Review the selected cluster, resource, time window, provider/model, acting user, and Inspect/Operate mode. Removing resource context starts a broader investigation within the selected cluster. Changing clusters starts a new investigation; existing evidence retains its original scope.
 
-The panel can expand into a dedicated investigation page. Saved investigations belong to their initiating user and persist in the configured K-Shui database. Treat that database as operational data: transcripts and resource metadata may be sensitive even after credential redaction. Context collection excludes message payloads, bounds records and text, and treats retrieved resource content as untrusted data.
+The panel can expand into a dedicated investigation page. Saved investigations belong to their initiating user and persist in the configured k-shui database. Treat that database as operational data: transcripts and resource metadata may be sensitive even after credential redaction. Context collection excludes message payloads, bounds records and text, and treats retrieved resource content as untrusted data.
 
 Evidence cards retain original retrieval timestamps and status separately from age: observations older than two minutes are labelled historical snapshots. **Refresh evidence** retrieves the same tool and resource under current authority, appending a new observation without rewriting earlier findings, timestamps or scope. Refresh is unavailable during an active run; at the 32-observation limit, start a new investigation. Validated answer citations open the precise observation, including citations in follow-ups; unknown or no-longer-retained sources are shown as unavailable.
 
@@ -61,11 +94,11 @@ Operation outcomes include verification and audit evidence. Cancellation stops s
 | Create topic                                     | Exact partitions, replication factor and supported configuration preview             |
 | Update topic configuration                       | Before/after values for allowlisted non-secret keys                                  |
 | Pause, resume or restart connector; restart task | Exact Connect instance, connector, task and restart options                          |
-| Delete or purge topic                            | `delete <topic>` or `purge <topic>`; internal topics excluded                       |
+| Delete or purge topic                            | `delete <topic>` or `purge <topic>`; internal topics excluded                        |
 | Increase partitions                              | Typed resource name and irreversible partition-count change                          |
 | Reset consumer offsets                           | Consumers stopped, successful dry run, exact per-partition offsets, typed group name |
 
-**Cancel prepared change** withdraws a pending proposal even after the investigation completes and stays cancelled when reopened. Previews expire after five minutes; the card updates while idle. **Prepare new preview** cancels the expired proposal and retrieves a new exact effect under current permissions, requiring a new review and typed confirmation. It never executes automatically. Changed target state requires a new preview. Internal-topic mutations, arbitrary topic configuration keys, shell commands, and administrative operations outside this table are excluded. Current schema inspection summarizes registered fields and compatibility policy; it does not run a candidate schema compatibility check without a supplied candidate.
+**Cancel prepared change** withdraws a pending proposal even after the investigation completes and stays cancelled when reopened. Previews expire after five minutes; the card updates while idle. **Prepare new preview** cancels the expired proposal and retrieves a new exact effect under current permissions, requiring a new review and typed confirmation. It never executes automatically. Changed target state requires a new preview. Internal-topic mutations, arbitrary topic configuration keys, shell commands, and administrative operations outside this table are excluded. Current schema inspection summarizes registered fields and compatibility policy; it has no candidate-schema compatibility tool; use the [Schema Registry workspace](features/schemas.md) to test a candidate.
 
 ## Scope
 

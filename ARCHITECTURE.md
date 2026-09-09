@@ -1,9 +1,17 @@
-# k-shui — Kafka Streaming Hub UI
+# k-shui — agent-driven Kafka management
 
-Open-source, Apache-2.0 licensed control center for Apache Kafka® and its
-streaming ecosystem. One UI that replaces Confluent Control Center and unifies
-Kafbat UI, Flink UI, Kafka Connect, Schema Registry (Confluent / Apicurio),
-Prometheus/Grafana dashboards and OpenLineage/Marquez stream lineage.
+Open-source, Apache-2.0 licensed management for Apache Kafka® and its streaming
+ecosystem. **k-shui Agent** is the primary investigation and reviewed-operation
+experience. The **k-shui engine** connects services, enforces permissions,
+executes reviewed changes, and records verification and audit evidence. The
+**visual workspace** supports resource inspection, message browsing, streaming
+operations, dashboards, and lineage alongside the agent.
+
+Product documentation leads with ask → investigate → review → execute and verify.
+This file retains implementation technologies, configuration identifiers, and API
+contracts needed by contributors. Agent capability is narrower than the full
+resource API: a UI operation is not automatically available to the agent.
+See [the agent guide](docs/k-shui-agent.md) for current scope and deployment.
 
 Deployable as: `uvx k-shui`, `npx k-shui`, Docker image, docker compose, Helm
 chart / Kustomize on Kubernetes (CNCF-aligned: health probes, OTel traces,
@@ -16,7 +24,7 @@ k-shui/
 ├── ARCHITECTURE.md          this file: contracts every agent codes against
 ├── DESIGN.md                design system (tokens, components, layout rules)
 ├── README.md
-├── backend/                 Python 3.11+ package `k_shui` (FastAPI)
+├── backend/                 k-shui engine; Python 3.11+ package `k_shui` (FastAPI)
 │   ├── pyproject.toml       uv-managed; entry point `k-shui`
 │   ├── k_shui/
 │   │   ├── __init__.py      __version__
@@ -26,6 +34,7 @@ k-shui/
 │   │   ├── core/            registry.py (ClusterRegistry), errors.py, deps.py,
 │   │   │                    auth.py (users/roles/JWT/OIDC), audit.py, events.py (SSE bus)
 │   │   ├── db/              SQLAlchemy 2 async + aiosqlite (default) / postgres; models.py, session.py
+│   │   ├── agent/           service.py, tools.py, operations.py, providers.py
 │   │   ├── kafka/           admin.py, consumer.py (message browsing), producer.py,
 │   │   │                    serdes/ (string,json,avro,protobuf,jsonschema via registry)
 │   │   ├── integrations/    schema_registry.py, connect.py, ksql.py, flink.py,
@@ -34,13 +43,14 @@ k-shui/
 │   │   │   ├── __init__.py  ROUTER_MODULES list; routers auto-imported (missing modules skipped)
 │   │   │   └── routers/     clusters.py brokers.py topics.py messages.py consumer_groups.py
 │   │   │                    acls.py quotas.py kraft.py schemas.py connect.py ksql.py flink.py
-│   │   │                    metrics.py lineage.py alerts.py auth.py audit.py system.py events.py
+│   │   │                    metrics.py lineage.py alerts.py auth.py audit.py system.py events.py agent.py
 │   │   └── static/          built frontend (copied by build); gitignored
 │   └── tests/               pytest (+ pytest-asyncio, httpx AsyncClient, testcontainers optional)
 ├── frontend/                Vite + React 19 + TypeScript + Tailwind v4
 │   ├── src/
 │   │   ├── api/             client.ts (fetch/SSE wrapper), types.ts (mirrors this contract), hooks/ (TanStack Query)
 │   │   ├── components/ui/   design-system primitives (shadcn-style, Radix)
+│   │   ├── components/agent/ AgentPanel, AgentWorkspace, evidence and operation cards
 │   │   ├── components/      shared app components (DataTable, StatCard, TimeSeriesChart, JsonViewer, CodeEditor, EmptyState …)
 │   │   ├── layouts/         AppShell (sidebar + topbar + cluster switcher + command palette)
 │   │   ├── pages/           one folder per feature area
@@ -91,9 +101,9 @@ telemetry:
 alerts:
   evaluationIntervalSeconds: 30
 agent:
-  enabled: false # requires authenticated users; single application worker
-  allowMutations: false # existing user/cluster/read-only authority still applies
-  connections: [] # explicit OpenAI/Anthropic models, server env-key references and rates
+  enabled: false # administrator opt-in; authenticated users only
+  allowMutations: false # separate opt-in for reviewed supported operations
+  connections: [] # model, server-side credential reference, usage rates and scope
 clusters:
   - id: local # url-safe, unique
     name: lakestream (kind)
@@ -302,7 +312,7 @@ carries `${ENV_VAR}` placeholders, and any secret quoted by an upstream error is
 - `GET /clusters/{c}/lineage/search?q`, `GET /clusters/{c}/lineage/namespaces`, `GET /clusters/{c}/lineage/datasets?namespace`, `GET /clusters/{c}/lineage/jobs?namespace`, `GET /clusters/{c}/lineage/runs?jobId`
 - `POST /lineage/openlineage` → OpenLineage event ingest (forwarded to Marquez if configured, else stored locally)
 
-### Alerts (Control Center parity)
+### Alerts (evidence and notifications)
 
 - Triggers: `GET|POST /alerts/triggers`, `GET|PUT|DELETE /alerts/triggers/{id}`, `POST /alerts/triggers/{id}/enable|disable`
   `Trigger = {id, name, clusterId, component:'cluster'|'broker'|'topic'|'consumerGroup'|'connector'|'ksqlQuery'|'flinkJob'|'schemaRegistry'|'custom', target:{name?, regex?}, metric, condition:'gt'|'gte'|'lt'|'lte'|'eq'|'ne', value, bufferSeconds, severity:'critical'|'warning'|'info', enabled, actionIds:[], createdAt, updatedAt}`
@@ -313,13 +323,13 @@ carries `${ENV_VAR}` placeholders, and any secret quoted by an upstream error is
 - `GET /alerts/summary` → counts by severity/cluster for the topbar bell.
 - Engine: APScheduler job every `evaluationIntervalSeconds` evaluates every enabled trigger against live data (admin API / Prometheus), applies `bufferSeconds` (condition must hold for that long), fires actions, records history, emits `alert.fired`/`alert.resolved` SSE events, exports `kshui_alerts_firing{severity}` gauge.
 
-### K-Shui Agent
+### k-shui Agent
 
 The optional Agent is disabled by default. `agent.enabled`, `allowMutations`, cluster/tool
 allowlists and run limits are deployment-managed. Connections specify an OpenAI or
 Anthropic model, a server environment secret reference and contracted token rates;
 inference credentials grant no Kafka authority. Full configuration fields and defaults
-are in [the configuration reference](docs/deployment/configuration-reference.md#agent-agentconfig).
+are in [the configuration reference](docs/deployment/configuration-reference.md#agent).
 
 - `GET /agent/status` reports availability, acting user, effective modes, policy and visible connections; anonymous callers receive disabled status without credentials.
 - `GET /agent/connections` and `POST /agent/connections/{id}/test` list scoped connections and test tool capability (test requires an administrator).
@@ -368,6 +378,9 @@ redispatch. See [Agent deployment and supported operations](docs/k-shui-agent.md
 /c/:cluster/lineage                 graph canvas (React Flow) + side panel + search
 /c/:cluster/security                tabs: acls, quotas, scram users
 /c/:cluster/settings                cluster dynamic configs + kraft quorum
+/agent                              dedicated investigation workspace
+/agent/settings                     deployment-managed AI connection status and tests
+/c/:cluster/agent                   cluster-scoped investigation workspace
 /alerts                             tabs: history, triggers, actions  (/alerts/triggers/new, /alerts/triggers/:id, /alerts/actions/new)
 /audit                              audit log
 /settings                           app settings, users (basic auth), about

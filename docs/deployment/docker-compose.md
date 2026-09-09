@@ -3,6 +3,10 @@
 `deploy/compose/docker-compose.yml` is a full standalone demo stack. Run it from
 the repo root.
 
+The stack demonstrates the k-shui engine and ecosystem integrations. Its
+checked-in config uses `auth.type: none`, so k-shui Agent remains unavailable
+until you explicitly configure authentication and a server-side AI connection.
+
 The examples below use the `docker compose` plugin. Installs that only ship the
 standalone binary (Colima, older Docker Desktop) should substitute
 `docker-compose`; the `make compose-*` targets detect which one is available and
@@ -23,6 +27,41 @@ This starts:
 - **k-shui** — built from `deploy/docker/Dockerfile`, configured via
   `deploy/compose/k-shui.yaml` (points at the other services by their compose
   hostnames). Exposed at `http://localhost:8090`.
+
+## Enable k-shui Agent
+
+Create `my-k-shui.yaml` in the repository root based on
+`deploy/compose/k-shui.yaml`, add `auth` and
+`agent` using [`../k-shui-agent.md`](../k-shui-agent.md), and mount it with a
+local Compose override. Forward provider/auth secrets explicitly from a local
+`.env` file or secret manager; `apiKeyEnv` in the YAML contains only the name of
+the provider-key variable.
+
+```yaml
+# compose.agent.yml
+services:
+  k-shui:
+    environment:
+      KSHUI_JWT_SECRET: ${KSHUI_JWT_SECRET}
+      KSHUI_ADMIN_PASSWORD_HASH: ${KSHUI_ADMIN_PASSWORD_HASH}
+      KSHUI_AGENT_OPENAI_MODEL: ${KSHUI_AGENT_OPENAI_MODEL}
+      KSHUI_AGENT_OPENAI_KEY: ${KSHUI_AGENT_OPENAI_KEY}
+      KSHUI_AGENT_INPUT_PRICE: ${KSHUI_AGENT_INPUT_PRICE}
+      KSHUI_AGENT_OUTPUT_PRICE: ${KSHUI_AGENT_OUTPUT_PRICE}
+    volumes:
+      # Paths resolve from deploy/compose/docker-compose.yml, the first file.
+      - ../../my-k-shui.yaml:/etc/k-shui/config.yaml:ro
+```
+
+```bash
+docker compose -f deploy/compose/docker-compose.yml -f compose.agent.yml up --build
+```
+
+Start with `agent.allowMutations: false`, sign in as an admin, and test the
+connection under **Settings → AI connections**. Do not scale the k-shui service while the agent
+is enabled; current run admission and recovery require one application
+worker/process. The Compose `connect` service being described as a “single
+worker” elsewhere on this page is unrelated to this k-shui agent limitation.
 
 ## Full stack
 

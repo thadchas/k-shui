@@ -2,10 +2,28 @@
 
 ## What it does
 
-Operate Flink jobs end to end: job list and detail, execution graph,
-checkpoints, exceptions, task managers, jar upload/run, savepoints, and
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its Flink workspace operates jobs end to end: job list
+and detail, execution graph, checkpoints, exceptions, task managers, jar
+upload/run, savepoints, and
 (where available) a SQL Gateway console — parity with the Flink Web UI, in
 k-shui's design system, alongside the rest of your streaming stack.
+
+## k-shui Agent workflow
+
+Use **Ask K-Shui** in the top bar with the relevant cluster selected and name
+the Flink instance and job ID. Inspect mode can retrieve a bounded job-state
+and checkpoint summary from that configured Flink instance and relate it to
+other allowlisted Kafka ecosystem metadata.
+
+[k-shui Agent](../k-shui-agent.md) is disabled by default and requires an
+authenticated k-shui user.
+
+The agent does not retrieve Flink logs or exception bodies, submit SQL, inspect
+arbitrary metrics, upload or run jars, trigger savepoints, cancel or stop
+jobs, or provision clusters. Use the visual workspace and direct engine APIs
+for the job, log and SQL workflows documented below; provision clusters with
+your deployment tooling. Operate mode currently has no Flink mutation.
 
 ## UI walkthrough
 

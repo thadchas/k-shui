@@ -2,8 +2,27 @@
 
 ## What it does
 
-Inspect consumer group state, lag, and membership; reset or delete offsets;
-view Kafka 4.x share groups where available.
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its consumer workspace inspects group state, lag, and
+membership; resets or deletes offsets; and shows Kafka 4.x share groups where
+available.
+
+## k-shui Agent workflow
+
+Select **Investigate** on a consumer-group detail page to carry the group,
+cluster, and current time window into k-shui Agent. Inspect mode retrieves
+bounded membership, assignments, offsets, watermarks, and calculated lag.
+`Stable` describes membership only; missing offsets or watermarks leave lag
+unknown rather than reporting zero.
+
+[k-shui Agent](../k-shui-agent.md) is disabled by default and requires an
+authenticated k-shui user.
+
+Operate mode can prepare an offset reset only after consumers are stopped and
+a successful dry run resolves exact per-partition offsets. The preview expires
+after five minutes and requires the human to type the group name before
+execution. Deleting a group or its offsets and inspecting Kafka record
+payloads remain outside the agent; use the visual workspace and direct k-shui engine APIs for them.
 
 ## UI walkthrough
 

@@ -2,9 +2,24 @@
 
 ## What it does
 
-Controls who can open k-shui and what they can do: no auth (local/demo),
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its own access layer controls who can open k-shui and
+what they can do: no auth (local/demo),
 basic auth with three roles, or OIDC/SSO with claim-based role mapping. Plus
 the light/dark theme.
+
+## k-shui Agent access
+
+k-shui Agent is a separate, opt-in capability: it is disabled by default and
+refuses access when `auth.type: none`, even though that mode grants anonymous
+visitors broad UI access. A signed-in viewer can run Inspect investigations;
+Operate additionally requires the editor role, `agent.allowMutations: true`,
+an allowed cluster, a supported operation, and a writable server and cluster.
+
+The backend refreshes the human user's current role and cluster grants for
+each tool call and again before an operation executes. The model connection's
+credential grants no Kafka authority. The agent does not manage users, roles,
+OIDC, sessions, or authentication settings.
 
 ## UI walkthrough
 

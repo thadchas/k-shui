@@ -2,10 +2,25 @@
 
 ## What it does
 
-Control-Center-style alerting: define metric-based triggers on any component,
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its alerting engine lets you define metric-based triggers on any component,
 buffer conditions before firing, notify via email/Slack/PagerDuty/Teams/
 webhook, and keep a firing/resolved history — evaluated by a background
 scheduler, not the browser.
+
+## k-shui Agent workflow
+
+Select **Investigate** on an alert-history row to open a cluster- and
+alert-scoped investigation, or use **Ask K-Shui** in the top bar for a broader
+cluster question. In Inspect mode, k-shui Agent can retrieve the selected
+alert's status, measured value, threshold, and firing/resolution timestamps,
+then correlate them with other allowlisted metadata available in that cluster.
+
+[The agent](../k-shui-agent.md) is disabled by default and requires an authenticated k-shui user.
+Alert evidence is read-only: the agent cannot acknowledge events, edit
+triggers or notification actions, send test notifications, or heal the
+condition automatically. Use the alert UI and k-shui engine APIs below for
+those actions.
 
 ## UI walkthrough
 

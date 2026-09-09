@@ -2,9 +2,27 @@
 
 ## What it does
 
-Per-broker operational view: identity (host/port/rack, controller flag),
-partition/leader counts, under-replicated partitions, log directory sizes,
-dynamic config editing, and metrics.
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its broker view covers identity (host/port/rack,
+controller flag), partition/leader counts, under-replicated partitions, log
+directory sizes, dynamic config editing, and metrics.
+
+## k-shui Agent workflow
+
+Use **Ask K-Shui** in the top bar while scoped to the cluster to investigate
+broker availability and sampled partition health. Inspect mode can retrieve
+bounded cluster metadata and relate it to supported topic, consumer,
+connector, Flink, lineage, schema, alert, and audit evidence.
+
+[k-shui Agent](../k-shui-agent.md) is disabled by default and requires an
+authenticated k-shui user.
+
+There is no broker-detail or broker-config tool in the current agent
+allowlist. k-shui Agent cannot inspect arbitrary broker configuration values,
+change broker configs, move replicas, elect leaders, run shell commands, or
+heal a broker automatically. The visual workspace and direct engine APIs
+provide the broker configuration and partition operations documented below;
+shell execution and automatic repair are not application capabilities.
 
 ## UI walkthrough
 

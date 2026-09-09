@@ -1,7 +1,11 @@
 # Security Hardening
 
-k-shui defaults are optimized for a fast local demo, not a production
-deployment. Before exposing it beyond a trusted network, review this list.
+k-shui Agent can gather operational evidence and prepare Kafka ecosystem
+changes, while the k-shui engine can execute reviewed actions under the acting
+user's authority. Protect that workflow with explicit identity, tightly scoped
+access, server-side provider credentials, and durable audit data. The defaults
+are optimized for a fast local demo; review these controls before exposing
+k-shui beyond a trusted network.
 
 ## Authentication
 
@@ -23,7 +27,7 @@ deployment. Before exposing it beyond a trusted network, review this list.
 
 ## Secrets management
 
-Never put OIDC client secrets, SMTP passwords, or `HttpAuth` credentials
+Never put AI provider keys, OIDC client secrets, SMTP passwords, or `HttpAuth` credentials
 (`schemaRegistry.auth`, `connect[].auth`, `prometheus.auth`, etc.) as
 plaintext in a ConfigMap, a compose file, or version control.
 
@@ -36,8 +40,48 @@ plaintext in a ConfigMap, a compose file, or version control.
   pattern, or use `extraEnv`-equivalent `envFrom` in a patch.
 - **Docker Compose**: use an `.env` file (gitignored) referenced via
   `${VAR}` in the compose file's `environment:` block, or Docker secrets.
-- **Bare `uvx`/`npx`**: export `KSHUI__*` env vars from your shell/secret
-  manager rather than writing them into `k-shui.yaml`.
+- **Bare `uvx`/`npx`**: export scalar `KSHUI__*` overrides, `${VAR}` values,
+  and any provider-key variable named by `apiKeyEnv` from your shell/secret
+  manager rather than writing secrets into `k-shui.yaml`.
+
+For `agent.connections[]`, `apiKeyEnv` stores only the name of the provider-key
+environment variable. The administrator also chooses the provider, exact model,
+and current contracted input/output rates on the server; the browser cannot
+supply or override them. Restrict provider-account permissions and spend limits
+outside k-shui as well as setting `agent.maxRunCostUsd` locally.
+
+## k-shui Agent
+
+- The agent refuses anonymous sessions and deployments with `auth.type: none`.
+  Keep `agent.enabled: false` until basic or OIDC login, user roles, cluster
+  grants, provider connectivity, and the configured price budget have been
+  tested.
+- Start in Inspect mode with `agent.allowMutations: false`. Use
+  `agent.allowedClusters` and `agent.allowedTools`, plus the corresponding
+  per-connection fields, to reduce scope. `allowedTools` restricts inspection
+  tools; operation types use a separate built-in allowlist. These lists can
+  only narrow the signed-in user's permissions; they do not grant Kafka
+  authority.
+- Agent evidence is bounded, timestamped metadata. Message payloads, raw
+  logs/traces, credentials, and sensitive configuration values are excluded.
+  Resource names and other retrieved text are still sent to the configured AI
+  provider, so assess its data-processing terms for your environment. Train
+  users not to paste payloads, credentials, or other secrets into prompts.
+- Investigation transcripts and resource metadata persist in the k-shui
+  database. Apply the same access control, encryption, backup, retention, and
+  deletion policy you use for other operational records.
+- If enabling `agent.allowMutations`, remember that Operate mode covers a
+  smaller allowlist than the full UI. The engine rechecks the acting user's
+  role and cluster access, server/cluster read-only policy, preview expiry and
+  target state before dispatch; the user must review the exact preview and any
+  typed confirmation. Execution results and verification are audited.
+- Run one k-shui application worker/process while the agent is enabled. Current
+  run admission and interrupted-run recovery do not coordinate across replicas,
+  even with a shared database. `agent.maxConcurrentRuns` only limits work
+  inside that process.
+
+See [`../k-shui-agent.md`](../k-shui-agent.md) for the complete operating and
+data policy.
 
 ## Network
 

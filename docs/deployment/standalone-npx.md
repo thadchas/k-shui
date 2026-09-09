@@ -8,6 +8,24 @@ k-shui, it runs the real Python CLI for you.
 npx k-shui serve --config k-shui.yaml --port 8090
 ```
 
+This starts the management engine with the agent disabled unless your config
+explicitly enables it with authenticated, server-managed AI connections.
+
+## Enable k-shui Agent
+
+For the normal uv/uvx/pipx launcher path, configure `auth` and `agent` using
+[`../k-shui-agent.md`](../k-shui-agent.md) and provide every referenced secret,
+including the variable named by `apiKeyEnv`, in the launching process
+environment. The Python server inherits it; the browser does not receive the
+provider key. Start with `allowMutations: false`, sign in as an admin, and test
+**Settings → AI connections**.
+
+The launcher's `--docker` mode currently mounts `k-shui.yaml` but does not pass
+arbitrary host environment variables into the container. For an agent-enabled
+container, use the explicit `docker run --env ...` command in `docker.md` or
+Compose/Helm/Kustomize instead. Run a single k-shui application worker/process
+while the agent is enabled.
+
 ## What it does
 
 In order:

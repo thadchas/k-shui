@@ -1,9 +1,32 @@
-# Roadmap
+# Agent-driven Kafka management roadmap
 
 k-shui is pre-1.0 and under active development. This is a living, directional
 list, not a committed schedule — see the [issue tracker](https://github.com/thadchas/k-shui/issues)
 for what's actually being worked on, and [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
 to help push something up the list.
+
+## Product priority: investigations and reviewed operations
+
+Lead with **k-shui Agent** as the way to investigate Kafka and request supported
+changes. The **k-shui engine** connects services, enforces authority, and records
+outcomes; the visual workspace gives operators the underlying resources and
+expert controls. Prioritize useful evidence, clear next steps, and trustworthy
+execution before expanding the number of tools or providers.
+
+The current workspace includes an agent MVP with scoped investigations,
+evidence links, saved history, bounded runs, and selected topic, connector/task,
+and consumer-offset operations. It is disabled by default, requires sign-in,
+and separates preparation from user-triggered execution. See
+[the current capability guide](k-shui-agent.md), including its single-process
+requirement and outstanding live-validation work. This is not a claim that the
+MVP has shipped in a published package or passed production evaluation.
+
+The [product direction](product-improvement-plan.md) explains the investigation
+experience and proposed follow-on work. Expanded administrative tools, additional
+agent runtimes/providers, payload sampling, and unattended remediation are not
+current capabilities. The sections below retain platform milestones and
+candidate ideas; their version labels do not override current code or release
+evidence. Finalized work follows the [planning policy](../AGENTS.md#publish-finalized-plans).
 
 ## v0.1 — initial release
 
@@ -16,10 +39,10 @@ Control-Center-style alerting (email/Slack/PagerDuty/Teams/webhook), ACLs/
 quotas/SCRAM/KRaft quorum, audit log, basic/OIDC auth, light/dark theme. See
 [`CHANGELOG.md`](../CHANGELOG.md).
 
-## v0.2 — operator safety & incident ergonomics (in progress, unreleased)
+## Operator safety & incident ergonomics baseline
 
-Delivered on `main` after a Kafka-practitioner UX review — see
-[`CHANGELOG.md`](../CHANGELOG.md#unreleased): role enforcement on every
+The changelog records the earlier Kafka-practitioner UX work in
+[`0.1.0`](../CHANGELOG.md#010): role enforcement on every
 integration router and RBAC gating in the UI, connector secret masking, live
 tail with pause / follow-key / header filters, per-partition seek, partition
 health with preferred-leader election and reassignment planning, lag in
@@ -40,7 +63,7 @@ Known gaps carried forward:
   the destructive-dialog gates; API behaviour is validated against a live
   Kafka 4.3 cluster manually.
 
-## Near-term (v0.2 – v0.4)
+## Near-term supporting capabilities (v0.2 – v0.4)
 
 - **Kafka Streams topology view** — visualize a Kafka Streams application's
   sub-topology graph (source/processor/sink nodes, state stores,
@@ -58,7 +81,7 @@ Known gaps carried forward:
 - **Consumer group rebalance insight** — visualize partition assignment
   changes over time, not just a lag snapshot.
 
-## Mid-term (v0.5 – v0.8)
+## Mid-term supporting capabilities (v0.5 – v0.8)
 
 - **Multi-tenant RBAC** — per-resource (topic/consumer-group/connector
   pattern) permissions layered on top of today's cluster-scoped
@@ -75,8 +98,9 @@ Known gaps carried forward:
   from the browser through k-shui's proxy calls into Kafka/Connect/Flink/etc.
   requests, so a slow page load is traceable end to end, not just at the
   k-shui process boundary.
-- **Saved views** — list/filter state is already URL-shareable; add named,
-  persisted views and message-browser query presets on top of it.
+- **Saved views** — the current workspace includes browser-local named topic
+  views and message-search presets. Team sharing and server-managed persistence
+  remain separate work; browser-local views are not agent investigation history.
 
 ## Longer-term (toward v1.0)
 
