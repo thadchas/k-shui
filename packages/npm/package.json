@@ -1,6 +1,6 @@
 {
   "name": "k-shui",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Run k-shui (Kafka Streaming Hub UI) with npx — no local Python install required. Uses uv/uvx or pipx when available, offers to install uv otherwise, or runs the Docker image with --docker.",
   "keywords": [
     "kafka",

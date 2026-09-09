@@ -11,6 +11,21 @@ that land on `main`, and new versions are inserted directly below this note. Do
 not add sections by hand — write a good pull request title and description
 instead. See [`docs/development/releasing.md`](docs/development/releasing.md).
 
+## [0.2.0](https://github.com/thadchas/k-shui/compare/v0.1.0...v0.2.0) (2026-09-09)
+
+
+### Features
+
+* **agent:** add scoped investigations and verified operations ([#34](https://github.com/thadchas/k-shui/issues/34)) ([c094029](https://github.com/thadchas/k-shui/commit/c094029a3a9fc50705dd319e5892bc7f164573b7))
+* P1 product and UX improvements with unit and e2e coverage ([#33](https://github.com/thadchas/k-shui/issues/33)) ([b90627d](https://github.com/thadchas/k-shui/commit/b90627d72f6f6bf2833c9484858a50f49a3d3286))
+
+
+### Documentation
+
+* **aws:** document demo architecture and pricing ([#68](https://github.com/thadchas/k-shui/issues/68)) ([ebda367](https://github.com/thadchas/k-shui/commit/ebda367e5da64084a107901947ba9030b8b608a9)), closes [#61](https://github.com/thadchas/k-shui/issues/61) [#62](https://github.com/thadchas/k-shui/issues/62) [#63](https://github.com/thadchas/k-shui/issues/63) [#64](https://github.com/thadchas/k-shui/issues/64) [#65](https://github.com/thadchas/k-shui/issues/65) [#66](https://github.com/thadchas/k-shui/issues/66)
+* lead documentation and website with agent-driven Kafka management ([#79](https://github.com/thadchas/k-shui/issues/79)) ([6a74669](https://github.com/thadchas/k-shui/commit/6a746698869d94cc0603945b4364a51b39e6632d))
+* **site:** publish Starlight documentation on GitHub Pages ([#73](https://github.com/thadchas/k-shui/issues/73)) ([1899297](https://github.com/thadchas/k-shui/commit/189929728fbcf64ddc465cb9e80f759fccd8c098))
+
 ## [0.1.0]
 
 The initial release: everything below was written by hand before the release
