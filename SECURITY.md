@@ -75,7 +75,7 @@ and parameters, and observed resource state. A human reviews that preview and
 supplies typed confirmation for consequential actions. The engine rechecks
 authority and state, durably claims dispatch, verifies the result, and writes
 audit evidence. Supported mutations are limited to the topic, connector, and
-consumer-offset actions in [`docs/k-shui-agent.md`](docs/k-shui-agent.md).
+consumer-offset actions in [the k-shui Agent guide](https://thadchas.github.io/k-shui-docs/next/k-shui-agent/).
 
 Run an Agent-enabled deployment in one application process. Current run
 admission and interrupted-run recovery are process-local; a shared database
@@ -83,7 +83,8 @@ does not make independently starting Agent workers supported.
 
 ## Hardening guidance
 
-See `docs/deployment/security-hardening.md` for recommended production
+See [the security-hardening guide](https://thadchas.github.io/k-shui-docs/next/deployment/security-hardening/)
+for recommended production
 settings: enabling `auth`, running behind TLS, restricting the container's
 `NetworkPolicy`, keeping credentials in Kubernetes Secrets rather than the
 rendered ConfigMap (`${VAR}` expansion — see `backend/k_shui/config.py`), and

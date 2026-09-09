@@ -1,6 +1,28 @@
 # Repository instructions
 
-Read `ARCHITECTURE.md` for platform contracts and `CONTRIBUTING.md` for contribution conventions.
+Read `ARCHITECTURE.md` for platform contracts, `CONTRIBUTING.md` for contribution
+conventions, and `RELEASING.md` for the release and documentation-handoff process.
+
+## Repository boundaries
+
+This repository is the **application**: backend, frontend, packaging, deployment
+manifests, and release tooling. It keeps `README.md`, `ARCHITECTURE.md`,
+`DESIGN.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`,
+`CHANGELOG.md`, `RELEASING.md` and the per-package READMEs — and **no public
+guide or marketing source at all**.
+
+- Narrative guides, screenshots, the published documentation site and the
+  per-release archives live in
+  [`thadchas/k-shui-docs`](https://github.com/thadchas/k-shui-docs).
+- The marketing page, brand assets and the legacy-route redirect generator live
+  in [`thadchas/k-shui-website`](https://github.com/thadchas/k-shui-website).
+
+Do not re-create a `docs/` or `site/` tree here. Link to
+`https://thadchas.github.io/k-shui-docs/next/<slug>/` — there is no stable
+release yet, so never link `/latest/`. What this repository still generates is
+the machine-readable reference for one release
+(`scripts/generate_release_reference.py`), which `release.yml` hands to the docs
+repository.
 
 ## Product and documentation direction
 

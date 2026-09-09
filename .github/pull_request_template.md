@@ -32,12 +32,15 @@ The `pr-lint` check enforces this, so a red X here is usually a title to reword.
 - [ ] `helm lint charts/k-shui` / `helm template t charts/k-shui -f charts/k-shui/values-lakestream.yaml`
 - [ ] `kubectl kustomize deploy/kustomize/overlays/dev`
 - [ ] Tried against a real cluster
-- [ ] Docs updated (`docs/`, `README.md`, `docs/deployment/configuration-reference.md`)
+- [ ] `README.md` updated, and a matching pull request opened in
+      [`thadchas/k-shui-docs`](https://github.com/thadchas/k-shui-docs) if this
+      changes user-facing behavior
 
 ## Release impact
 
 - [ ] User-facing behavior changes (make sure the title says `feat` or `fix`)
-- [ ] Config/API changes are reflected in `docs/deployment/configuration-reference.md` and `ARCHITECTURE.md`
+- [ ] Config/API changes are reflected in `ARCHITECTURE.md` (the generated
+      configuration and OpenAPI reference follows automatically at release time)
 - [ ] **Breaking change** — the title carries `!` and this description ends with a
       `BREAKING CHANGE:` footer describing what broke and what operators must do
 

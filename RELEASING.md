@@ -10,6 +10,7 @@ published without a human merging a pull request.
 - [The contract](#the-contract)
 - [Writing a pull request](#writing-a-pull-request)
 - [What gets released, and when](#what-gets-released-and-when)
+- [The documentation handoff](#the-documentation-handoff)
 - [Agent release claims](#agent-release-claims)
 - [Cutting a release](#cutting-a-release)
 - [The moving parts](#the-moving-parts)
@@ -71,7 +72,7 @@ changelog readable. The usual ones track the repo: `backend`, `frontend`, `api`,
 `partitions`, `schemas`, `connect`, `ksql`, `flink`, `metrics`, `lineage`,
 `alerts`, `auth`, `rbac`, `audit`, `security`, `docker`, `compose`, `helm`,
 `chart`, `kustomize`, `npm`, `ci`, `deps`, `release`. The full list lives in
-`KNOWN_SCOPES` in [`scripts/conventional_commit.py`](../../scripts/conventional_commit.py).
+`KNOWN_SCOPES` in [`scripts/conventional_commit.py`](scripts/conventional_commit.py).
 
 Style rules `pr-lint` enforces: lower-case type, lower-case scope, exactly one
 space after the colon, no trailing period, under 100 characters (it warns past
@@ -114,14 +115,16 @@ python3 scripts/conventional_commit.py --header "fix: stop the wedge"
 
 ## What gets released, and when
 
-Every release publishes the same commit four ways:
+Every release publishes the same commit four ways, then hands it to the
+documentation repository:
 
-| Artifact     | Where                                            | Notes                                               |
-| ------------ | ------------------------------------------------ | --------------------------------------------------- |
-| Python wheel | [PyPI `k-shui`](https://pypi.org/p/k-shui)       | trusted publishing (OIDC), ships the built SPA      |
-| npm launcher | [`k-shui`](https://www.npmjs.com/package/k-shui) | provenance-signed; prereleases go to the `next` tag |
-| Container    | `ghcr.io/<owner>/k-shui`                         | multi-arch, cosign keyless signature, SPDX SBOM     |
-| Helm chart   | `oci://ghcr.io/<owner>/charts/k-shui`            | `version` and `appVersion` both track the release   |
+| Artifact         | Where                                            | Notes                                               |
+| ---------------- | ------------------------------------------------ | --------------------------------------------------- |
+| Python wheel     | [PyPI `k-shui`](https://pypi.org/p/k-shui)       | trusted publishing (OIDC), ships the built SPA      |
+| npm launcher     | [`k-shui`](https://www.npmjs.com/package/k-shui) | provenance-signed; prereleases go to the `next` tag |
+| Container        | `ghcr.io/<owner>/k-shui`                         | multi-arch, cosign keyless signature, SPDX SBOM     |
+| Helm chart       | `oci://ghcr.io/<owner>/charts/k-shui`            | `version` and `appVersion` both track the release   |
+| Reference bundle | asset on the GitHub release                      | consumed by `thadchas/k-shui-docs` — see below      |
 
 Build metadata (`+build.5`) is rejected by the publishing workflow because Docker
 tags cannot contain `+`. Python wheel versions use PEP 440 normalization (for
@@ -129,6 +132,54 @@ example, `1.4.0-rc.1` becomes `1.4.0rc1`).
 
 A prerelease tag (`v1.4.0-rc.1`) publishes everywhere but never moves the
 `latest` Docker tag, the `X.Y` Docker tag, or the npm `latest` dist-tag.
+
+## The documentation handoff
+
+Guides, screenshots and the published site no longer live in this repository —
+they live in [`thadchas/k-shui-docs`](https://github.com/thadchas/k-shui-docs),
+and the marketing page in
+[`thadchas/k-shui-website`](https://github.com/thadchas/k-shui-website). What
+this repository still owns is the machine-generated half of the documentation:
+the OpenAPI document, the configuration schema and reference, the install
+matrix and the changelog section for one tag.
+
+`scripts/generate_release_reference.py` produces them:
+
+```bash
+uv run --project backend python scripts/generate_release_reference.py \
+  --tag v1.4.0 --commit "$(git rev-parse v1.4.0^{commit})" \
+  --output-dir dist/reference --check
+```
+
+It writes `k-shui-docs-reference-<tag>/` — `manifest.json`, `openapi.json`,
+`configuration.json`, `configuration.md`, `install.json`, `release-notes.md` —
+plus the tarball and its `.sha256`. Two properties matter and both are tested:
+
+- **No side effects.** The app is constructed, never started. `lifespan` is not
+  entered, so there is no database, sampler, alert engine, agent recovery or
+  Kafka client, and `Settings()` comes from in-code defaults with `KSHUI_CONFIG`
+  pointed at a path that cannot exist and every `KSHUI__*` variable stripped.
+  A deployment's configuration file and its secrets can never reach a published
+  document.
+- **Determinism.** The same commit always produces the same bytes — no wall
+  clock anywhere, sorted JSON, and a tarball with zeroed timestamps and
+  ownership. `--check` regenerates into a temporary directory and diffs, and CI
+  runs it on every pull request.
+
+The `docs-handoff` job in `release.yml` runs it after `pypi`, `npm`, `docker`,
+`helm` **and** `github-release` have all succeeded, attaches the bundle to the
+release, and sends a `release-ready` `repository_dispatch` to `k-shui-docs`
+under a short-lived GitHub App token. That opens an import pull request over
+there; **it publishes nothing.** The documentation site deploys only when
+somebody reviews and merges that pull request.
+
+The job waits on the publishers rather than listening for `release.published`
+because release-please creates the release *before* the artifacts exist — that
+event fires while PyPI, npm, GHCR and the chart registry are still empty.
+
+If the docs bot is not configured, `docs-handoff` writes an explanation to the
+job summary and stops. The release itself still publishes: documentation is
+downstream of publication and never blocks it.
 
 ## Agent release claims
 
@@ -194,14 +245,15 @@ git tag v1.4.0-rc.1 && git push origin main --tags
 
 | File                                                                                 | Role                                                                           |
 | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
-| [`release-please-config.json`](../../release-please-config.json)                     | version strategy, changelog sections, and every file whose version gets bumped |
-| [`.release-please-manifest.json`](../../.release-please-manifest.json)               | the last released version — release-please owns this file                      |
-| [`version.txt`](../../version.txt)                                                   | canonical version marker; everything else is mirrored from it                  |
-| [`.github/workflows/release-please.yml`](../../.github/workflows/release-please.yml) | maintains the release PR, tags, and calls the publisher                        |
-| [`.github/workflows/release.yml`](../../.github/workflows/release.yml)               | publishes PyPI + npm + GHCR + Helm for one tag                                 |
-| [`.github/workflows/pr-lint.yml`](../../.github/workflows/pr-lint.yml)               | enforces the title/description contract and version lock-step                  |
-| [`scripts/conventional_commit.py`](../../scripts/conventional_commit.py)             | the validator behind `pr-lint`, the `commit-msg` hook and `make commitlint`    |
-| [`scripts/check_versions.py`](../../scripts/check_versions.py)                       | asserts (or applies) one version across all ten declaration sites              |
+| [`release-please-config.json`](release-please-config.json)                     | version strategy, changelog sections, and every file whose version gets bumped |
+| [`.release-please-manifest.json`](.release-please-manifest.json)               | the last released version — release-please owns this file                      |
+| [`version.txt`](version.txt)                                                   | canonical version marker; everything else is mirrored from it                  |
+| [`.github/workflows/release-please.yml`](.github/workflows/release-please.yml) | maintains the release PR, tags, and calls the publisher                        |
+| [`.github/workflows/release.yml`](.github/workflows/release.yml)               | publishes PyPI + npm + GHCR + Helm for one tag                                 |
+| [`.github/workflows/pr-lint.yml`](.github/workflows/pr-lint.yml)               | enforces the title/description contract and version lock-step                  |
+| [`scripts/conventional_commit.py`](scripts/conventional_commit.py)             | the validator behind `pr-lint`, the `commit-msg` hook and `make commitlint`    |
+| [`scripts/check_versions.py`](scripts/check_versions.py)                       | asserts (or applies) one version across all ten declaration sites              |
+| [`scripts/generate_release_reference.py`](scripts/generate_release_reference.py) | builds the deterministic documentation reference bundle for one tag            |
 
 ### Why the tag push does not publish twice
 
@@ -230,7 +282,7 @@ charts/k-shui/Chart.yaml     chart version + appVersion
 The four plain-text files carry an `# x-release-please-version` comment; the npm manifests and lockfile are updated by JSON path. **Adding a new place that
 declares the version means adding it to both `SITES` in `check_versions.py` and
 `extra-files` in `release-please-config.json`** — a unit test in
-[`scripts/tests/test_release_tooling.py`](../../scripts/tests/test_release_tooling.py)
+[`scripts/tests/test_release_tooling.py`](scripts/tests/test_release_tooling.py)
 fails if the two lists disagree.
 
 ## Bootstrapping the first release
@@ -264,6 +316,11 @@ description` and the `ci` jobs as required status checks.
   configured as a [PyPI trusted
   publisher](https://docs.pypi.org/trusted-publishers/) for the `release`
   workflow. GHCR uses the built-in `GITHUB_TOKEN`.
+- **Docs bot.** Repository variable `DOCS_BOT_APP_ID` and secret
+  `DOCS_BOT_PRIVATE_KEY`, for a GitHub App installed on `thadchas/k-shui-docs`
+  with **Contents: write**. Without them `docs-handoff` skips (and says so);
+  with them it mints a short-lived installation token per run. No personal
+  access token is involved.
 
 ## Troubleshooting
 
@@ -288,6 +345,22 @@ the committed version declarations. Run `python3 scripts/check_versions.py
 just that workflow: Actions → `release` → _Run workflow_ → enter the tag. The
 jobs are idempotent apart from registries that reject a re-published version —
 in that case bump to the next patch version instead.
+
+**`docs-handoff` was skipped.** `vars.DOCS_BOT_APP_ID` is unset. The release
+published normally; set the variable and the `DOCS_BOT_PRIVATE_KEY` secret, then
+re-run the `release` workflow for that tag — or let the docs repository's daily
+`reconcile` workflow notice the release and open the import pull request itself.
+
+**`docs-handoff` failed.** Nothing is unpublished by this: it runs after every
+artifact is already public. Fix the cause and re-run the workflow for the tag;
+the job is idempotent (`gh release upload --clobber`, and a repeat dispatch for
+an already-imported tag is a no-op in the docs repository).
+
+**The reference bundle is not byte-reproducible.** Something in the generated
+documents now depends on the environment rather than the commit. Run
+`python3 scripts/generate_release_reference.py --tag v0.0.0-ci --commit
+$(git rev-parse HEAD) --output-dir /tmp/ref --check` and compare the two
+directories it names.
 
 **A `chore(release):` PR has a stale changelog.** Push more commits to `main`;
 release-please rewrites the open PR on every push. Do not edit its title or

@@ -29,7 +29,7 @@ verifies outcomes, and audits mutations. It is disabled by default. Enabling it
 requires basic or OIDC authentication plus an administrator-managed AI
 provider/model connection, explicit pricing, and a provider key in the server
 environment. Start with mutations disabled. See the
-[agent guide](https://github.com/thadchas/k-shui/blob/main/docs/k-shui-agent.md).
+[agent guide](https://thadchas.github.io/k-shui-docs/next/k-shui-agent/).
 
 The normal uv/uvx/pipx path inherits environment variables from the `npx`
 process. The `--docker` path currently does not forward arbitrary host

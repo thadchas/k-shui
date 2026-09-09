@@ -33,5 +33,6 @@ an external Postgres for durable state (dashboards, alert history, audit log).
 {{- if eq .Values.config.auth.type "none" }}
 
 WARNING: auth.type is "none" — every user has admin access. See
-docs/deployment/security-hardening.md before exposing this outside a trusted network.
+https://thadchas.github.io/k-shui-docs/next/deployment/security-hardening/
+before exposing this outside a trusted network.
 {{- end }}

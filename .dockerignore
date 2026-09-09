@@ -42,4 +42,3 @@ charts/
 deploy/compose/
 deploy/kustomize/
 packages/npm/
-docs/

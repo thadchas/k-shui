@@ -48,9 +48,12 @@ epic, and actionable issues according to [the repository planning policy](AGENTS
 4. Add or update tests for behavior you change. Backend routers should degrade
    gracefully (`503 problem+json`) when an integration is unconfigured, per
    `ARCHITECTURE.md`'s non-functional requirements — don't let the app crash.
-5. Update `docs/` when you change user-facing configuration or deployment
-   behavior; `docs/deployment/configuration-reference.md` should stay in sync
-   with `backend/k_shui/config.py`.
+5. User-facing configuration and deployment behavior is documented in
+   [`thadchas/k-shui-docs`](https://github.com/thadchas/k-shui-docs) — open a
+   pull request there in the same change. The generated half of the reference
+   (OpenAPI, configuration schema) is derived from `backend/k_shui/config.py`
+   at release time by `scripts/generate_release_reference.py`, so a config
+   change lands there on its own; the prose around it does not.
 6. Run the relevant validation before opening a PR:
    ```bash
    make lint && make test
@@ -75,7 +78,7 @@ and repository metadata:
 - Distinguish the implemented Agent MVP, optional deployment enablement, and
   future work. The current Agent is disabled by default, requires an
   authenticated human, uses bounded metadata tools, and supports only the
-  reviewed operations documented in [`docs/k-shui-agent.md`](docs/k-shui-agent.md).
+  reviewed operations documented in [the k-shui Agent guide](https://thadchas.github.io/k-shui-docs/next/k-shui-agent/).
 - Tie capability, safety, compatibility, and comparison claims to current code,
   tests, or cited evidence. Do not imply autonomous execution or promote roadmap
   items as available features.
@@ -137,7 +140,7 @@ CI (`.github/workflows/ci.yml`) runs backend tests across Python 3.11–3.13,
 frontend lint/build, `helm lint`, a Docker build, and a kustomize render on every
 pull request — please make sure it's green before requesting review.
 
-**Full release process:** [`docs/development/releasing.md`](docs/development/releasing.md).
+**Full release process:** [RELEASING.md](RELEASING.md).
 
 ## Security issues
 

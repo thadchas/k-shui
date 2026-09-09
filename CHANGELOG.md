@@ -9,14 +9,14 @@ All notable changes to k-shui are documented here. Format loosely follows
 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/#summary)
 that land on `main`, and new versions are inserted directly below this note. Do
 not add sections by hand — write a good pull request title and description
-instead. See [`docs/development/releasing.md`](docs/development/releasing.md).
+instead. See [RELEASING.md](RELEASING.md).
 
 ## [0.1.0]
 
 The initial release: everything below was written by hand before the release
 automation existed. Operator-safety and incident-ergonomics work driven by a
 Kafka-practitioner UX review, on top of the first complete backend, frontend and
-packaging drop. Tracked in [`docs/roadmap.md`](docs/roadmap.md) and the
+packaging drop. Tracked in [the roadmap](https://thadchas.github.io/k-shui-docs/next/roadmap/) and the
 [issue tracker](https://github.com/thadchas/k-shui/issues).
 
 ### Security

@@ -5,10 +5,11 @@ type: application
 version: 0.1.0 # x-release-please-version
 appVersion: "0.1.0" # x-release-please-version
 kubeVersion: ">=1.25.0-0"
-home: https://github.com/thadchas/k-shui
+home: https://thadchas.github.io/k-shui-website/
 sources:
   - https://github.com/thadchas/k-shui
-icon: https://raw.githubusercontent.com/thadchas/k-shui/main/docs/assets/logo.png
+# Brand assets are a reviewed copy in the website repository; this one keeps none.
+icon: https://raw.githubusercontent.com/thadchas/k-shui-website/main/brand/logo.svg
 keywords:
   - kafka
   - kafka-ui
@@ -27,4 +28,6 @@ annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/links: |
     - name: Documentation
-      url: https://github.com/thadchas/k-shui/tree/main/docs
+      url: https://thadchas.github.io/k-shui-docs/next/
+    - name: Helm guide
+      url: https://thadchas.github.io/k-shui-docs/next/deployment/kubernetes-helm/

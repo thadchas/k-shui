@@ -1,7 +1,8 @@
 # Prod-overlay config. Auth/credentials should be layered in via a Secret + ${VAR}
 # expansion in a real deployment (see charts/k-shui/values-lakestream.yaml for the
 # equivalent Helm pattern); this file intentionally keeps auth minimal as a starting
-# point — see docs/deployment/security-hardening.md before going live.
+# point — see https://thadchas.github.io/k-shui-docs/next/deployment/security-hardening/
+# before going live.
 server:
   host: 0.0.0.0
   port: 8090
