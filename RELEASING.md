@@ -322,6 +322,41 @@ description` and the `ci` jobs as required status checks.
   with them it mints a short-lived installation token per run. No personal
   access token is involved.
 
+## Creating the docs bot GitHub App
+
+One-time, and it has to be done in the web UI — the REST API cannot mint an App
+from a token. Until it exists, `docs-handoff` skips with a warning and releases
+publish normally; the documentation simply is not updated automatically.
+
+1. **Settings → Developer settings → GitHub Apps → New GitHub App.**
+   Name it something unused, e.g. `k-shui-release-bot`; homepage can be this
+   repository. **Untick Webhook → Active** — nothing listens for one.
+2. **Repository permissions**, and nothing beyond these:
+   - **Contents: Read and write** — sending a repository dispatch to a
+     destination repository requires Contents write there, and the importer
+     pushes the `release-docs/<tag>` branch.
+   - **Pull requests: Read and write** — opening the import and the website
+     metadata pull requests.
+   - **Metadata: Read-only** — mandatory, granted automatically.
+3. **Where can this App be installed:** *Only on this account*. Create it.
+4. On the App's page, **Generate a private key**. A `.pem` downloads; it is
+   shown once.
+5. **Install App → Only select repositories →** `k-shui`, `k-shui-docs`,
+   `k-shui-website`.
+6. In **each** of those three repositories add:
+   - repository **variable** `DOCS_BOT_APP_ID` — the numeric App ID;
+   - repository **secret** `DOCS_BOT_PRIVATE_KEY` — the whole `.pem`, including
+     the `-----BEGIN`/`-----END` lines.
+
+Every workflow mints its own installation token with
+`actions/create-github-app-token@v2`, scoped to the single repository and the
+permissions that job needs, and the token expires with the run. Pages deployment
+never uses this App: each repository's own workflow holds its own `pages: write`.
+
+To verify without cutting a release, run `docs-handoff` from the Actions tab
+against an existing tag — it regenerates the bundle, re-uploads it and re-sends
+the dispatch, and both sides are idempotent.
+
 ## Troubleshooting
 
 **`pr-lint` is red.** Read the job summary — it names the exact rule and shows
