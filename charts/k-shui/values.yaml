@@ -178,9 +178,11 @@ metrics:
     labels: {}
 
 # -- Rendered as YAML into the ConfigMap mounted at /etc/k-shui/config.yaml. This mirrors
-# the schema documented in ARCHITECTURE.md / docs/deployment/configuration-reference.md.
+# the schema documented in ARCHITECTURE.md and at
+# https://thadchas.github.io/k-shui-docs/next/deployment/configuration-reference/
 # Sensitive fields should be "${ENV_VAR}" placeholders resolved from `existingSecret` above,
-# never plaintext — see docs/deployment/security-hardening.md.
+# never plaintext — see
+# https://thadchas.github.io/k-shui-docs/next/deployment/security-hardening/
 config:
   server:
     host: 0.0.0.0

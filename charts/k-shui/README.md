@@ -23,8 +23,8 @@ NetworkPolicy, persistence and a ServiceMonitor all turned on.
 
 The chart renders `.Values.config` as YAML into a ConfigMap mounted at
 `/etc/k-shui/config.yaml`. Its schema is documented in `../../ARCHITECTURE.md` and
-`../../docs/deployment/configuration-reference.md` — set `clusters`, `auth`, `database`,
-`telemetry`, `alerts`, etc. there.
+[the configuration reference](https://thadchas.github.io/k-shui-docs/next/deployment/configuration-reference/)
+— set `clusters`, `auth`, `database`, `telemetry`, `alerts`, etc. there.
 
 Keep secrets out of the ConfigMap: put `${VAR}` / `${VAR:-default}` placeholders in
 `config` and set `existingSecret` to a Secret whose keys are exposed to the container as
@@ -48,8 +48,8 @@ Agent-enabled deployments currently require one pod/application process. Set
 interrupted-run recovery do not coordinate across replicas. This constraint
 also means `values-lakestream.yaml` must be overridden before adding agent
 configuration because that example enables replicas and autoscaling. See
-[`../../docs/k-shui-agent.md`](../../docs/k-shui-agent.md) and
-[`../../docs/deployment/kubernetes-helm.md`](../../docs/deployment/kubernetes-helm.md)
+[the k-shui Agent guide](https://thadchas.github.io/k-shui-docs/next/k-shui-agent/) and
+[the Helm guide](https://thadchas.github.io/k-shui-docs/next/deployment/kubernetes-helm/)
 for a complete example and the operating boundaries.
 
 ## Validating

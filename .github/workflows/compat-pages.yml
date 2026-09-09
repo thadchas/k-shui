@@ -1,0 +1,130 @@
+# Legacy-route compatibility for https://thadchas.github.io/k-shui/
+#
+# The guides and the marketing page moved out of this repository — to
+# `thadchas/k-shui-docs` and `thadchas/k-shui-website`. Everything ever
+# published under `/k-shui/` must keep resolving, so this repository's own
+# GitHub Pages site now serves nothing but redirects.
+#
+# This repository holds no marketing or guide source of its own, and no route
+# map either: the route map (`compat/route-map.json`) and its generator
+# (`scripts/generate-redirects.mjs`) live in `k-shui-website`, next to the
+# marketing routes they describe. This workflow checks that repository out at a
+# pinned ref, runs the generator, and deploys the result here. Pages deployment
+# permissions stay in the repository that owns the Pages site — this one.
+#
+# Every generated page carries a canonical link, a meta refresh, and a visible
+# fallback link, so it works without JavaScript.
+#
+# **This deployment is kept indefinitely.** Retiring it breaks every link,
+# bookmark and search result that predates the split, so it comes down only
+# after a separately approved retirement decision — not as a side effect of
+# tidying up workflows.
+name: compat-pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "k-shui-website ref to build the redirects from (branch, tag or sha)"
+        required: false
+        type: string
+  push:
+    branches: [main]
+    paths: [".github/workflows/compat-pages.yml"]
+
+permissions:
+  contents: read
+
+# Pages allows one deployment at a time; never cancel one halfway.
+concurrency:
+  group: compat-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: generate redirects from k-shui-website
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # cross-repository checkout of a public repository
+    steps:
+      - name: Resolve the k-shui-website ref
+        id: source
+        env:
+          # Precedence: the ref typed into a manual run, then the repository
+          # variable, then the documented default.
+          #
+          # TODO: pin `COMPAT_WEBSITE_REF` to a 40-hex commit sha once
+          # `thadchas/k-shui-website` exists and its first redirect generator has
+          # been reviewed. Building this repository's public site from another
+          # repository's moving branch is a supply-chain hole; `main` is the
+          # bootstrap default only.
+          INPUT_REF: ${{ inputs.ref }}
+          VAR_REF: ${{ vars.COMPAT_WEBSITE_REF }}
+        run: |
+          set -euo pipefail
+          ref="${INPUT_REF:-${VAR_REF:-main}}"
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+          echo "Building legacy redirects from thadchas/k-shui-website@${ref}" >> "$GITHUB_STEP_SUMMARY"
+          if [[ ! "${ref}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::warning title=Unpinned redirect source::thadchas/k-shui-website@${ref} is not a commit sha; set the COMPAT_WEBSITE_REF repository variable to pin it."
+          fi
+
+      - name: Check out thadchas/k-shui-website
+        uses: actions/checkout@v7
+        with:
+          repository: thadchas/k-shui-website
+          ref: ${{ steps.source.outputs.ref }}
+          path: website
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # The generator is a plain Node script; install only if that repository
+      # has declared dependencies for it.
+      - name: Install the generator's dependencies, if it has any
+        working-directory: website
+        run: |
+          set -euo pipefail
+          if [[ -f package-lock.json ]]; then
+            npm ci --omit=dev
+          else
+            echo "no package-lock.json — the generator runs on the Node standard library"
+          fi
+
+      # `--docs-channel next` because there is no stable release yet: legacy
+      # `/k-shui/docs/<slug>/` URLs resolve to `/k-shui-docs/next/<slug>/`
+      # rather than to a `/latest/` channel that does not exist. Switch this to
+      # `latest` in the same change that publishes the first stable release.
+      - name: Generate the redirect site
+        working-directory: website
+        run: node scripts/generate-redirects.mjs --out ./compat-dist --docs-channel next
+
+      - name: The output has to be a real site
+        working-directory: website
+        run: |
+          set -euo pipefail
+          test -s compat-dist/index.html
+          echo "generated $(find compat-dist -type f | wc -l) files" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/compat-dist
+
+  deploy:
+    name: deploy the redirects to this repository's Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Publish the compatibility redirects
+        id: deployment
+        uses: actions/deploy-pages@v4

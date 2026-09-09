@@ -52,7 +52,7 @@ k-shui = "k_shui.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/thadchas/k-shui"
-Documentation = "https://github.com/thadchas/k-shui/tree/main/docs"
+Documentation = "https://thadchas.github.io/k-shui-docs/next/"
 
 [build-system]
 requires = ["hatchling"]

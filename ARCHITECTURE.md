@@ -11,7 +11,7 @@ Product documentation leads with ask → investigate → review → execute and 
 This file retains implementation technologies, configuration identifiers, and API
 contracts needed by contributors. Agent capability is narrower than the full
 resource API: a UI operation is not automatically available to the agent.
-See [the agent guide](docs/k-shui-agent.md) for current scope and deployment.
+See [the agent guide](https://thadchas.github.io/k-shui-docs/next/k-shui-agent/) for current scope and deployment.
 
 Deployable as: `uvx k-shui`, `npx k-shui`, Docker image, docker compose, Helm
 chart / Kustomize on Kubernetes (CNCF-aligned: health probes, OTel traces,
@@ -64,12 +64,20 @@ k-shui/
 │   ├── kustomize/           base + overlays (dev, prod)
 │   └── examples/            k-shui.yaml samples (local lakestream cluster, multi-cluster, SASL/TLS)
 ├── charts/k-shui/           Helm chart (ServiceMonitor, HPA, PDB, NetworkPolicy, Ingress, OIDC secrets)
-├── docs/                    user docs (getting-started, configuration, features/*, deployment/*, api)
-├── scripts/                 release tooling (conventional-commit lint, version lock-step) + its unittest suite
+├── scripts/                 release tooling (conventional-commit lint, version lock-step,
+│                            documentation reference bundle) + its unittest suite
 ├── version.txt              canonical version; mirrored into pyproject/__init__/package.json×2/Chart.yaml
 └── .github/workflows/       ci.yml (lint+test+build), pr-lint.yml (conventional commits),
                              release-please.yml (semver + changelog + tag), release.yml (PyPI, npm, GHCR image, chart OCI)
 ```
+
+User guides, screenshots and the published documentation site live in
+[`thadchas/k-shui-docs`](https://github.com/thadchas/k-shui-docs); the marketing
+page and brand assets live in
+[`thadchas/k-shui-website`](https://github.com/thadchas/k-shui-website). This
+repository keeps the generated half of the reference — `scripts/generate_release_reference.py`
+freezes the OpenAPI document and the configuration schema for each release and
+hands them to the docs repository ([`RELEASING.md`](RELEASING.md)).
 
 ## Configuration (YAML `k-shui.yaml`, overridable by env `KSHUI__<SECTION>__<KEY>`)
 
@@ -329,7 +337,7 @@ The optional Agent is disabled by default. `agent.enabled`, `allowMutations`, cl
 allowlists and run limits are deployment-managed. Connections specify an OpenAI or
 Anthropic model, a server environment secret reference and contracted token rates;
 inference credentials grant no Kafka authority. Full configuration fields and defaults
-are in [the configuration reference](docs/deployment/configuration-reference.md#agent).
+are in [the configuration reference](https://thadchas.github.io/k-shui-docs/next/deployment/configuration-reference/#agent).
 
 - `GET /agent/status` reports availability, acting user, effective modes, policy and visible connections; anonymous callers receive disabled status without credentials.
 - `GET /agent/connections` and `POST /agent/connections/{id}/test` list scoped connections and test tool capability (test requires an administrator).
@@ -358,7 +366,7 @@ status includes effective inspection `allowedTools` so resource starters respect
 `agent_investigations` and `agent_operations` persist in the existing SQLAlchemy database.
 Use a single application process because run admission and restart recovery assume one
 worker. Shutdown cancels active investigations; startup marks interrupted work without
-redispatch. See [Agent deployment and supported operations](docs/k-shui-agent.md).
+redispatch. See [Agent deployment and supported operations](https://thadchas.github.io/k-shui-docs/next/k-shui-agent/).
 
 ## Frontend routes (react-router v7)
 

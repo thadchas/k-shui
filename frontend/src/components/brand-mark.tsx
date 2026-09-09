@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 
-/** k-shui logo mark — gradient teal tile with the flowing-wave K (see docs/brand/). */
+/** k-shui logo mark — gradient teal tile with the flowing-wave K; the brand guide is
+ * at https://github.com/thadchas/k-shui-website/tree/main/brand. */
 export function BrandMark({ className }: { className?: string }) {
   return (
     <svg

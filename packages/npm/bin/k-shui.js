@@ -73,7 +73,7 @@ k-shui prefers an existing 'uv'/'uvx' or 'pipx' on PATH. If neither is found, it
 to install uv (https://astral.sh/uv) to ~/.k-shui/bin and re-exec through it. Pass
 --docker to run the published container image instead (requires Docker).
 
-Docs: https://github.com/thadchas/k-shui/tree/main/docs
+Docs: https://thadchas.github.io/k-shui-docs/next/
 `);
 }
 
