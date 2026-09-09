@@ -227,10 +227,10 @@ complete walkthrough.
 | ![Schemas](https://thadchas.github.io/k-shui-docs/images/schemas.png)           | ![Kafka Connect](https://thadchas.github.io/k-shui-docs/images/connect.png)         | ![Flink job](https://thadchas.github.io/k-shui-docs/images/flink-job.png)    |
 
 Shown in dark theme. The documentation image store also carries light-theme
-captures of the clusters, overview, topics and message-browser screens
-(`clusters-light.png`, `overview-light.png`, `topics-light.png`,
-`messages-light.png` under
-<https://thadchas.github.io/k-shui-docs/images/>).
+captures of the clusters, overview, topics and message-browser screens —
+`clusters-light.png`, `overview-light.png`, `topics-light.png` and
+`messages-light.png`, browsable in
+[the documentation repository](https://github.com/thadchas/k-shui-docs/tree/main/content/images).
 
 ## Connect to your existing stack
 
