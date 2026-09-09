@@ -2,9 +2,27 @@
 
 ## What it does
 
-Manage one or more Kafka Connect clusters: connector lifecycle, task status
-and traces, plugin discovery/config validation, and a derived MirrorMaker2 /
-replicator view.
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its Kafka Connect workspace manages one or more Connect
+clusters: connector lifecycle, task status and traces, plugin discovery/config
+validation, and a derived MirrorMaker2 / replicator view.
+
+## k-shui Agent workflow
+
+Select **Investigate** on a connector to carry its Kafka cluster, Connect
+instance, connector name, and current time window into k-shui Agent. Inspect
+mode retrieves connector and task states plus recognized error categories;
+raw stack traces and other free-form error text are deliberately omitted.
+
+[k-shui Agent](../k-shui-agent.md) is disabled by default and requires an
+authenticated k-shui user.
+
+In Operate mode, the agent can prepare pause, resume, connector restart, or
+task restart for the exact selected Connect instance and resource. A human
+reviews and executes the preview; current authority and target state are
+checked again at execution. Creating, editing, stopping, or deleting a
+connector, changing connector offsets, bulk actions, and plugin validation
+remain visual workspace and direct k-shui engine APIs workflows and are not agent tools.
 
 ## UI walkthrough
 

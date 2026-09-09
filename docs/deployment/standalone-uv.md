@@ -3,6 +3,14 @@
 The fastest way to run k-shui locally is [uv](https://astral.sh/uv) — no virtualenv
 management required.
 
+> **Publication pending.** The `k-shui` package is not published to PyPI yet
+> (tracked in [#59](https://github.com/thadchas/k-shui/issues/59)), so the `uvx
+> k-shui` and `uv tool install k-shui` commands below do not resolve today. Until
+> it is published, use
+> [Running a pre-release or locally built wheel](#running-a-pre-release-or-locally-built-wheel)
+> or the source-build paths in
+> [`../getting-started.md`](../getting-started.md#1-run-k-shui).
+
 ## Run without installing anything
 
 ```bash
@@ -11,6 +19,23 @@ uvx k-shui serve --config k-shui.yaml --port 8090
 
 `uvx` downloads k-shui into an ephemeral, cached environment and runs it. Repeat
 invocations reuse the cache, so subsequent starts are fast.
+
+This starts the management engine with its configured defaults. k-shui Agent is
+the intended investigation workflow, but remains disabled until the YAML enables
+it alongside basic or OIDC authentication and a server-side AI connection.
+
+## Enable k-shui Agent
+
+Use the example in [`../k-shui-agent.md`](../k-shui-agent.md), provide every
+`${VAR}` and the provider-key variable named by `apiKeyEnv` from the launching
+shell or secret manager, then run the same `uvx ... serve` command. The child
+process inherits those environment variables; provider keys never need to be
+stored in YAML or entered in the browser. Start with `allowMutations: false`,
+sign in as an admin, and test **Settings → AI connections**.
+
+Run one k-shui application worker/process while the agent is enabled. The
+default CLI invocation satisfies this; do not wrap it in a multi-worker process
+manager until cross-process agent admission and recovery are supported.
 
 ## Running a pre-release or locally built wheel
 

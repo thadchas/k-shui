@@ -1,9 +1,15 @@
 # Contributing to k-shui
 
-Thanks for your interest in k-shui! This repo hosts a Python/FastAPI backend
-(`backend/`), a Vite/React frontend (`frontend/`), and packaging/deployment tooling
-(`deploy/`, `charts/`, `packages/npm/`, `.github/`). See `ARCHITECTURE.md` for the
-full config schema, REST API contract and repo layout every change should respect.
+Thanks for your interest in k-shui, an open-source, agent-driven Kafka
+management application. The k-shui Agent is the primary workflow, backed by the
+k-shui engine and a visual workspace for evidence review and direct expert
+control.
+
+This repo implements the engine as a Python/FastAPI backend (`backend/`), the
+workspace as a Vite/React frontend (`frontend/`), and packaging/deployment
+tooling in `deploy/`, `charts/`, `packages/npm/`, and `.github/`. See
+`ARCHITECTURE.md` for the full config schema, REST API contract, and repo layout
+every change should respect.
 
 ## Getting set up
 
@@ -32,6 +38,9 @@ make kustomize-dev   # render the dev kustomize overlay
 
 ## Making changes
 
+Finalized plans must be tracked in a linked GitHub Project, repository milestone,
+epic, and actionable issues according to [the repository planning policy](AGENTS.md#publish-finalized-plans).
+
 1. Open an issue first for anything non-trivial, so design gets discussed before code.
 2. Keep PRs focused — one logical change per PR.
 3. Follow the existing code style: `ruff` (backend) and `eslint`/`prettier`
@@ -50,6 +59,29 @@ make kustomize-dev   # render the dev kustomize overlay
    kubectl kustomize deploy/kustomize/overlays/dev
    docker compose -f deploy/compose/docker-compose.yml config
    ```
+
+## Product language and evidence
+
+Use these conventions in user-facing documentation, release notes, UI copy,
+and repository metadata:
+
+- Position k-shui as **open-source, agent-driven Kafka management**.
+- Present the **k-shui Agent** as the primary workflow, backed by the **k-shui
+  engine**, with the **visual workspace** supporting review and direct expert
+  control.
+- Retain implementation and provider names where technical accuracy requires
+  them, especially in API, architecture, configuration, security, and
+  deployment reference material.
+- Distinguish the implemented Agent MVP, optional deployment enablement, and
+  future work. The current Agent is disabled by default, requires an
+  authenticated human, uses bounded metadata tools, and supports only the
+  reviewed operations documented in [`docs/k-shui-agent.md`](docs/k-shui-agent.md).
+- Tie capability, safety, compatibility, and comparison claims to current code,
+  tests, or cited evidence. Do not imply autonomous execution or promote roadmap
+  items as available features.
+- Preserve release and legal history. Remove or correct current competitor
+  claims when they are stale or unsupported, and do not expand comparison
+  claims without current evidence.
 
 ## Pre-commit hooks
 

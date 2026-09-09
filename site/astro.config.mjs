@@ -13,7 +13,7 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'k-shui',
-      description: 'The open-source control center for Apache Kafka and its streaming ecosystem.',
+      description: 'Open-source, agent-driven Kafka management with scoped investigations and human-reviewed operations.',
       logo: { src: './assets/mark-small.svg' },
       favicon: '/assets/logo.svg',
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/thadchas/k-shui' }],
@@ -24,6 +24,7 @@ export default defineConfig({
         { label: 'Start here', items: [
           { label: 'Documentation overview', slug: 'docs' },
           { label: 'Getting started', slug: 'docs/getting-started' },
+          { label: 'k-shui Agent', slug: 'docs/k-shui-agent' },
           { label: 'Configuration', slug: 'docs/configuration' },
           { label: 'FAQ', slug: 'docs/faq' },
         ] },
@@ -32,7 +33,6 @@ export default defineConfig({
         { label: 'Reference', items: [
           { label: 'REST API', slug: 'docs/api' },
           { label: 'Architecture', slug: 'docs/architecture' },
-          { label: 'k-shui Agent', slug: 'docs/k-shui-agent' },
           { label: 'Comparison', slug: 'docs/comparison' },
           { label: 'Roadmap', slug: 'docs/roadmap' },
         ] },

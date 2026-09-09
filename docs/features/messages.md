@@ -2,8 +2,24 @@
 
 ## What it does
 
-Browse, filter, decode, produce, and export Kafka records for a topic —
-without a separate CLI tool.
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its message browser lets an operator browse,
+filter, decode, produce, and export Kafka records for a topic without a
+separate CLI tool.
+
+## k-shui Agent boundary
+
+k-shui Agent has no message-reader or message-producer tool. Its tools do not
+retrieve record keys, values, headers, raw bytes, exported records, or arbitrary
+message payloads as investigation evidence. From **Ask K-Shui**, it may inspect
+only bounded topic metadata and safe, non-secret topic configuration values.
+
+[k-shui Agent](../k-shui-agent.md) is disabled by default and requires an
+authenticated k-shui user.
+
+Use the visual workspace and direct k-shui engine APIs below when human-authorized payload access or
+production is required. Inspect remains metadata-only, and Operate cannot
+produce messages.
 
 ## UI walkthrough
 

@@ -1,5 +1,14 @@
 # Docker
 
+The image contains both k-shui Agent and the k-shui management engine. The
+agent is the intended investigation workflow, but remains disabled until the
+mounted configuration enables authenticated, server-managed AI connections.
+
+> **Publication pending.** No `ghcr.io/thadchas/k-shui` image has been published
+> yet (tracked in [#59](https://github.com/thadchas/k-shui/issues/59)). Build the
+> image locally with [Build](#build) below and run that tag, or use the Compose
+> demo stack in [`docker-compose.md`](docker-compose.md#quick-start-kafka--k-shui-only).
+
 `deploy/docker/Dockerfile` is a 3-stage build:
 
 1. `node:22-alpine` — builds the Vite/React SPA (`frontend/` → `frontend/dist`).
@@ -61,6 +70,32 @@ override the CMD to pass different flags, e.g.:
 docker run --rm -p 9000:9000 k-shui:local serve --host 0.0.0.0 --port 9000
 ```
 
+## Enable k-shui Agent
+
+Configure `auth.type: basic` or `oidc` plus `agent.enabled: true` in the mounted
+YAML, and declare each provider key by environment-variable name in
+`agent.connections[].apiKeyEnv`. Pass the real values only to the container:
+
+```bash
+docker run --rm -p 8090:8090 \
+  --env KSHUI_JWT_SECRET \
+  --env KSHUI_ADMIN_PASSWORD_HASH \
+  --env KSHUI_AGENT_OPENAI_MODEL \
+  --env KSHUI_AGENT_OPENAI_KEY \
+  --env KSHUI_AGENT_INPUT_PRICE \
+  --env KSHUI_AGENT_OUTPUT_PRICE \
+  -v "$PWD/k-shui.yaml:/etc/k-shui/config.yaml:ro" \
+  k-shui:local
+```
+
+The names above match the example in
+[`../k-shui-agent.md`](../k-shui-agent.md); use your own secret-manager naming
+consistently. Start with `agent.allowMutations: false`, sign in as an admin,
+test the connection in **Settings → AI connections**, and opt into supported operations only after
+reviewing the agent data and authorization policy. Run a single container with
+one application process while the agent is enabled; agent admission and
+interrupted-run recovery do not currently coordinate across replicas.
+
 ## Image details
 
 - **User**: non-root, uid/gid `10001`, no login shell.
@@ -78,7 +113,7 @@ docker run --rm -p 9000:9000 k-shui:local serve --host 0.0.0.0 --port 9000
 
 ## Environment overrides
 
-Any config field can be overridden with `KSHUI__<SECTION>__<KEY>` (see
+Scalar config fields can be overridden with `KSHUI__<SECTION>__<KEY>` (see
 `configuration-reference.md`), e.g.:
 
 ```bash

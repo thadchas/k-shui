@@ -2,8 +2,26 @@
 
 ## What it does
 
-Browse, create, and evolve schemas against any `ccompat`-speaking registry:
-Confluent Schema Registry, Apicurio Registry, or Karapace.
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its governance workspace browses, creates, and evolves
+schemas against any `ccompat`-speaking registry: Confluent Schema Registry,
+Apicurio Registry, or Karapace.
+
+## k-shui Agent workflow
+
+Use **Ask K-Shui** with the relevant cluster and subject name. Inspect mode
+can retrieve the latest schema id, version, type, field names/types, default
+presence, and effective compatibility policy. Schema source, descriptions,
+default values, references, and compatibility error text are excluded from
+agent evidence.
+
+[k-shui Agent](../k-shui-agent.md) is disabled by default and requires an
+authenticated k-shui user.
+
+This summary cannot determine whether a candidate schema is compatible because
+the agent accepts no candidate schema. Registration, compatibility checks,
+configuration changes, and deletion remain visual workspace and direct k-shui engine APIs workflows;
+Operate mode currently has no schema mutation.
 
 ## UI walkthrough
 

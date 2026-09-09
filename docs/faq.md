@@ -12,6 +12,43 @@ Kafka Admin/client protocol — Apache Kafka, Confluent Platform/Cloud,
 Strimzi, Amazon MSK, Redpanda, etc. — and against any `ccompat`-speaking
 schema registry (Confluent SR, Apicurio, Karapace).
 
+**Is k-shui Agent the main way to use k-shui?**
+Yes. The intended workflow is to start from a resource or question, let the
+agent collect scoped evidence, and review its findings or a supported change.
+The k-shui engine remains the authority: it enforces the signed-in user's role
+and cluster access, executes only a reviewed supported operation, verifies the
+result, and audits mutations. The full management UI remains available for
+direct inspection and operations outside the agent's narrower allowlist.
+
+**Why is Ask K-Shui unavailable after a quick start?**
+The quick starts launch the management UI, but the agent defaults to disabled
+and refuses `auth.type: none`. Configure basic or OIDC authentication, set
+`agent.enabled: true`, add a server-managed OpenAI or Anthropic connection with
+an environment-provided key and explicit prices, then restart k-shui. Test the
+connection as an admin in **Settings → AI connections**. See
+[`k-shui-agent.md`](k-shui-agent.md).
+
+**Does the agent send Kafka message payloads or credentials to the AI provider?**
+Its evidence tools expose bounded, allowlisted metadata and exclude message payloads,
+raw logs/traces, secret configuration and credentials. Provider keys remain in
+the server environment. Investigation transcripts and resource metadata are
+stored in k-shui's database, so protect and retain that database as operational
+data. Do not paste payloads or credentials into an investigation prompt.
+
+**Can the agent make changes to Kafka?**
+Only when the deployment opts in with `agent.allowMutations: true`, the user has
+the required role and cluster access, the target is writable, and the user
+reviews the exact preview and any typed confirmation. The supported agent
+operations are deliberately narrower than the full UI. The engine rechecks
+authority and state, executes once, verifies the outcome, and writes audit
+evidence; an accepted upstream operation may not be reversible.
+
+**Can I run an agent-enabled deployment with multiple workers or replicas?**
+Not currently. Run one k-shui application worker/process. Agent run admission
+and interrupted-run recovery do not support independently starting workers
+sharing one investigation database. `agent.maxConcurrentRuns` limits concurrent
+runs inside that single process; it is not a replica count.
+
 **Do I need Kafka Connect / ksqlDB / Flink / Prometheus / Marquez to use k-shui?**
 No — every integration in `clusters[]` is optional and independent. Configure
 only what you run; unconfigured integrations simply don't show that nav item

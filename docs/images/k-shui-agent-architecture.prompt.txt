@@ -1,0 +1,73 @@
+Use case: infographic-diagram
+Asset type: agent-centered product architecture infographic for the open-source k-shui platform.
+Primary request: Create a NEW modern infographic positioning k-shui as an agent-driven platform for managing the Kafka ecosystem. The dominant product component must be "k-shui Agent". Explain how an operator asks a question, the agent investigates using connected services, presents evidence and proposed changes, and the engine executes reviewed supported actions and checks outcomes. This is a product capability view, not an implementation stack.
+Style: premium product editorial design. Landscape approximately 16:10, high resolution, large sharp sans-serif text, clear hierarchy, generous whitespace, polished simple line icons. Fully opaque light slate #F8FAFC background across the entire canvas. White cards, dark slate lettering, ocean teal accents. Deep slate panel with white text for the agent hero, teal emphasis for the engine. No transparency, no neon, no purple, no gratuitous circuitry, no robot mascot. Make it easy to understand in ten seconds.
+
+EXACT VISIBLE COPY AND COMPOSITION:
+Header at top left:
+"k-shui"
+"Open-source, agent-driven Kafka management"
+"Ask questions. Investigate with evidence. Review and run supported actions."
+
+The main body has a large left product boundary taking about 72% of the width, titled "Inside k-shui", and a smaller right external-services boundary titled "Your Kafka ecosystem". Use a wide enough gutter for clear connector labels.
+
+INSIDE THE PRODUCT:
+At the top of the left boundary, a compact conversation input illustration, with a human/operator icon:
+"Ask k-shui"
+Example question in a speech/input bubble:
+"Why is this consumer group falling behind?"
+A small context line:
+"Choose a cluster and resource"
+A short downward arrow feeds the AGENT HERO below.
+
+The dominant large deep slate hero card:
+"k-shui Agent"
+"Your investigation and operations assistant"
+Inside it, three well-spaced numbered steps arranged horizontally:
+"1  Investigate" / "Gather scoped evidence"
+"2  Explain" / "Show findings and next steps"
+"3  Prepare" / "Preview requested changes"
+Below these steps, two clearly legible small mode labels:
+"Inspect: investigate without changes"
+"Operate: prepare supported actions"
+
+Between the agent hero and the engine, make TWO distinct simple routes visible:
+- A teal return arrow FROM the engine UP TO the agent labeled "Evidence".
+- A downward path FROM the agent through a visible small human-checkpoint pill labeled "You review & confirm", terminating at the engine. This must make human review a meaningful step for changes, not a decorative footnote.
+
+Wide engine band:
+"k-shui engine"
+"Connect services · Enforce permissions · Execute approved actions"
+Second line:
+"Check outcomes · Record activity"
+
+Small, understated strip below the engine, still inside product boundary:
+"Visual workspace"
+"Explore resources, dashboards and investigation history"
+This companion workspace supports the agent-driven workflow; it must not compete with the agent hero.
+
+EXTERNAL SERVICES:
+Six tidy icon-label rows within the right boundary:
+"Clusters & topics"
+"Consumer groups"
+"Connectors"
+"Schemas"
+"Streaming jobs"
+"Metrics & lineage"
+
+Draw one neat bidirectional connection between the k-shui engine and the external-services GROUP, not directly from the agent or question bubble. Label in two short stacked lines:
+"Inspect"
+"& act"
+The connector must touch the group boundary, not imply actions only on its lowest item. External items are parallel resources, not a sequential event pipeline.
+
+Footer across page:
+"Scoped access" · "Human-reviewed changes" · "Verified outcomes & audit history"
+Make footer text readable, not microscopic.
+
+Accuracy constraints based on the implemented feature:
+The agent gathers bounded resource metadata and presents findings, missing evidence, and next steps. Supported changes require an explicit user request, a specific target/parameter preview, user review and execution under current permissions. Agent inspection spans cluster health, topic metadata, consumer lag, connector status, streaming-job summaries, schema summaries, alerts and lineage. Agent mutation support is limited to selected topic, connector and consumer-offset operations; do not imply arbitrary changes to every ecosystem resource. The engine checks outcomes; uncertain outcomes can occur, so do not imply guaranteed success. The agent does not read Kafka message payloads, automatically repair systems, run arbitrary commands, operate unattended or guarantee root causes. Do not depict autonomous self-healing. The connected services do the streaming; the agent manages and investigates them.
+The visible phrase "Verified outcomes & audit history" describes outcome verification and recording, never guaranteed success.
+
+Absolute exclusions:
+No technologies used to build or deploy the platform: no languages, frameworks, database names, protocols, API jargon, model/provider brands or deployment tools. Never show FastAPI or Confluent. Do not add React, Python, TypeScript, SQL, SQLite, PostgreSQL, Docker, Kubernetes, Prometheus, Flink, ksqlDB, OpenTelemetry, Marquez, or vendor logos. Kafka is allowed only as the product's ecosystem context. Keep exact branding "k-shui", "k-shui Agent", and "k-shui engine".
+Render ONLY the specified visible copy, with accurate spelling and crisp text. No invented claims, no extra slogans, no implementation details, no watermarks. Make the agent unmistakably the hero and the engine unmistakably the controlled bridge to the ecosystem.

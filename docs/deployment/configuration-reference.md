@@ -31,6 +31,11 @@ expansion from the process environment (`k_shui.config._expand_env`) — use
 this to keep secrets out of the file/ConfigMap and inject them via env vars
 instead (see `kubernetes-helm.md` / `security-hardening.md`).
 
+k-shui Agent is disabled by default. Enabling it also requires `auth.type` to
+be `basic` or `oidc`; anonymous `auth.type: none` sessions cannot use the agent.
+AI provider credentials are looked up only in the server environment by the
+configured `agent.connections[].apiKeyEnv` name.
+
 ## Environment variable overrides
 
 Any scalar field below can be overridden with `KSHUI__<SECTION>__<KEY>`
@@ -119,7 +124,9 @@ extra.
 | `historyRetentionDays`      | int                                                                  | `30`    | `KSHUI__ALERTS__HISTORYRETENTIONDAYS`      |
 | `smtp`                      | dict \| null (`host`, `port`, `username`, `password`, `from`, `tls`) | `null`  | — (YAML only)                              |
 
-## `agent` (`AgentConfig`)
+<a id="agent-agentconfig"></a>
+
+## `agent`
 
 Disabled by default. Requires `auth.type: basic` or `oidc`; anonymous access does not
 inherit the development server's administrator role. Use one application worker:
@@ -259,6 +266,8 @@ telemetry:
   metrics: true
 alerts:
   evaluationIntervalSeconds: 30
+agent:
+  enabled: false
 clusters:
   - id: local
     name: lakestream (kind)

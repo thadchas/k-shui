@@ -10,6 +10,7 @@ published without a human merging a pull request.
 - [The contract](#the-contract)
 - [Writing a pull request](#writing-a-pull-request)
 - [What gets released, and when](#what-gets-released-and-when)
+- [Agent release claims](#agent-release-claims)
 - [Cutting a release](#cutting-a-release)
 - [The moving parts](#the-moving-parts)
 - [Bootstrapping the first release](#bootstrapping-the-first-release)
@@ -128,6 +129,26 @@ example, `1.4.0-rc.1` becomes `1.4.0rc1`).
 
 A prerelease tag (`v1.4.0-rc.1`) publishes everywhere but never moves the
 `latest` Docker tag, the `X.Y` Docker tag, or the npm `latest` dist-tag.
+
+## Agent release claims
+
+Release notes and artifact descriptions should lead with k-shui as
+open-source, agent-driven Kafka management: the k-shui Agent is the primary
+workflow, the k-shui engine provides policy and execution, and the visual
+workspace keeps evidence and expert controls available to the operator.
+
+Describe only behavior present in the release. For the current Agent MVP, say
+when relevant that it is disabled by default, requires authentication, runs in
+one application process, uses a bounded inspection tool set, and limits Operate
+mode to exact human-reviewed topic, connector, and consumer-offset actions.
+Provider/runtime ideas and broader administrative operations belong in future
+work until code, tests, and documentation establish them.
+
+Before calling an Agent capability released, verify the backend Agent tests,
+frontend Agent tests, production frontend build, and the configuration/API
+contracts. Live provider or Kafka validation may be reported only when it was
+actually performed; otherwise state that limit plainly. Keep technical provider
+and route names in release details when they help operators assess compatibility.
 
 ## Cutting a release
 

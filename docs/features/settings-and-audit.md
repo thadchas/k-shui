@@ -2,9 +2,23 @@
 
 ## What it does
 
-App-level settings (not Kafka-cluster settings — see
-[security.md](security.md) for those) plus a full audit trail of every
-mutating action taken through k-shui.
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its settings and audit workspace covers app-level
+settings (not Kafka-cluster settings — see [security.md](security.md) for
+those) plus a full audit trail of every mutating action taken through k-shui.
+
+## k-shui Agent workflow
+
+Administrators enable k-shui Agent and define provider connections through
+deployment configuration; it is disabled by default and cannot run with
+`auth.type: none`. The in-app agent settings page reports connection status
+and supports an explicit connection test without exposing API keys.
+
+During an investigation, Inspect mode can retrieve up to 50 recent audit
+headers for the selected cluster. Audit `details`, exception traces, and
+other free-form fields are excluded. Agent operation preparation, execution,
+verification, cancellation, and uncertain outcomes are themselves audited.
+The agent cannot change app settings or manage users.
 
 ## UI walkthrough
 

@@ -4,9 +4,35 @@ If Node is what you have handy, `npx k-shui` works without a local Python instal
 The npm package (`packages/npm/`) is a thin launcher — it does not reimplement
 k-shui, it runs the real Python CLI for you.
 
+> **Publication pending.** The `k-shui` npm package is not published yet, and
+> neither is the PyPI package it launches (tracked in
+> [#59](https://github.com/thadchas/k-shui/issues/59)), so the `npx k-shui`
+> commands below do not resolve today. Until then, use the source-build paths in
+> [`../getting-started.md`](../getting-started.md#1-run-k-shui), or point the
+> launcher at a local artifact as described in
+> [Installing from somewhere other than PyPI](#installing-from-somewhere-other-than-pypi).
+
 ```bash
 npx k-shui serve --config k-shui.yaml --port 8090
 ```
+
+This starts the management engine with the agent disabled unless your config
+explicitly enables it with authenticated, server-managed AI connections.
+
+## Enable k-shui Agent
+
+For the normal uv/uvx/pipx launcher path, configure `auth` and `agent` using
+[`../k-shui-agent.md`](../k-shui-agent.md) and provide every referenced secret,
+including the variable named by `apiKeyEnv`, in the launching process
+environment. The Python server inherits it; the browser does not receive the
+provider key. Start with `allowMutations: false`, sign in as an admin, and test
+**Settings → AI connections**.
+
+The launcher's `--docker` mode currently mounts `k-shui.yaml` but does not pass
+arbitrary host environment variables into the container. For an agent-enabled
+container, use the explicit `docker run --env ...` command in `docker.md` or
+Compose/Helm/Kustomize instead. Run a single k-shui application worker/process
+while the agent is enabled.
 
 ## What it does
 

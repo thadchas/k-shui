@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>k-shui — Open-source Kafka Control Center</title>
-<meta name="description" content="k-shui is the open-source control center for Apache Kafka®: topics, consumer groups, messages, schemas, Kafka Connect, ksqlDB, Flink, metrics, lineage, and alerts in one Apache-2.0 app. Start with uvx k-shui serve.">
+<title>k-shui — Agent-driven Kafka Management</title>
+<meta name="description" content="Open-source, agent-driven Kafka management. Investigate scoped evidence and review supported operations with k-shui Agent, backed by the k-shui engine.">
 <meta property="og:type" content="website">
-<meta property="og:title" content="k-shui — Open-source Kafka Control Center">
-<meta property="og:description" content="One open-source UI for Apache Kafka® and its streaming ecosystem: topics, messages, schemas, Connect, ksqlDB, Flink, metrics, lineage, and alerts.">
+<meta property="og:title" content="k-shui — Agent-driven Kafka Management">
+<meta property="og:description" content="Open-source, agent-driven Kafka management. Investigate scoped evidence and review supported operations with k-shui Agent, backed by the k-shui engine.">
 <meta property="og:image" content="assets/og-image.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="k-shui — Open-source Kafka Control Center">
-<meta name="twitter:description" content="One open-source UI for Apache Kafka® and its streaming ecosystem: topics, messages, schemas, Connect, ksqlDB, Flink, metrics, lineage, and alerts.">
+<meta name="twitter:title" content="k-shui — Agent-driven Kafka Management">
+<meta name="twitter:description" content="Open-source, agent-driven Kafka management. Investigate scoped evidence and review supported operations with k-shui Agent, backed by the k-shui engine.">
 <meta name="twitter:image" content="assets/og-image.png">
 <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -118,6 +118,13 @@
     margin-bottom: 24px;
   }
   .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 8px rgba(45,212,191,0.8); }
+  .badge-preview {
+    color: var(--accent);
+    background: rgba(56, 189, 248, 0.09);
+    border-color: rgba(56, 189, 248, 0.28);
+    margin: 0 0 24px 8px;
+  }
+  .badge-preview a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
   h1 {
     font-size: clamp(2.1rem, 5.4vw, 3.35rem);
     font-weight: 700; letter-spacing: -0.03em; line-height: 1.12;
@@ -144,7 +151,7 @@
     max-width: 100%;
   }
   .code-chip .prompt { color: var(--muted); user-select: none; }
-  .code-chip code { color: var(--text); white-space: nowrap; overflow-x: auto; }
+  .code-chip code { color: var(--text); min-width: 0; overflow-wrap: anywhere; text-align: left; }
   .copy-btn {
     display: inline-flex; align-items: center; gap: 6px;
     font-family: var(--font-sans); font-size: 12px; font-weight: 600;
@@ -278,6 +285,12 @@
     color: var(--accent); background: rgba(56,189,248,0.09);
     border: 1px solid rgba(56,189,248,0.25); border-radius: 999px; padding: 2px 9px;
   }
+  .deploy-card h3 .tag-pending {
+    color: var(--muted); background: rgba(139,155,180,0.09);
+    border-color: rgba(139,155,180,0.28);
+  }
+  .deploy-card h3 { flex-wrap: wrap; }
+  .deploy-card p a { color: var(--primary); }
   .deploy-card p { font-size: 13.5px; color: var(--muted); }
   .cmd {
     display: flex; align-items: flex-start; gap: 10px;
@@ -369,15 +382,16 @@
     <div class="container">
       <div class="hero-content">
         <p class="badge"><span class="dot" aria-hidden="true"></span> Open source &middot; Apache-2.0</p>
-        <h1 id="hero-title">The open-source <span class="grad">control center</span> for Apache&nbsp;Kafka&reg;</h1>
+        <p class="badge badge-preview">Agent preview &middot; <a href="docs/roadmap/#product-priority-investigations-and-reviewed-operations">validation limits</a></p>
+        <h1 id="hero-title">Open-source <span class="grad">agent-driven</span> Kafka management</h1>
         <p class="hero-sub">
-          One UI for your whole streaming stack — <strong>topics</strong>, <strong>consumer groups</strong>,
-          <strong>messages</strong>, <strong>schemas</strong>, <strong>Kafka Connect</strong>,
-          <strong>ksqlDB</strong>, <strong>Flink</strong>, <strong>metrics</strong>,
-          <strong>lineage</strong>, and <strong>alerts</strong>. No tab farm. No license gate.
+          Ask <strong>k-shui Agent</strong> to investigate your streaming ecosystem.
+          Review scoped evidence and supported changes. The <strong>k-shui engine</strong>
+          checks permissions, executes reviewed operations, and records outcomes.
         </p>
         <div class="hero-ctas">
           <a class="btn btn-primary" href="docs/getting-started/">Get started</a>
+          <a class="btn btn-secondary" href="docs/k-shui-agent/">Explore k-shui Agent</a>
           <a class="btn btn-secondary" href="https://github.com/thadchas/k-shui">
             <svg class="gh-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
             View on GitHub
@@ -385,21 +399,22 @@
         </div>
         <div class="code-chip">
           <span class="prompt" aria-hidden="true">$</span>
-          <code>uvx k-shui serve</code>
-          <button class="copy-btn" type="button" data-copy="uvx k-shui serve" aria-label="Copy command: uvx k-shui serve">
+          <code>git clone https://github.com/thadchas/k-shui.git &amp;&amp; cd k-shui &amp;&amp; docker compose -f deploy/compose/docker-compose.yml up --build</code>
+          <button class="copy-btn" type="button" data-copy="git clone https://github.com/thadchas/k-shui.git &amp;&amp; cd k-shui &amp;&amp; docker compose -f deploy/compose/docker-compose.yml up --build" aria-label="Copy command: clone k-shui and start the Docker Compose demo stack">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             <span>Copy</span>
           </button>
         </div>
       </div>
 
+      <p class="hero-sub" style="text-align:center;max-width:780px;margin:24px auto">Builds the image from source and opens the workspace at <span class="mono">http://localhost:8090</span>; no package or image is published yet. Agent access requires administrator enablement, sign-in, and a configured AI connection. Operations require a separate opt-in and human review. Use one application process.</p>
       <div class="hero-shot">
         <div class="browser">
           <div class="browser-bar" aria-hidden="true">
             <div class="dots"><span></span><span></span><span></span></div>
             <span class="url">localhost:8090</span>
           </div>
-          <img src="assets/overview.png" alt="k-shui cluster overview: broker health, throughput charts, topic and consumer group summaries" width="2880" height="1800" fetchpriority="high">
+          <img src="docs/images/k-shui-agent-architecture.png" alt="k-shui Agent investigates scoped evidence and prepares human-reviewed operations through the k-shui engine and connected Kafka ecosystem" fetchpriority="high">
         </div>
       </div>
     </div>
@@ -428,8 +443,8 @@
     <div class="container">
       <div class="section-head">
         <p class="kicker">Features</p>
-        <h2 id="features-title">Everything Control Center does. Open, and then some.</h2>
-        <p>One application, one auth model, one command to start it — instead of five tools welded together.</p>
+        <h2 id="features-title">A visual workspace for evidence and expert control.</h2>
+        <p>Inspect the resources behind an investigation and use direct controls for workflows beyond the agent’s supported tools.</p>
       </div>
       <div class="features-grid">
         <article class="feature">
@@ -543,52 +558,78 @@
     <div class="container">
       <div class="section-head">
         <p class="kicker">Deploy</p>
-        <h2 id="deploy-title">One command. Pick your runtime.</h2>
-        <p>All four run the same application. Then open <span class="mono">http://localhost:8090</span> — with no config, k-shui points at <span class="mono">localhost:9092</span>.</p>
+        <h2 id="deploy-title">Build from source. Open localhost:8090.</h2>
+        <p>k-shui runs from a clone today. No package, image, or chart is published yet — registry publication is tracked in <a href="https://github.com/thadchas/k-shui/issues/59">issue #59</a>. With no config, k-shui points at <span class="mono">localhost:9092</span>.</p>
       </div>
       <div class="deploy-grid">
         <div class="deploy-card">
-          <h3>uv / uvx <span class="tag">Fastest</span></h3>
-          <p>No local Python install needed — uv resolves and runs the PyPI package.</p>
+          <h3>Docker Compose <span class="tag">From source</span></h3>
+          <p>Builds the image from <span class="mono">deploy/docker/Dockerfile</span> and starts a single-node Kafka alongside k-shui. Add <span class="mono">--profile full</span> for Connect, Apicurio, Flink, Prometheus, and Marquez.</p>
+          <div class="cmd">
+            <pre><code>git clone https://github.com/thadchas/k-shui.git
+cd k-shui
+docker compose -f deploy/compose/docker-compose.yml \
+  up --build</code></pre>
+            <button class="copy-btn" type="button" data-copy="git clone https://github.com/thadchas/k-shui.git &amp;&amp; cd k-shui &amp;&amp; docker compose -f deploy/compose/docker-compose.yml up --build" aria-label="Copy Docker Compose command">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span>Copy</span>
+            </button>
+          </div>
+        </div>
+        <div class="deploy-card">
+          <h3>uv, from source <span class="tag">Local dev</span></h3>
+          <p>Build the workspace bundle, then serve it with the example config. <span class="mono">make run</span> on its own starts the API without the built UI; <span class="mono">make dev</span> runs both dev servers.</p>
+          <div class="cmd">
+            <pre><code>make build-frontend
+make run</code></pre>
+            <button class="copy-btn" type="button" data-copy="make build-frontend &amp;&amp; make run" aria-label="Copy source build command">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span>Copy</span>
+            </button>
+          </div>
+        </div>
+        <div class="deploy-card">
+          <h3>uv / uvx <span class="tag tag-pending">Publication pending</span></h3>
+          <p>Not on PyPI yet, so this command does not resolve — see <a href="https://github.com/thadchas/k-shui/issues/59">issue #59</a>. Until then, <span class="mono">uvx --from &lt;wheel&gt;</span> runs a locally built wheel.</p>
           <div class="cmd">
             <pre><code>uvx k-shui serve</code></pre>
-            <button class="copy-btn" type="button" data-copy="uvx k-shui serve" aria-label="Copy uvx command">
+            <button class="copy-btn" type="button" data-copy="uvx k-shui serve" aria-label="Copy uvx command (publication pending)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               <span>Copy</span>
             </button>
           </div>
         </div>
         <div class="deploy-card">
-          <h3>npx</h3>
-          <p>No Node or Python dependencies to manage — the launcher wraps uv, pipx, or Docker.</p>
+          <h3>npx <span class="tag tag-pending">Publication pending</span></h3>
+          <p>The npm launcher is unpublished, and so is the Python CLI it runs — see <a href="https://github.com/thadchas/k-shui/issues/59">issue #59</a>.</p>
           <div class="cmd">
             <pre><code>npx k-shui serve</code></pre>
-            <button class="copy-btn" type="button" data-copy="npx k-shui serve" aria-label="Copy npx command">
+            <button class="copy-btn" type="button" data-copy="npx k-shui serve" aria-label="Copy npx command (publication pending)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               <span>Copy</span>
             </button>
           </div>
         </div>
         <div class="deploy-card">
-          <h3>Docker</h3>
-          <p>Single container from GitHub Container Registry; point it at your bootstrap servers.</p>
+          <h3>Docker image <span class="tag tag-pending">Publication pending</span></h3>
+          <p>No image has been pushed to GHCR yet — see <a href="https://github.com/thadchas/k-shui/issues/59">issue #59</a>. Build one locally with <span class="mono">make docker</span> and run that tag instead.</p>
           <div class="cmd">
             <pre><code>docker run -p 8090:8090 \
   -e KSHUI_BOOTSTRAP_SERVERS=host.docker.internal:9092 \
   ghcr.io/thadchas/k-shui</code></pre>
-            <button class="copy-btn" type="button" data-copy="docker run -p 8090:8090 -e KSHUI_BOOTSTRAP_SERVERS=host.docker.internal:9092 ghcr.io/thadchas/k-shui" aria-label="Copy Docker command">
+            <button class="copy-btn" type="button" data-copy="docker run -p 8090:8090 -e KSHUI_BOOTSTRAP_SERVERS=host.docker.internal:9092 ghcr.io/thadchas/k-shui" aria-label="Copy Docker command (publication pending)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               <span>Copy</span>
             </button>
           </div>
         </div>
         <div class="deploy-card">
-          <h3>Helm <span class="tag">Kubernetes</span></h3>
-          <p>OCI chart for Kubernetes — Kustomize overlays are available too.</p>
+          <h3>Helm <span class="tag tag-pending">Publication pending</span></h3>
+          <p>The OCI chart is not published — see <a href="https://github.com/thadchas/k-shui/issues/59">issue #59</a>. The in-repo chart installs from a clone with <span class="mono">helm upgrade --install k-shui charts/k-shui</span>; Kustomize overlays are available too.</p>
           <div class="cmd">
             <pre><code>helm install k-shui \
   oci://ghcr.io/thadchas/charts/k-shui</code></pre>
-            <button class="copy-btn" type="button" data-copy="helm install k-shui oci://ghcr.io/thadchas/charts/k-shui" aria-label="Copy Helm command">
+            <button class="copy-btn" type="button" data-copy="helm install k-shui oci://ghcr.io/thadchas/charts/k-shui" aria-label="Copy Helm command (publication pending)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               <span>Copy</span>
             </button>

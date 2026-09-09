@@ -2,9 +2,26 @@
 
 ## What it does
 
-Kafka-side security administration: ACLs, quotas, SCRAM users, cluster
-dynamic configs, and the KRaft controller quorum. (For k-shui's _own_ login
-and role-based access, see [auth-rbac.md](auth-rbac.md).)
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its security workspace provides Kafka-side
+administration: ACLs, quotas, SCRAM users, cluster dynamic configs, and the
+KRaft controller quorum. (For k-shui's _own_ login and role-based access, see
+[auth-rbac.md](auth-rbac.md).)
+
+## k-shui Agent boundary
+
+k-shui Agent enforces the signed-in human user's current k-shui role and
+cluster grants on every tool call. Inspect mode exposes only its bounded
+metadata allowlist; it cannot enumerate arbitrary ACL, quota, SCRAM, broker
+configuration, or credential data.
+
+[k-shui Agent](../k-shui-agent.md) is disabled by default and requires an
+authenticated k-shui user.
+
+Operate mode does not create or delete ACLs, change quotas or SCRAM users,
+edit cluster/broker settings, elect leaders, or run shell commands. Use the
+visual workspace and direct engine APIs for the supported administrative
+actions documented below. The application does not expose a shell executor. The agent's model credential grants no Kafka permissions.
 
 ## UI walkthrough
 

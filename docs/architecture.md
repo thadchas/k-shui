@@ -1,22 +1,31 @@
 # Architecture
 
-k-shui is a single deployable: a FastAPI backend that serves both a REST/SSE
-API and the built React SPA, talking outward to a Kafka cluster's Admin API
-and to whichever ecosystem integrations you've configured. This page covers
-the component layout, request flow, data stores, and background jobs. For
-the full REST/config contract, see [`../ARCHITECTURE.md`](../ARCHITECTURE.md);
-for how each feature uses this, see [`features/`](features/).
+k-shui is an open-source, agent-driven Kafka management application. The
+primary workflow is the **k-shui Agent**, backed by the **k-shui engine** and
+presented in a visual workspace where an operator can inspect evidence and
+review exact operations. The engine is a single FastAPI deployable that serves
+the REST/SSE API and built React SPA, then talks outward to Kafka and configured
+ecosystem integrations.
+
+The Agent is an optional, disabled-by-default layer over that engine. Direct UI
+and REST workflows remain available for expert control. This page covers the
+component layout, request flow, data stores, and background jobs. For the Agent
+contract, see [`k-shui-agent.md`](k-shui-agent.md); for the full REST/config
+contract, see [`../ARCHITECTURE.md`](../ARCHITECTURE.md); for how each feature
+uses this, see [`features/`](features/).
 
 ## Components
 
 ```mermaid
 flowchart TB
     subgraph Client
-        SPA["React 19 SPA\nreact-router, TanStack Query"]
+        SPA["Visual workspace\nReact 19 SPA"]
+        AgentUI["k-shui Agent\ninvestigation + operation review"]
     end
 
-    subgraph Backend["k_shui (FastAPI, one process)"]
+    subgraph Backend["k-shui engine (FastAPI, one process)"]
         API["api/routers/*\n/api/v1"]
+        Agent["agent/\nservice, bounded tools, exact operations"]
         Core["core/\nregistry, auth, audit, events (SSE bus)"]
         KafkaLayer["kafka/\nadmin, consumer, producer, serdes"]
         Integrations["integrations/\nschema_registry, connect, ksql, flink,\nprometheus, lineage, alerts"]
@@ -32,10 +41,18 @@ flowchart TB
         Flink["Flink REST / SQL Gateway"]
         Prom["Prometheus"]
         Marquez["Marquez"]
+        Models["Configured OpenAI / Anthropic model"]
         Store[("SQLite / Postgres")]
     end
 
+    SPA --> AgentUI --> API
     SPA -- "fetch / SSE" --> API
+    API --> Agent
+    Agent --> Core
+    Agent --> DB
+    Agent --> KafkaLayer
+    Agent --> Integrations
+    Agent --> Models
     API --> Core
     API --> KafkaLayer --> Kafka
     API --> Integrations
@@ -50,13 +67,24 @@ flowchart TB
     Sched --> Core
 ```
 
-- **Frontend** (`frontend/`) — Vite + React 19 + TypeScript + Tailwind v4.
-  `api/client.ts` wraps `fetch`/SSE; `api/hooks/` are TanStack Query hooks;
+- **Visual workspace** (`frontend/`) — Vite + React 19 + TypeScript + Tailwind
+  v4. The Agent panel and dedicated investigation page show scope, evidence,
+  limitations, findings, and operation previews alongside the existing expert
+  pages. `api/client.ts` wraps `fetch`/SSE; `api/hooks/` are TanStack Query hooks;
   `pages/` has one folder per feature area; `layouts/AppShell` is the
   sidebar/topbar/cluster-switcher/command-palette shell. Built output is
-  copied into `backend/k_shui/static/` and served by the backend — there is
-  no separate frontend server in production.
-- **Backend** (`backend/k_shui/`) — Python 3.11+, FastAPI.
+  copied into `backend/k_shui/static/` and served by the backend; there is no
+  separate frontend server in production.
+- **k-shui Agent** (`backend/k_shui/agent/`, `api/routers/agent.py`) — runs
+  scoped investigations using nine bounded metadata tools. It excludes message
+  payloads, raw connector traces, arbitrary URLs, SQL, logs, and shell access.
+  In Operate mode it can prepare only the supported topic, connector, and
+  consumer-offset actions; model tool calls never execute an operation. The
+  initiating human must review an exact, expiring preview and supply typed
+  confirmation where required.
+- **k-shui engine** (`backend/k_shui/`) — Python 3.11+, FastAPI. It enforces
+  cluster scope, current user authority, read-only policy, audit persistence,
+  operation state checks, and dispatch to Kafka or Kafka Connect.
   - `api/routers/*` — one module per feature area (`topics.py`, `connect.py`,
     `flink.py`, `alerts.py`, ...), auto-registered from `api/__init__.py`'s
     `ROUTER_MODULES` list (a missing/unimportable module is skipped rather
@@ -96,20 +124,42 @@ flowchart TB
    routing), except recognized reserved prefixes (`api/`, `docs`, `redoc`,
    `openapi.json`, `metrics`, `healthz`, `readyz`).
 
+### Agent investigation and operation flow
+
+1. An authenticated operator opens **Ask K-Shui** or **Investigate**, selects a
+   permitted cluster and configured provider/model, and starts in Inspect or
+   Operate mode. `auth.type: none` does not grant Agent access.
+2. The engine fixes the investigation scope and refreshes the human user's role
+   and cluster grants on each tool call. Deployment and connection allowlists
+   can narrow the available clusters and tools further.
+3. The model may request only the nine metadata tools defined in
+   `agent/tools.py`. The engine collects, bounds, redacts, timestamps, and stores
+   the resulting evidence; retrieved text is treated as untrusted data.
+4. Inspect mode cannot mutate anything. In Operate mode, an explicit supported
+   request may create a five-minute preview bound to the user, investigation,
+   target, parameters, and observed state.
+5. The human reviews the preview in the visual workspace and executes it. The
+   engine checks authority and state again, durably claims the operation before
+   dispatch, verifies the result, and records operation and audit evidence.
+
+The Agent currently assumes one application worker/process for run admission
+and interrupted-run recovery. A shared database does not make Agent runs safe
+across independently starting workers. See the existing architecture image at
+[`images/k-shui-agent-architecture.png`](images/k-shui-agent-architecture.png).
+
 ## Data stores
 
-| Store                 | Holds                                                                                                                                | Default                                                                                             |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| Kafka cluster itself  | Topics, configs, ACLs, quotas, offsets — the source of truth for everything Kafka-native                                             | —                                                                                                   |
-| k-shui's own database | Basic-auth users (if not OIDC), alert triggers/actions/history, user-created metrics dashboards, ksqlDB statement history, audit log | `sqlite+aiosqlite:///./k-shui.db`; `postgresql+asyncpg://...` for multi-replica/durable deployments |
-| In-memory ring buffer | Sampled metrics when `metricsMode: sampled` (no Prometheus)                                                                          | Process memory — resets on restart                                                                  |
-| Prometheus (external) | Time-series metrics when configured                                                                                                  | —                                                                                                   |
-| Marquez (external)    | OpenLineage jobs/datasets/runs when configured                                                                                       | —                                                                                                   |
+| Store                 | Holds                                                                                                                                                                          | Default                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Kafka cluster itself  | Topics, configs, ACLs, quotas, offsets — the source of truth for everything Kafka-native                                                                                       | —                                                                                     |
+| k-shui's own database | Basic-auth users (if not OIDC), Agent investigations and operation state, alert triggers/actions/history, user-created metrics dashboards, ksqlDB statement history, audit log | `sqlite+aiosqlite:///./k-shui.db`; `postgresql+asyncpg://...` for durable deployments |
+| In-memory ring buffer | Sampled metrics when `metricsMode: sampled` (no Prometheus)                                                                                                                    | Process memory — resets on restart                                                    |
+| Prometheus (external) | Time-series metrics when configured                                                                                                                                            | —                                                                                     |
+| Marquez (external)    | OpenLineage jobs/datasets/runs when configured                                                                                                                                 | —                                                                                     |
 
-SQLite is fine for a single replica; for multi-replica deployments (Helm
-`replicaCount > 1` or `autoscaling.enabled`), point `database.url` at Postgres
-so alert state, dashboards, and audit history are shared rather than
-replica-local.
+SQLite is fine for a single replica. Postgres can provide durable shared state
+for non-Agent features in multi-replica deployments, but Agent run admission
+and recovery still require a single application process.
 
 ## Background jobs
 
@@ -139,6 +189,9 @@ across replicas as of this version — see the [roadmap](roadmap.md)).
   (`telemetry.otlpEndpoint`, `otel` extra), Prometheus metrics on `/metrics`.
 - CSP header, CSRF-safe token auth, sensitive config values masked in
   responses/logs/audit, login rate-limited.
+- The Agent is disabled by default, requires an authenticated human, excludes
+  payloads and free-form secret carriers, and rechecks server-side authorization
+  at inspection, preview, and execution boundaries.
 - Frontend: strict TypeScript, paginated/virtualized lists, loading/empty/
   error states on every page, `⌘K` command palette, responsive down to
   768px.

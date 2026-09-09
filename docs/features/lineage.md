@@ -2,10 +2,26 @@
 
 ## What it does
 
-A navigable graph of how data flows through your streaming stack: topics,
-connectors, ksqlDB queries, Flink jobs, consumer groups, producers, and
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its lineage workspace provides a navigable graph of how
+data flows through the stack: topics, connectors, ksqlDB queries, Flink jobs,
+consumer groups, producers, and
 OpenLineage datasets/jobs — merged from Marquez (when configured) with edges
 k-shui derives itself from Connect/ksqlDB/Flink/consumer-group state.
+
+## k-shui Agent workflow
+
+Use **Ask K-Shui** with the relevant cluster and resource selected. Inspect
+mode can retrieve one hop of bounded lineage neighbors and link its evidence
+back to the focused graph. Missing lineage sources are reported as a
+limitation: the absence of an edge does not prove there is no dependency.
+
+[k-shui Agent](../k-shui-agent.md) is disabled by default and requires an
+authenticated k-shui user.
+
+The agent does not retrieve arbitrary OpenLineage facets or run history, alter
+the graph, or ingest OpenLineage events. Operate mode has no lineage mutation;
+event ingest remains a k-shui engine API operation.
 
 ## UI walkthrough
 

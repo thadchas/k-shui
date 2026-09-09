@@ -1,62 +1,71 @@
 # k-shui documentation
 
-k-shui is an open-source, Apache-2.0 control center for Apache Kafka and its
-streaming ecosystem. Start here; jump to a section below.
+**Open-source, agent-driven Kafka management.** Use **k-shui Agent** to
+investigate your Kafka ecosystem, explain evidence, and prepare supported
+changes for review. The **k-shui engine** enforces permissions and records
+execution outcomes. Resource pages and dashboards support the same workflow.
 
-## Start here
+## Start with the agent
 
-- [**Getting started**](getting-started.md) — install (uv/npx/Docker/Helm),
-  first config, `k-shui check`, and a tour of the UI by route.
-- [**Configuration**](configuration.md) — quick config orientation, pointing
-  to the full [configuration reference](deployment/configuration-reference.md).
-- [**FAQ**](faq.md)
+1. [Get started](getting-started.md): launch the application and connect a cluster.
+2. [Enable k-shui Agent](k-shui-agent.md#deployment): configure authentication,
+   an AI connection, usage rates, and allowed scope. Agent access is off by default.
+3. [Run an investigation](k-shui-agent.md#investigations): ask a question in
+   Inspect mode and review the evidence.
+4. [Review a supported operation](k-shui-agent.md#operations): enable operations
+   only when needed, inspect the exact preview, complete typed confirmation where
+   required, choose **Execute**, and check the recorded outcome.
 
-## Features
+[Product architecture](architecture.md) · [Configuration](configuration.md) · [FAQ](faq.md)
 
-Per-area guides: what it does, a UI walkthrough, the REST endpoints behind
-it, required config, and known tips/limitations.
+## Explore the supporting workspace
 
-|                                                        |                                                    |                                                       |
-| ------------------------------------------------------ | -------------------------------------------------- | ----------------------------------------------------- |
-| [Clusters](features/clusters.md)                       | [Brokers](features/brokers.md)                     | [Topics](features/topics.md)                          |
-| [Message browser](features/messages.md)                | [Consumers & share groups](features/consumers.md)  | [Schema Registry](features/schemas.md)                |
-| [Kafka Connect](features/connect.md)                   | [ksqlDB](features/ksqldb.md)                       | [Flink](features/flink.md)                            |
-| [Metrics](features/metrics.md)                         | [Stream lineage](features/lineage.md)              | [Alerts](features/alerts.md)                          |
-| [Security](features/security.md)                       | [Settings & audit](features/settings-and-audit.md) | [Auth & RBAC](features/auth-rbac.md)                  |
-| [Keyboard, URLs & accessibility](features/keyboard-and-accessibility.md) | | |
+These guides cover the full application. Each explains how the feature supports
+agent investigations and which actions remain in the visual workspace. A page's
+REST endpoints are not automatically tools available to the agent.
 
-## Deployment
+| Operations                                        | Streaming                              | Evidence and control                               |
+| ------------------------------------------------- | -------------------------------------- | -------------------------------------------------- |
+| [Clusters](features/clusters.md)                  | [Kafka Connect](features/connect.md)   | [Metrics](features/metrics.md)                     |
+| [Brokers](features/brokers.md)                    | [Schema Registry](features/schemas.md) | [Stream lineage](features/lineage.md)              |
+| [Topics](features/topics.md)                      | [ksqlDB](features/ksqldb.md)           | [Alerts](features/alerts.md)                       |
+| [Consumers & share groups](features/consumers.md) | [Flink](features/flink.md)             | [Settings & audit](features/settings-and-audit.md) |
+| [Message browser](features/messages.md)           | [Security](features/security.md)       | [Auth & RBAC](features/auth-rbac.md)               |
 
-- [Standalone: uv / uvx](deployment/standalone-uv.md)
-- [Standalone: npx](deployment/standalone-npx.md)
-- [Docker](deployment/docker.md)
-- [Docker Compose (full demo stack)](deployment/docker-compose.md)
-- [Kubernetes: Helm](deployment/kubernetes-helm.md)
+[Keyboard, URLs & accessibility](features/keyboard-and-accessibility.md)
+
+## Deploy and configure
+
+- [Docker Compose](deployment/docker-compose.md): the demo stack, built from source
+- [Docker](deployment/docker.md): build the image locally; the registry image is
+  [publication pending](https://github.com/thadchas/k-shui/issues/59)
+- [Standalone: uv / uvx](deployment/standalone-uv.md): package publication pending; runs a locally built wheel
+- [Standalone: npx](deployment/standalone-npx.md): package publication pending
+- [Kubernetes: Helm](deployment/kubernetes-helm.md): in-repo chart; OCI chart publication pending
 - [Kubernetes: Kustomize](deployment/kubernetes-kustomize.md)
+- [Agent deployment and single-process requirement](k-shui-agent.md#deployment)
 - [Security hardening](deployment/security-hardening.md)
-- [Configuration reference](deployment/configuration-reference.md) — every field, type, default, env var
+- [Configuration reference](deployment/configuration-reference.md)
+- [AWS demo decision record](aws-demo-architecture-and-cost.md): architecture,
+  dated cost assumptions, and outstanding integration gates
 
-## Development
+## Reference and contribution
 
-- [Website and documentation](development/website.md) — editing, previewing,
-  and publishing the Starlight site on GitHub Pages.
-- [Releasing](development/releasing.md) — Conventional Commits → Semantic
-  Versioning, the release pull request, and how the wheel, npm launcher, image
-  and chart get published.
+- [Agent capabilities and boundaries](k-shui-agent.md)
+- [REST API](api.md)
+- [Architecture](architecture.md)
+- [Comparison](comparison.md)
 - [Contributing](../CONTRIBUTING.md)
+- [Releasing](development/releasing.md)
+- [Platform contract](../ARCHITECTURE.md)
+- [Design system](../DESIGN.md)
+- [Brand and product messaging](brand/README.md)
 
-## Reference
-
-- [REST API](api.md) — auth, problem+json errors, pagination, SSE, curl examples, pointer to `/docs` Swagger
-- [Comparison](comparison.md) — vs. Confluent Control Center, Kafbat UI, AKHQ, Redpanda Console
-- [Architecture](architecture.md) — components, request flow, data stores, background jobs
-
-## Project
+## Product direction and project policies
 
 - [Roadmap](roadmap.md)
+- [Product improvement direction](product-improvement-plan.md)
+- [Documentation alignment work](agent-driven-documentation-plan.md)
 - [Changelog](../CHANGELOG.md)
-- [Contributing](../CONTRIBUTING.md)
 - [Security policy](../SECURITY.md)
 - [Code of Conduct](../CODE_OF_CONDUCT.md)
-- [`ARCHITECTURE.md`](../ARCHITECTURE.md) — the source-of-truth contract (config schema, REST API, repo layout) every change codes against
-- [`DESIGN.md`](../DESIGN.md) — design system (tokens, components, layout rules)

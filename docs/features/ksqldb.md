@@ -2,9 +2,24 @@
 
 ## What it does
 
-A SQL editor against one or more ksqlDB servers, with streaming query
-results, object browsers for streams/tables/queries, and per-user statement
-history.
+k-shui provides open-source, agent-driven Kafka management across the
+streaming ecosystem. Its ksqlDB workspace provides a SQL editor against one
+or more servers, with streaming query results, object browsers for
+streams/tables/queries, and per-user statement history.
+
+## k-shui Agent boundary
+
+Use **Ask K-Shui** for an investigation scoped to the selected Kafka cluster.
+The current agent may use one-hop lineage metadata to relate named resources,
+but it has no ksqlDB query or statement tool. It cannot read SQL text or
+history, submit arbitrary SQL, stream query rows, or terminate a persistent
+query.
+
+[k-shui Agent](../k-shui-agent.md) is disabled by default and requires an
+authenticated k-shui user.
+
+Run SQL and manage queries through the visual workspace and direct k-shui engine APIs below. Inspect
+mode remains read-only, and Operate currently exposes no ksqlDB mutation.
 
 ## UI walkthrough
 
