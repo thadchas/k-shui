@@ -3,6 +3,14 @@
 The fastest way to run k-shui locally is [uv](https://astral.sh/uv) — no virtualenv
 management required.
 
+> **Publication pending.** The `k-shui` package is not published to PyPI yet
+> (tracked in [#59](https://github.com/thadchas/k-shui/issues/59)), so the `uvx
+> k-shui` and `uv tool install k-shui` commands below do not resolve today. Until
+> it is published, use
+> [Running a pre-release or locally built wheel](#running-a-pre-release-or-locally-built-wheel)
+> or the source-build paths in
+> [`../getting-started.md`](../getting-started.md#1-run-k-shui).
+
 ## Run without installing anything
 
 ```bash

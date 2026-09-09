@@ -4,16 +4,16 @@
 
 **Open-source, agent-driven Kafka management**
 
-[Website](https://thadchas.github.io/k-shui/) · [Getting started](https://thadchas.github.io/k-shui/docs/getting-started/) · [Documentation](https://thadchas.github.io/k-shui/docs/)
+**Agent preview** — k-shui Agent is implemented but not yet published or
+production-evaluated. Read the
+[validation limits](docs/roadmap.md#product-priority-investigations-and-reviewed-operations)
+and [preview release gates](docs/k-shui-agent.md#preview-release-gates) first.
 
 [Website](https://thadchas.github.io/k-shui/) · [Getting started](https://thadchas.github.io/k-shui/docs/getting-started/) · [Documentation](https://thadchas.github.io/k-shui/docs/)
 
 [![License](https://img.shields.io/github/license/thadchas/k-shui?color=0D9488)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/thadchas/k-shui/ci.yml?branch=main&label=CI&logo=github)](https://github.com/thadchas/k-shui/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/k-shui?label=PyPI&logo=pypi&logoColor=white&color=0D9488)](https://pypi.org/project/k-shui/)
-[![npm](https://img.shields.io/npm/v/k-shui?label=npm&logo=npm&color=CB3837)](https://www.npmjs.com/package/k-shui)
-[![Docker](https://img.shields.io/badge/ghcr.io-k--shui%2Fk--shui-0D9488?logo=docker&logoColor=white)](https://github.com/orgs/k-shui/packages/container/package/k-shui)
-[![Helm](https://img.shields.io/badge/helm-oci%3A%2F%2Fghcr.io%2Fk--shui%2Fcharts%2Fk--shui-0EA5E9?logo=helm&logoColor=white)](charts/k-shui)
+[![Distribution](https://img.shields.io/badge/distribution-publication%20pending%20(%2359)-8B9BB4)](https://github.com/thadchas/k-shui/issues/59)
 
 </div>
 
@@ -113,8 +113,49 @@ Every agent operation and visual workflow must respect the acting user's authori
 
 ## Quick start
 
-Start the application using one of these deployment methods. These commands
-open the visual workspace; they do not enable the agent by themselves.
+k-shui is built from source today; no package, image, or chart is published yet.
+These commands open the visual workspace; they do not enable the agent by
+themselves.
+
+### Demo stack with Docker Compose (recommended)
+
+```bash
+git clone https://github.com/thadchas/k-shui.git
+cd k-shui
+docker compose -f deploy/compose/docker-compose.yml up --build   # or: make compose-up
+```
+
+This builds the image from `deploy/docker/Dockerfile` and starts a single-node
+Kafka plus k-shui at **http://localhost:8090**, using
+`deploy/compose/k-shui.yaml` (cluster id `compose`, `auth.type: none`). Add
+`--profile full` for Connect, Apicurio, Flink, Prometheus, and Marquez. See
+[`docs/deployment/docker-compose.md`](docs/deployment/docker-compose.md).
+
+### Run from source with uv
+
+```bash
+make build-frontend   # builds the SPA into backend/k_shui/static (needs Node)
+make run              # uv sync + k-shui serve --config deploy/examples/k-shui.local.yaml
+```
+
+`make run` alone starts the API without the built workspace, so run
+`make build-frontend` first for the UI. `make dev` runs the backend and the Vite
+dev server together. To build and run the container by hand:
+
+```bash
+docker build -f deploy/docker/Dockerfile -t k-shui:local .   # or: make docker
+docker run -p 8090:8090 -e KSHUI_BOOTSTRAP_SERVERS=host.docker.internal:9092 k-shui:local
+```
+
+With no config file at all, k-shui starts with a single cluster pointed at
+`localhost:9092` (or `$KSHUI_BOOTSTRAP_SERVERS`).
+
+### Publication pending
+
+The `k-shui` package, image, and chart are not published yet, so the commands
+below do not work today. Registry publication is tracked in
+[#59](https://github.com/thadchas/k-shui/issues/59); they are listed so you know
+what the released paths will look like.
 
 ```bash
 # uv (no local Python install needed)
@@ -130,8 +171,10 @@ docker run -p 8090:8090 -e KSHUI_BOOTSTRAP_SERVERS=host.docker.internal:9092 ghc
 helm install k-shui oci://ghcr.io/thadchas/charts/k-shui
 ```
 
-Then open **http://localhost:8090**. With no config file at all, k-shui starts
-with a single cluster pointed at `localhost:9092` (or `$KSHUI_BOOTSTRAP_SERVERS`).
+Until then, `uvx --from <wheel> k-shui serve` runs a locally built wheel
+([`docs/deployment/standalone-uv.md`](docs/deployment/standalone-uv.md)) and
+`helm upgrade --install k-shui charts/k-shui` installs the in-repo chart
+([`docs/deployment/kubernetes-helm.md`](docs/deployment/kubernetes-helm.md)).
 
 ### Connect your ecosystem
 
@@ -157,7 +200,7 @@ clusters:
 ```
 
 ```bash
-uvx k-shui serve --config k-shui.yaml
+k-shui serve --config k-shui.yaml
 ```
 
 See [`docs/getting-started.md`](docs/getting-started.md) for the full install
@@ -302,16 +345,16 @@ See [architecture](docs/architecture.md) for implementation details and
 
 ## Deployment
 
-| Method                           | Guide                                                                                    |
-| -------------------------------- | ---------------------------------------------------------------------------------------- |
-| uv / uvx                         | [docs/deployment/standalone-uv.md](docs/deployment/standalone-uv.md)                     |
-| npx                              | [docs/deployment/standalone-npx.md](docs/deployment/standalone-npx.md)                   |
-| Docker                           | [docs/deployment/docker.md](docs/deployment/docker.md)                                   |
-| Docker Compose (full demo stack) | [docs/deployment/docker-compose.md](docs/deployment/docker-compose.md)                   |
-| Kubernetes: Helm                 | [docs/deployment/kubernetes-helm.md](docs/deployment/kubernetes-helm.md)                 |
-| Kubernetes: Kustomize            | [docs/deployment/kubernetes-kustomize.md](docs/deployment/kubernetes-kustomize.md)       |
-| Security hardening               | [docs/deployment/security-hardening.md](docs/deployment/security-hardening.md)           |
-| Full configuration reference     | [docs/deployment/configuration-reference.md](docs/deployment/configuration-reference.md) |
+| Method                                        | Guide                                                                                    |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Docker Compose (demo stack, from source)      | [docs/deployment/docker-compose.md](docs/deployment/docker-compose.md)                   |
+| Docker (local build; image pending)           | [docs/deployment/docker.md](docs/deployment/docker.md)                                   |
+| uv / uvx (publication pending)                | [docs/deployment/standalone-uv.md](docs/deployment/standalone-uv.md)                     |
+| npx (publication pending)                     | [docs/deployment/standalone-npx.md](docs/deployment/standalone-npx.md)                   |
+| Kubernetes: Helm (in-repo chart; OCI pending) | [docs/deployment/kubernetes-helm.md](docs/deployment/kubernetes-helm.md)                 |
+| Kubernetes: Kustomize                         | [docs/deployment/kubernetes-kustomize.md](docs/deployment/kubernetes-kustomize.md)       |
+| Security hardening                            | [docs/deployment/security-hardening.md](docs/deployment/security-hardening.md)           |
+| Full configuration reference                  | [docs/deployment/configuration-reference.md](docs/deployment/configuration-reference.md) |
 
 ## How it compares
 

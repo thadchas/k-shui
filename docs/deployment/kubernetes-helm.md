@@ -3,6 +3,13 @@
 The chart deploys the agent-capable k-shui engine, but its default values keep
 k-shui Agent disabled and authentication off for initial connectivity checks.
 
+> **Publication pending.** The OCI chart and the container image it references
+> are not published yet (tracked in
+> [#59](https://github.com/thadchas/k-shui/issues/59)). Install the in-repo chart
+> from a clone as shown in [Install](#install) below, and point
+> `image.repository`/`image.tag` at an image you built and pushed yourself; see
+> [`docker.md`](docker.md#build).
+
 `charts/k-shui/` is a standard Helm v2-apiVersion chart. See
 `charts/k-shui/README.md` for the full values table — this page covers the
 common workflows.

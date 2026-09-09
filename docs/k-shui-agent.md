@@ -21,6 +21,52 @@ The server's `auth.type: none` mode does not grant agent access.
 
 ![k-shui Agent gathers evidence and prepares reviewed operations through the k-shui engine](images/k-shui-agent-architecture.png)
 
+## A first investigation (worked example)
+
+This is an **illustrative example, not a captured session**: the numbers are
+invented, but every label, field and limitation below is what the panel and the
+inspection tools actually produce.
+
+1. **Open the resource.** On a consumer group page, choose **Investigate**. The
+   panel opens with the question box pre-filled with “Why is this consumer group
+   falling behind?”, and the **Investigation context** row shows the cluster, the
+   `consumer_group` resource, `User:` you, the provider/model, the `Inspect`
+   badge, and `Current bounded snapshot`.
+2. **Ask in Inspect mode.** Inspect gathers metadata, metrics and redacted
+   configuration only; message payloads are excluded.
+3. **Read the evidence.** Each card under **Source evidence** is headed
+   **Observed evidence** and carries a `Recent snapshot` or `Historical snapshot`
+   badge (historical once the observation is older than two minutes), a
+   `Retrieval:` status, a link to the resource, the cluster and the tool that
+   produced it (here `get_group_lag` and `get_topic_metadata`), the retrieval
+   timestamp, an **Inspect source data** disclosure for the raw JSON, and a
+   **Missing data / limitations** list.
+4. **Read the answer.** The **K-Shui analysis** reply closes with a short
+   Finding, Observed evidence, Alternative explanations / missing data, and Next
+   steps, and cites each supported claim as an `[Evidence · timestamp]` button
+   that jumps to the exact card. In this example it separates:
+   - **Observation** — net backlog grew across the sampled window on two
+     partitions of the group (`trend.direction: growing`), cited to the lag card.
+   - **Hypothesis** — membership lists fewer members than assigned partitions,
+     consistent with a departed member or an in-progress rebalance; offered as an
+     alternative explanation, not a conclusion.
+   - **Missing information** — the lag card’s own limitations: last 15 minutes
+     only, up to 60 complete samples with an unchanged partition set, and net
+     backlog change establishes neither cause, nor production/consumption rates,
+     nor successful processing; offset resets and retention also move lag.
+   - **Next steps** — open the group’s **Members** and **Lag chart** tabs, check
+     the owning application or connector logs, and consider an offset reset only
+     after stopping the consumers — an Operate-mode change that still requires a
+     preview, a successful dry run, exact per-partition offsets and a typed group
+     name.
+5. **Refresh rather than re-ask.** **Refresh evidence** re-runs the same tool on
+   the same resource under current authority and appends a new observation,
+   leaving earlier findings, timestamps and scope intact.
+
+Treat first use as successful when you have relevant, timestamped evidence and
+an understood next action. Executing an operation is not part of that bar, and
+Inspect mode cannot execute one.
+
 ## Current capability boundaries
 
 | Agent workflow       | Supported scope                                                                                                                                                                                              |
@@ -43,7 +89,7 @@ Configure connections in the deployment's `k-shui.yaml`, supply provider keys th
 agent:
   enabled: true
   allowMutations: false
-  allowedClusters: [production]
+  allowedClusters: [prod]
   maxToolCalls: 8
   maxRunSeconds: 60
   maxInputChars: 24000
@@ -56,14 +102,14 @@ agent:
       provider: openai
       model: ${KSHUI_AGENT_OPENAI_MODEL}
       apiKeyEnv: KSHUI_AGENT_OPENAI_KEY
-      allowedClusters: [production]
+      allowedClusters: [prod]
       inputUsdPerMillion: ${KSHUI_AGENT_INPUT_PRICE}
       outputUsdPerMillion: ${KSHUI_AGENT_OUTPUT_PRICE}
 ```
 
 Set the model and its contracted USD prices per million tokens explicitly. Missing prices prevent paid investigation runs; configured prices determine the local budget estimate and must be maintained by the deployment administrator. The estimate is not the provider invoice. For Anthropic, use `provider: anthropic` with a separate model, key environment variable, and rates. Connections use the providers' official API endpoints; custom base URLs and subscription login tokens are not supported.
 
-`allowedClusters` and `allowedTools` may additionally narrow deployment and connection scope. A connection's inference credential confers no Kafka permissions. Enable `allowMutations` only when operations should be available; K-Shui roles and server/cluster read-only settings still apply.
+Every entry in `agent.allowedClusters` and `agent.connections[].allowedClusters` must equal a configured `clusters[].id` (`prod` in the getting-started example, `compose` for the [Compose demo](deployment/docker-compose.md#enable-k-shui-agent)); an identifier that matches no cluster hides the connection and blocks its connection test and investigations. `allowedClusters` and `allowedTools` may additionally narrow deployment and connection scope. A connection's inference credential confers no Kafka permissions. Enable `allowMutations` only when operations should be available; K-Shui roles and server/cluster read-only settings still apply.
 
 Run the agent in a single application worker/process. Run admission and interrupted-run recovery currently assume a single process; sharing the same investigation database across independently starting workers is not supported. Mutation execution uses a durable database claim to prevent redispatch of the same operation identifier.
 
@@ -116,6 +162,6 @@ Browser tests use mocked APIs and automated backend tests use controlled Kafka/p
 
 Keep the feature disabled by default and begin with an administrator-enabled Inspect pilot. Before enabling production operations, validate every supported operation against an isolated real Kafka cluster and configured providers, including delayed verification, uncertain outcomes, permission changes and cancellation. Successful dispatch and resolution of the original incident are separate outcomes.
 
-Run the product plan’s 5–8-operator study before claiming improved diagnosis: compare time to relevant evidence and task accuracy with existing pages, record usefulness and unsuccessful-investigation reasons through research or opt-in content-free measurement. A 30% improvement remains a hypothesis, not a measured result.
+Run the product plan’s 5–8-operator study before claiming improved diagnosis: compare time to relevant evidence and task accuracy with existing pages, and record setup completion (reaching a tested AI connection from a fresh install), time to first useful investigation (relevant evidence plus an understood next action), usefulness ratings and unsuccessful-investigation reasons. Collect all of these through research sessions or opt-in content-free measurement; no new telemetry implementation is required. A 30% improvement remains a hypothesis, not a measured result.
 
 Deferred follow-ups: disabled-state discoverability, a non-modal desktop panel, compact investigation actions in dense tables, URL synchronization on the expanded page, history rename/delete and cumulative spend, a scoped reason when Operate is unavailable, and progress-delivery efficiency. These should not expand the preview’s supported operation classes.

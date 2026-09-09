@@ -4,6 +4,14 @@ If Node is what you have handy, `npx k-shui` works without a local Python instal
 The npm package (`packages/npm/`) is a thin launcher — it does not reimplement
 k-shui, it runs the real Python CLI for you.
 
+> **Publication pending.** The `k-shui` npm package is not published yet, and
+> neither is the PyPI package it launches (tracked in
+> [#59](https://github.com/thadchas/k-shui/issues/59)), so the `npx k-shui`
+> commands below do not resolve today. Until then, use the source-build paths in
+> [`../getting-started.md`](../getting-started.md#1-run-k-shui), or point the
+> launcher at a local artifact as described in
+> [Installing from somewhere other than PyPI](#installing-from-somewhere-other-than-pypi).
+
 ```bash
 npx k-shui serve --config k-shui.yaml --port 8090
 ```

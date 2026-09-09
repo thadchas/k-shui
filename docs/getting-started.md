@@ -6,64 +6,93 @@ change before the k-shui engine executes and verifies it. The same engine also
 powers the full management UI, enforces roles and read-only policy, and records
 mutations in the audit log.
 
-This walks through installing k-shui, writing a first config, verifying
+This walks through running k-shui, writing a first config, verifying
 connectivity, and enabling that workflow. For the exhaustive config schema, see
 [`deployment/configuration-reference.md`](deployment/configuration-reference.md).
 
-## 1. Install and run
+> **Agent preview.** k-shui Agent is implemented and disabled by default, but it
+> has not shipped in a published package and has not passed production
+> evaluation. Read the
+> [validation limits](roadmap.md#product-priority-investigations-and-reviewed-operations)
+> and the [preview release gates](k-shui-agent.md#preview-release-gates) before
+> you enable it.
 
-Pick whichever fits your environment — all four run the same application.
+## 1. Run k-shui
 
-### uv / uvx (recommended for local use)
+k-shui is built from source today. No package, image, or chart is published yet,
+so start with one of the two source paths below; both serve the same application
+on `:8090`.
+
+### Demo stack with Docker Compose (recommended)
 
 ```bash
-uvx k-shui serve
+git clone https://github.com/thadchas/k-shui.git
+cd k-shui
+docker compose -f deploy/compose/docker-compose.yml up --build
+# or: make compose-up
 ```
 
-No install step; `uvx` caches an ephemeral environment. To install it as a
-persistent tool instead: `uv tool install k-shui`, then run `k-shui serve`.
-See [`deployment/standalone-uv.md`](deployment/standalone-uv.md).
+This builds the image from `deploy/docker/Dockerfile` and starts a single-node
+Kafka plus k-shui at **http://localhost:8090**. It uses the checked-in
+`deploy/compose/k-shui.yaml`, whose cluster id is `compose` and whose
+`auth.type` is `none`. Add `--profile full` for Connect, Apicurio, Flink,
+Prometheus, and Marquez. See
+[`deployment/docker-compose.md`](deployment/docker-compose.md#quick-start-kafka--k-shui-only).
 
-### npx
+### Run from source with uv
 
 ```bash
-npx k-shui serve
+make build-frontend   # builds the SPA into backend/k_shui/static (needs Node)
+make run              # uv sync + k-shui serve --config deploy/examples/k-shui.local.yaml
 ```
 
-The npm package is a launcher, not a reimplementation — it runs the real
-Python CLI via `uv`/`pipx` (installing `uv` on first use if neither is
-present), or via `--docker` to skip Python entirely. See
-[`deployment/standalone-npx.md`](deployment/standalone-npx.md).
-
-### Docker
+`make run` on its own starts the API without a workspace bundle, so build the
+frontend first if you want the UI; `make dev` runs the backend and the Vite dev
+server together. To build and run the container by hand instead:
 
 ```bash
+docker build -f deploy/docker/Dockerfile -t k-shui:local .
+# or: make docker
 docker run -p 8090:8090 \
   -e KSHUI_BOOTSTRAP_SERVERS=host.docker.internal:9092 \
-  ghcr.io/thadchas/k-shui
+  k-shui:local
 ```
 
-See [`deployment/docker.md`](deployment/docker.md) for a config-file mount and
-[`deployment/docker-compose.md`](deployment/docker-compose.md) for a full demo
-stack (Kafka, Connect, Apicurio, Flink, Prometheus, Marquez).
+Later sections write `k-shui <command>`; from a source checkout the equivalent
+is `cd backend && uv run k-shui <command>`. See
+[`deployment/standalone-uv.md`](deployment/standalone-uv.md) for the CLI,
+sub-path serving, and systemd, and [`deployment/docker.md`](deployment/docker.md)
+for the image layout and a config-file mount.
 
-### Kubernetes (Helm)
+### Publication pending
+
+The `k-shui` package, container image, and Helm chart are not published yet, so
+the commands in this subsection do not work today. Registry publication is
+tracked in [#59](https://github.com/thadchas/k-shui/issues/59); they are
+recorded here so you know what the released paths will look like.
 
 ```bash
+uvx k-shui serve                                   # PyPI package, not yet published
+npx k-shui serve                                   # npm launcher, not yet published
+docker run -p 8090:8090 \
+  -e KSHUI_BOOTSTRAP_SERVERS=host.docker.internal:9092 \
+  ghcr.io/thadchas/k-shui                          # image, not yet published
 helm install k-shui oci://ghcr.io/thadchas/charts/k-shui \
   --namespace k-shui --create-namespace \
-  -f my-values.yaml
+  -f my-values.yaml                                # OCI chart, not yet published
 ```
 
-See [`deployment/kubernetes-helm.md`](deployment/kubernetes-helm.md) (or
+Meanwhile, [`deployment/standalone-uv.md`](deployment/standalone-uv.md#running-a-pre-release-or-locally-built-wheel)
+runs a locally built wheel with `uvx --from <wheel>`, and
+[`deployment/kubernetes-helm.md`](deployment/kubernetes-helm.md#install) installs
+the in-repo `charts/k-shui` directory (or
 [`deployment/kubernetes-kustomize.md`](deployment/kubernetes-kustomize.md) for
-plain-manifest fans).
+plain manifests).
 
-All four start a server on `:8090`. Open **http://localhost:8090**.
-
-The quick starts intentionally do not activate k-shui Agent. The agent is
-disabled by default and will not run with `auth.type: none`; enable it only
-after the base connection and authentication are configured.
+Whichever path you take, open **http://localhost:8090**. These starts
+intentionally do not activate k-shui Agent. The agent is disabled by default and
+will not run with `auth.type: none`; enable it only after the base connection and
+authentication are configured.
 
 ## 2. Your first config
 
@@ -76,7 +105,7 @@ For anything real, write a config:
 
 ```bash
 k-shui init                       # writes an annotated k-shui.yaml
-# or: uvx k-shui init / npx k-shui init
+# from source: cd backend && uv run k-shui init
 ```
 
 Edit the generated file, at minimum setting `clusters[].bootstrapServers`:
@@ -157,7 +186,23 @@ integration show a "not reachable" empty state instead (see
 Add authenticated users and an administrator-managed AI connection to the
 server config. Keep the provider key in the server process environment; it is
 never entered in or stored by the browser. This minimal example keeps
-mutations off while you validate investigations:
+mutations off while you validate investigations.
+
+> **Before you enable this, decide about data and cost.** Questions and the
+> operational metadata behind them — cluster metadata, metrics, redacted
+> configuration, and bounded error summaries — are sent to the configured
+> provider (the OpenAI or Anthropic API) and are subject to that provider's
+> retention policies and terms. Provider usage is billed to your account.
+> `maxRunCostUsd` and the per-million prices you configure are a local budget
+> estimate computed from the rates you supply, not an invoice guarantee. Review
+> the full data policy in [`k-shui-agent.md`](k-shui-agent.md#deployment) against
+> your organization's data-sharing rules first.
+
+The example below matches the `prod` cluster from section 2; `agent.allowedClusters`
+and each connection's `allowedClusters` must list the `clusters[].id` values you
+actually configured. For the Compose demo stack that id is `compose` — use the
+Compose-specific fragment in
+[`deployment/docker-compose.md`](deployment/docker-compose.md#enable-k-shui-agent).
 
 ```yaml
 auth:

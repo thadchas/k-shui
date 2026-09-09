@@ -36,11 +36,12 @@ REST endpoints are not automatically tools available to the agent.
 
 ## Deploy and configure
 
-- [Standalone: uv / uvx](deployment/standalone-uv.md)
-- [Standalone: npx](deployment/standalone-npx.md)
-- [Docker](deployment/docker.md)
-- [Docker Compose](deployment/docker-compose.md)
-- [Kubernetes: Helm](deployment/kubernetes-helm.md)
+- [Docker Compose](deployment/docker-compose.md): the demo stack, built from source
+- [Docker](deployment/docker.md): build the image locally; the registry image is
+  [publication pending](https://github.com/thadchas/k-shui/issues/59)
+- [Standalone: uv / uvx](deployment/standalone-uv.md): package publication pending; runs a locally built wheel
+- [Standalone: npx](deployment/standalone-npx.md): package publication pending
+- [Kubernetes: Helm](deployment/kubernetes-helm.md): in-repo chart; OCI chart publication pending
 - [Kubernetes: Kustomize](deployment/kubernetes-kustomize.md)
 - [Agent deployment and single-process requirement](k-shui-agent.md#deployment)
 - [Security hardening](deployment/security-hardening.md)

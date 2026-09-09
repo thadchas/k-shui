@@ -4,6 +4,11 @@ The image contains both k-shui Agent and the k-shui management engine. The
 agent is the intended investigation workflow, but remains disabled until the
 mounted configuration enables authenticated, server-managed AI connections.
 
+> **Publication pending.** No `ghcr.io/thadchas/k-shui` image has been published
+> yet (tracked in [#59](https://github.com/thadchas/k-shui/issues/59)). Build the
+> image locally with [Build](#build) below and run that tag, or use the Compose
+> demo stack in [`docker-compose.md`](docker-compose.md#quick-start-kafka--k-shui-only).
+
 `deploy/docker/Dockerfile` is a 3-stage build:
 
 1. `node:22-alpine` — builds the Vite/React SPA (`frontend/` → `frontend/dist`).
